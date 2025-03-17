@@ -1,0 +1,89 @@
+################################################################################
+# Input file for Monte Carlo simulation MCML - Monte Carlo for Multi-Layers.
+# Anything in a line after "#" is ignored as comments.
+# Space lines are also ignored.
+# Lengths are in cm; and mua and mus are in 1/cm. Time is in ps.
+# Use 8-space tab stops.
+#
+# Data catagories: 
+#	Rd_r	Rd_a	Rd_ra	Rd_t	Rd_rt	Rd_at	Rd_rat
+#	Td_r	Td_a	Td_ra	Td_t	Td_rt	Td_at	Td_rat
+#	A_z	A_rz	A_t	A_zt	A_rzt
+####
+
+# Sample 2
+# Multilayered geometry
+# Compute for time-resolved diffuse reflectance and internal fluence
+#
+
+# file version
+mcmli2.0
+
+#########
+# media #
+#########
+
+# name		  n	    mua	  mus	  g
+  air		    1.00	0	    0	    0.0
+  layer_1	  1.37	1	    100	  0.9
+  layer_2	  1.37	1	    10	  0.0
+  layer_3	  1.37	2	    10	  0.7
+end #of media
+
+#########
+# run 1 #
+#########
+
+# output filename, ASCII/Binary
+sample2.mco	A
+
+# geometry
+# medium	  thickness
+  # top clear medium
+  air
+
+  layer_1	  0.1
+  layer_2	  0.1
+  layer_3	  0.2
+
+  # bottom clear medium
+  air
+end #of layers
+
+##########
+# source #
+##########
+
+# src type: pencil/isotropic
+pencil
+
+# starting z position of source
+0
+
+#########
+# grids #
+#########
+
+# dz, dr, dt
+0.01  0.01  0.1
+
+# nz, nr, nt, na
+40	50	100	1
+
+# scored data categories
+Rd_t A_rz
+
+######################
+# simulation control #
+######################
+
+# no. of photons, time
+1000000	10:00
+
+# threshold weight
+1E-4
+
+# random number seed
+1
+
+end #of all runs
