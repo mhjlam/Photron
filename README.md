@@ -16,7 +16,9 @@ Open the provided Visual Studio solution to build the solution. Required librari
 
 ## Libraries
 
-* [VulkanSDK 1.4.304.1](https://vulkan.lunarg.com)
+* [VulkanSDK](https://vulkan.lunarg.com) (1.4.304.1)
+* [Dear ImGui](https://github.com/ocornut/imgui) (1.91.8)
+* [JSON for Modern C++](https://github.com/nlohmann/json) (3.11.3)
 
 ## Configuration
 
