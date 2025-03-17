@@ -5,7 +5,7 @@ VisualStudioVersion = 17.13.35828.75
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Photron", "Photron\Photron.vcxproj", "{E6F37342-F83B-45D6-A93B-37DD893EEE3A}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MCML_C17", "MCML_C17\MCML_C17.vcxproj", "{980E661C-10F4-4C9B-8E7A-3A9BFDBA09A6}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mcml17", "mcml17\mcml17.vcxproj", "{980E661C-10F4-4C9B-8E7A-3A9BFDBA09A6}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
