@@ -7,6 +7,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Photron", "Photron\Photron.
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mcml17", "mcml17\mcml17.vcxproj", "{980E661C-10F4-4C9B-8E7A-3A9BFDBA09A6}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mcmlpp", "mcmlpp\mcmlpp.vcxproj", "{BDE480C2-8663-498B-8DF3-AF4D672AE0FF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -31,6 +33,14 @@ Global
 		{980E661C-10F4-4C9B-8E7A-3A9BFDBA09A6}.Release|x64.Build.0 = Release|x64
 		{980E661C-10F4-4C9B-8E7A-3A9BFDBA09A6}.Release|x86.ActiveCfg = Release|Win32
 		{980E661C-10F4-4C9B-8E7A-3A9BFDBA09A6}.Release|x86.Build.0 = Release|Win32
+		{BDE480C2-8663-498B-8DF3-AF4D672AE0FF}.Debug|x64.ActiveCfg = Debug|x64
+		{BDE480C2-8663-498B-8DF3-AF4D672AE0FF}.Debug|x64.Build.0 = Debug|x64
+		{BDE480C2-8663-498B-8DF3-AF4D672AE0FF}.Debug|x86.ActiveCfg = Debug|Win32
+		{BDE480C2-8663-498B-8DF3-AF4D672AE0FF}.Debug|x86.Build.0 = Debug|Win32
+		{BDE480C2-8663-498B-8DF3-AF4D672AE0FF}.Release|x64.ActiveCfg = Release|x64
+		{BDE480C2-8663-498B-8DF3-AF4D672AE0FF}.Release|x64.Build.0 = Release|x64
+		{BDE480C2-8663-498B-8DF3-AF4D672AE0FF}.Release|x86.ActiveCfg = Release|Win32
+		{BDE480C2-8663-498B-8DF3-AF4D672AE0FF}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
