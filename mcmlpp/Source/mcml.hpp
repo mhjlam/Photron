@@ -261,23 +261,23 @@ struct Reflectance
     // Diffuse reflectance. [1/(cm2 sr ps)] 
     std::vector<std::vector<std::vector<double>>> rat;
 
-    std::vector<std::vector<double>> ra;    // [1/(cm2 sr)] 
-    std::vector<std::vector<double>> rt;    // [1/sr ps] 
-    std::vector<std::vector<double>> at;    // [1/cm2 ps] 
+    std::vector<std::vector<double>> ra;    // [1/(cm2 sr)]
+    std::vector<std::vector<double>> rt;    // [1/sr ps]
+    std::vector<std::vector<double>> at;    // [1/cm2 ps]
 
     std::vector<double> r;                  // [1/cm2]
-    std::vector<double> a;                  // [1/sr] 
-    std::vector<double> t;                  // [1/ps] 
+    std::vector<double> a;                  // [1/sr]
+    std::vector<double> t;                  // [1/ps]
 
     double d;	                            // Total diffuse reflectance.
-    double de;	                            // Standard error for Rd. 
-    double di;	                            // Rd of the i-th photon. 
-
-    double s;	                            // Specular reflectance.
-    double se;	                            // Standard error for Rb. 
-    double si;	                            // Rb of the i-th photon. 
+    double de;	                            // Standard error for diffuse reflectance.
+    double di;	                            // Diffuse reflectance of the i-th photon.
 
     double b;	                            // Ballistic reflectance.
+    double be;	                            // Standard error for ballistic reflectance.
+    double bi;	                            // Ballistic reflectance of the i-th photon.
+
+    double sp;	                            // Specular reflectance.
 };
 
 struct Transmittance
@@ -334,13 +334,13 @@ struct Absorption
  ****/
 struct Tracer
 {
-    Reflectance R;
     Absorption A;
+    Reflectance R;
     Transmittance T;
 };
 
 /**************************************************************************
- *	Routine prototypes for dynamic memory allocation and release of arrays 
+ *	Routine prototypes for dynamic memory allocation and release of arrays
  *  and matrices.
  ****/
 double RandomGen();

@@ -17,24 +17,24 @@
 using namespace std::chrono;
 
 
-/* Declare before they are used in main(). */
+// Declare before they are used in main().
 void InitOutputData(RunParams&, Tracer&);
-std::string FindDataLine(std::fstream& file);
+std::string FindDataLine(std::fstream&);
+std::string FindDataLine(std::istream&);
 void InterReadParam(RunParams&);
 void LaunchPhoton(double, RunParams&, Tracer&, Photon&);
 void AboutMCML();
-void IOResult(std::fstream& file, RunParams&, Tracer&, char);
-void CheckParamFromFile(std::fstream& file, RunParams&);
-void ReadRunParam(std::fstream& file, RunParams&);
+void IOResult(std::fstream&, RunParams&, Tracer&, char);
+void CheckParamFromFile(std::fstream&, RunParams&);
+void ReadRunParam(std::fstream&, RunParams&);
 void ScaleResult(RunParams&, Tracer&, char);
 double Rspecular(std::vector<Layer>&);
-bool ReadMediumListQ(std::fstream& file, RunParams&);
+bool ReadMediumListQ(std::fstream&, RunParams&);
 void TracePhoton(RunParams&, Photon&, Tracer&);
 bool RunChangedInput(RunParams&);
-std::fstream GetFile(std::string&, const std::string);
-void FreeData(RunParams&, Tracer&);
-bool ReadNumPhotonsQ(std::istream& input, RunParams&, char);
-bool CheckFileVersionQ(std::fstream& file, const std::string);
+bool GetFile(std::string&, const std::string, std::fstream&);
+bool ReadNumPhotonsQ(std::istream&, RunParams&, char);
+bool CheckFileVersionQ(std::fstream&, const std::string);
 
 /**************************************************************************
  *  If F = 0, reset the clock and return 0.
@@ -61,7 +61,7 @@ bool CheckFileVersionQ(std::fstream& file, const std::string);
  ****/
 long long PunchTime(char F, std::string& msg, RunParams& run_params)
 {
-    /* real time reference. */
+    // real time reference.
     static system_clock::time_point rt0;
 
     if (F == 0) {
@@ -72,7 +72,7 @@ long long PunchTime(char F, std::string& msg, RunParams& run_params)
     auto now = system_clock::now();
     duration<double> elapsed = now - rt0;
 
-    /* show & pass real time. */
+    // show & pass real time.
     auto real_time_secs = duration_cast<seconds>(now - rt0);
 
     if (F == 1) {
@@ -219,31 +219,29 @@ void DoOneRun(short NumRunsLeft, RunParams& run_params, Tracer& tracer, char Typ
 {
     int tens = 10;
 
-    /* start a new simulation. */
+    // start a new simulation.
     if (Type == 0) {
         if (run_params.slayer == 0) {
-            tracer.R.s = Rspecular(run_params.layers);
+            tracer.R.sp = Rspecular(run_params.layers);
         }
-        /* initialize the generator. */
-        RandomGen();
     }
     
     std::string msg;
     PunchTime(0, msg, run_params);
     ReportControlInfo(NumRunsLeft, run_params);
 
-    /* photon number traced.  */
+    // photon number traced. 
     long i_photon = 1;
 
-    /* switch to terminate simulation. */
+    // switch to terminate simulation.
     bool exit_switch = 0;
 
     do {
         Photon photon;
-        LaunchPhoton(tracer.R.s, run_params, tracer, photon);
+        LaunchPhoton(tracer.R.sp, run_params, tracer, photon);
         TracePhoton(run_params, photon, tracer);
 
-        /* report status every ten photons. */
+        // report status every ten photons.
         if (i_photon == tens) {
             tens *= 10;
             ReportStatus(i_photon, run_params);
@@ -266,7 +264,6 @@ void DoOneRun(short NumRunsLeft, RunParams& run_params, Tracer& tracer, char Typ
     run_params.control_bit = ControlBit::Both;
 
     ReportResult(run_params, tracer);
-    FreeData(run_params, tracer);
 }
 
 /**************************************************************************
@@ -308,20 +305,20 @@ void NonInterSimu(std::fstream& file, RunParams& run_params, Tracer& tracer)
 void FileInterSimu(RunParams& run_params, Tracer& tracer)
 {
     std::string input_filename;
-    std::fstream input_file_ptr = GetFile(input_filename, "mcmli2.0");
+    std::fstream input_file;
 
-    if (input_file_ptr.is_open()) {
-        if (ReadMediumListQ(input_file_ptr, run_params)) {
-            ReadRunParam(input_file_ptr, run_params);
+    if (GetFile(input_filename, "mcmli2.0", input_file)) {
+        if (ReadMediumListQ(input_file, run_params)) {
+            ReadRunParam(input_file, run_params);
             std::cout << "The parameters of the first run have been read in.\n";
 
             if (RunChangedInput(run_params)) {
                 InitOutputData(run_params, tracer);
                 DoOneRun(0, run_params, tracer, 0);
-                input_file_ptr.close();
+                input_file.close();
                 exit(0);
             }
-            input_file_ptr.close();
+            input_file.close();
         }
     }
 }
@@ -334,12 +331,13 @@ void ContinueSimu(RunParams& run_params, Tracer& tracer)
     std::cout << "Specify the output file name of a previous simulation. \n";
     
     std::string input_filename;
-    std::fstream file = GetFile(input_filename, "mcmloA2.0");
-    if (!file.is_open()) {
+    std::fstream file;
+    
+    if (GetFile(input_filename, "mcmloA2.0", file)) {
         return;
     }
 
-    /* skip the line of file version. */
+    // skip the line of file version.
     FindDataLine(file);
     if (!ReadMediumListQ(file, run_params)) {
         exit(1);
@@ -366,7 +364,7 @@ void QuitProgram(void)
     std::string cmd;
     std::getline(std::cin, cmd);
 
-    /* Really quit. */
+    // Really quit.
     if (toupper(cmd[0]) == 'Y') {
         exit(0);
     }
@@ -396,26 +394,26 @@ void BranchMainMenu(std::string& string, RunParams& run_params, Tracer& tracer)
             break;
         }
 
-        /* non-interactive. */
+        // non-interactive.
         case 'R':
         {
             std::string input_filename;
-            std::fstream input_file_ptr = GetFile(input_filename, "mcmli2.0");
-
-            if (input_file_ptr.is_open()) {
-                NonInterSimu(input_file_ptr, run_params, tracer);
+            std::fstream input_file;
+            
+            if (GetFile(input_filename, "mcmli2.0", input_file)) {
+                NonInterSimu(input_file, run_params, tracer);
             }
             break;
         }
 
-        /* read a file with an interactive change. */
+        // read a file with an interactive change.
         case 'M':
         {
             FileInterSimu(run_params, tracer);
             break;
         }
 
-        /* interactive. */
+        // interactive.
         case 'I':
         {
             InterReadParam(run_params);
@@ -459,7 +457,7 @@ int main(int argc, char* argv[])
 {
     std::cout << "MCML Version 2.0, Copyright (c) 1992-1996\n\n";
 
-    /* non-interactive. */
+    // non-interactive.
     if (argc >= 2) {
         std::string input_filename = (argc >= 2) ? std::string(argv[1]) : std::string();
         std::fstream input_file_ptr(input_filename, std::ios::in);
@@ -473,7 +471,7 @@ int main(int argc, char* argv[])
         }
         exit(0);
     }
-    /* accept commands from console. */
+    // accept commands from console.
     else {
         while (1) {
             std::string str;
