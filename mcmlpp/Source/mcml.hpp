@@ -2,7 +2,7 @@
  *	Copyright Univ. of Texas M.D. Anderson Cancer Center, 1992-1996.
  *	Program name: MCML.
  *	Monte Carlo simulation of light transport in
- *	multi-layered turbid media in ANSI Standard C.
+ *	multi-layered turbid mediums in ANSI Standard C.
  *
  *	This header file is shared by both MCML and CONV.
  ****
@@ -31,9 +31,9 @@
  *	This program was based on:
  *	(1) The Pascal code written by Marleen Keijzer and
  *	Steven L. Jacques in this laboratory in 1989, which
- *	deals with multi-layered turbid media.
+ *	deals with multi-layered turbid mediums.
  *
- *	(2) Algorithm for semi-infinite turbid medium by
+ *	(2) Algorithm for semi-infinite turbid name by
  *	S.A. Prahl, M. Keijzer, S.L. Jacques, A.J. Welch,
  *	SPIE Institute Series Vol. IS 5 (1989), and by
  *	A.N. Witt, The Astrophysical Journal Supplement
@@ -65,16 +65,16 @@
  ****
  *	General Naming Conventions:
  *	Preprocessor names: all capital letters,
- *		e.g. #define PREPROCESSORS
+ *		e.aniso. #define PREPROCESSORS
  *	Globals: first letter of each word is capital, no
  *		underscores,
- *		e.g. short GlobalVar;
+ *		e.aniso. short GlobalVar;
  *	Dummy variables:  first letter of each word is capital,
  *		and words are connected by underscores,
- *		e.g. void NiceFunction(char Dummy_Var);
+ *		e.aniso. void NiceFunction(char Dummy_Var);
  *	Local variables:  all lower cases, words may be connected
  *		by underscores,
- *		e.g. short local_var;
+ *		e.aniso. short local_var;
  *	Function names or data types:  same as Globals.
  ****
  *	Dimension of length: cm.
@@ -82,6 +82,7 @@
  ****/
 
 
+#include <random>
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -93,6 +94,7 @@ constexpr double    C_LIGHT = 0.0299792458;     //  Speed of light in vacuum [cm
 constexpr double    ONE_OVER_C = 33.35640952;   //  1/C [ps/cm]. 
 
 template <typename T> constexpr int sign(T x) { return (x >= 0) ? 1 : -1; }
+
 
 /********************************* Stuctures **********************************/
 
@@ -119,13 +121,13 @@ struct Photon
 {
     double  x, y, z;		//  Cartesian coordinates.[cm] 
     double  ux, uy, uz;	    //  Directional cosines of a photon. 
-    double  w;		        //  min_weight. 
+    double  min_weight;		//  Min weight. 
     bool    alive;		    //  Photon alive/terminated. 
-    short   layer;		    //  Index to layer where photon is.
-    double  s;		        //  Current step size. [cm]. 
-    double  sleft;		    //  step size left. dimensionless [-]. 
-    long    scatters;		//  number of scatterings. 
-    double  time;		    //  flight time [picosec]. 
+    short   current_layer;	//  Index to current_layer where photon is.
+    double  step_size;		//  Current step size. [cm]. 
+    double  step_size_left;	//  Step size left. dimensionless [-]. 
+    long    num_scatters;	//  Number of scatterings. 
+    double  flight_time;	//  Flight time [picosec]. 
 };
 
 /****
@@ -164,8 +166,8 @@ struct Record
 
 /****
  *	Structure used to describe the geometry and optical
- *	properties of a layer.
- *	z0 and z1 are the z coordinates for the upper boundary
+ *	properties of a current_layer.
+ *	top_z and bot_z are the z coordinates for the upper boundary
  *	and lower boundary respectively.
  *
  *	cos_crit0 and cos_crit1 are the cosines of the
@@ -177,35 +179,29 @@ struct Record
  ****/
 struct Layer
 {
-    std::string medium;     // Name of the medium. 
-    double z0, z1;		    // z coordinates of a layer. [cm] 
-    double n;		        // refractive index of a layer. 
-    double mua;		        // absorption coefficient. [1/cm] 
-    double mus;		        // scattering coefficient. [1/cm] 
-    double g;		        // anisotropy. 
-
-    double cos_crit0;
-    double cos_crit1;
+    std::string name    = "";  // Name of the current_layer
+    double top_z        = 0.0;  // Top z coordinate  [cm] 
+    double bot_z        = 0.0;  // Bottom z coordinate [cm]
+    double eta          = 0.0;	// Refractive index of a current_layer
+    double mua          = 0.0;	// Absorption coefficient. [1/cm] 
+    double mus          = 0.0;	// Scattering coefficient. [1/cm] 
+    double aniso        = 0.0;	// Anisotropy
+    double cos_crit0    = 0.0;
+    double cos_crit1    = 0.0;
 };
 
 /****
  *	Input parameters for each independent run.
  *
  *	z and r are for the cylindrical coordinate system. [cm]
- *	a is for the angle alpha between the photon exiting
- *	direction and the surface normal. [radian]
+ *	a is for the angle alpha between the photon exiting direction and the surface normal. [radian]
  *
- *	The grid line separations in z, r, and alpha
- *	directions are dz, dr, and da respectively.  The numbers
- *	of grid lines in z, r, and alpha directions are
- *	nz, nr, and na respectively.
+ *	The grid line separations in z, r, and alpha directions are grid_z, grid_r, and grid_alpha respectively. 
+ *  The numbers of grid lines in z, r, and alpha directions are num_z, num_r, and num_alpha respectively.
  *
- *	The member layer will point to an array of
- *	structures which store parameters of each layer.
- *	This array has (number_layers + 2) elements. One
- *	element is for a layer.
- *	The layers 0 and (num_layers + 1) are for top ambient
- *	medium and the bottom ambient medium respectively.
+ *	The member layers will point to an array of structures which store parameters of each layer.
+ *	This array has (number_layers + 2) elements. One element is for a layer.
+ *	The layers 0 and (num_layers + 1) are for top ambient name and the bottom ambient name respectively.
  *
  * 	Output-file format:
  *  Use 'A' for ASCII, and 'B' for binary.
@@ -229,30 +225,29 @@ struct RunParams
 
     BeamType            source;	            // Beam type. 
     double              source_z;		    // Z coordinate of source. 
-    short               slayer;		        // Put source in slayer. 
-    std::string         medium_name;        // Medium name of slayer. 
-    long                random_seed;		// Random number seed. 
+    short               source_layer;		// Put source in source_layer. 
+    std::string         source_medium_name; // Medium name of source_layer. 
 
-    double              dz;		            // Z grid separation.[cm] 
-    double              dr;		            // R grid separation.[cm] 
-    double              da;		            // Alpha grid separation. [radian] 
-    double              dt;		            // Time grid separation.[ps] 
+    double              grid_z;		        // Z grid separation.[cm] 
+    double              grid_r;		        // R grid separation.[cm] 
+    double              grid_alpha;		    // Alpha grid separation. [rad] 
+    double              grid_time;		    // Time grid separation.[ps] 
 
-    short               nz;		            // Array range 0..nz-1. 
-    short               nr;		            // Array range 0..nr-1. 
-    short               na;		            // Array range 0..na-1. 
-    short               nt;		            // Array range 0..nt-1. 
+    short               num_z;		        // Array range 0..num_z-1. 
+    short               num_r;		        // Array range 0..num_r-1. 
+    short               num_alpha;		    // Array range 0..num_alpha-1. 
+    short               num_time;		    // Array range 0..num_time-1. 
 
-    double              zm;		            // Maximun z [cm] 
-    double              rm;		            // Maximum r [cm] 
-    double              am;		            // Maximum alpha [radians]
-    double              tm;		            // Maximum time [ps] 
+    double              max_z;		        // Maximum z [cm] 
+    double              max_r;		        // Maximum r [cm] 
+    double              max_alpha;		    // Maximum alpha [rad]
+    double              max_time;		    // Maximum time [ps] 
 
     std::vector<Layer>  layers;             // Layer parameters
-    std::vector<Layer>  media;              // Media parameters
-    Record              record;		        // Scored quantity
+    std::vector<Layer>  mediums;            // Medium parameters
+    Record              record;		        // Recorded quantities
 
-    short               num_runs;		    // Number of runs 
+    short               num_runs;		    // Number of runs
 };
 
 
@@ -339,8 +334,11 @@ struct Tracer
     Transmittance T;
 };
 
-/**************************************************************************
- *	Routine prototypes for dynamic memory allocation and release of arrays
- *  and matrices.
- ****/
-double RandomGen();
+
+extern std::mt19937 RandomEngine;
+extern std::uniform_real_distribution<double> Distribution;
+
+static double RandomNumber()
+{
+    return Distribution(RandomEngine);
+}

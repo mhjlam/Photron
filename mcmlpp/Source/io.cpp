@@ -8,6 +8,8 @@
 #include "mcml.hpp"
 
 #include <format>
+#include <ranges>
+#include <random>
 #include <string>
 #include <fstream>
 #include <sstream>
@@ -58,10 +60,10 @@ void AboutMCML(void)
 
     puts(" ");
     puts("Please cite the following article in your publications:");
-    std::cout << "\tL.-H. Wang, S. L. Jacques, and L.-Q. Zheng, MCML - Monte \n";
-    std::cout << "\tCarlo modeling of photon transport in multi-layered\n";
-    std::cout << "\ttissues, Computer Methods and Programs in Biomedicine, 47,\n";
-    std::cout << "\t131-146 (1995)\n";
+    std::cout << "\tL.-H. Wang, S. L. Jacques, and L.-Q. Zheng, MCML - Monte " << std::endl;
+    std::cout << "\tCarlo modeling of photon transport in multi-layered" << std::endl;
+    std::cout << "\ttissues, Computer Methods and Programs in Biomedicine, 47," << std::endl;
+    std::cout << "\t131-146 (1995)" << std::endl;
 }
 
 /**************************************************************************
@@ -93,7 +95,7 @@ bool CheckCharQ(std::string& Str)
 
     while (i < sl) {
         if (Str[i] < 0 || Str[i] > 255) {
-            std::cout << "Non-ASCII file\n";
+            std::cout << "Non-ASCII file" << std::endl;
             return false;
         }
         else if (isprint(Str[i]) || isspace(Str[i])) {
@@ -114,16 +116,10 @@ bool CheckCharQ(std::string& Str)
  *	first non-space character is "#", or a space line.
  *	Return 0 otherwise.
  ****/
-bool CommentLineQ(std::string buf)
+bool CommentLineQ(std::string& buf)
 {
-    // length spanned by space or tab chars.
-    size_t spn = buf.find_first_not_of('\t');
-
-    // length before the 1st # or return.
-    size_t cspn = buf.find_first_not_of("#\n");
-
-    // comment line or space line.
-    return spn == cspn;
+    auto it = std::ranges::find_if(buf, [](char c) { return !std::isspace(c); });
+    return (it == buf.end() || *it == '#');
 }
 
 /**************************************************************************
@@ -131,24 +127,29 @@ bool CommentLineQ(std::string buf)
  ****/
 std::string FindDataLine(std::fstream& file)
 {
-    static std::string buf;
+    std::string line;
+    while (std::getline(file, line)) {
+        // Find first non-whitespace character
+        auto it = std::ranges::find_if(line, [](char c) { 
+            return !std::isspace(c);
+        });
 
-    // skip space or comment lines.
-    do {
-        std::string line;
-        std::getline(file, line);
-
-        if (line.empty()) {
-            std::cout << "Incomplete data." << std::endl;
-            buf[0] = '\0';
-            break;
+        // Skip whitespace-only lines
+        if (it == line.end()) {
+            continue;
         }
-        else {
-            CheckCharQ(buf);
-        }
-    } while (CommentLineQ(buf));
 
-    return buf;
+        // Skip comment lines
+        if (*it == '#') {
+            continue;
+        }
+
+        // Return data line
+        return line;
+    }
+
+    // No datalines found
+    return {};
 }
 /**************************************************************************
  *	Skip space or comment lines and return a data line.
@@ -178,20 +179,18 @@ std::string FindDataLine(std::istream& stream)
 /**************************************************************************
  *	Check whether the input version is the same as version.
  ****/
-bool CheckFileVersionQ(std::fstream& file, const std::string Version)
+bool CheckFileVersionQ(std::fstream& file, const std::string version)
 {
-    // line buffer.
+    // Skip comment lines.
     std::string line;
-
-    // skip comment line.
     do {
         std::getline(file, line);
         if (line.empty()) {
-            break;
+            continue;
         }
     } while (CommentLineQ(line));
 
-    if (line.empty() || line.find(Version) == std::string::npos) {
+    if (line.empty() || line.find(version) == std::string::npos) {
         std::cout << "Wrong file version.";
         return false;
     }
@@ -203,30 +202,30 @@ bool CheckFileVersionQ(std::fstream& file, const std::string Version)
  *  opened with a correct version or a '.' is typed.
  *	Return a NULL pointer if '.' is typed.
  ****/
-bool GetFile(std::string& Fname, const std::string Version, std::fstream& file)
+bool GetFile(std::string& fname, const std::string version, std::fstream& file)
 {
     while (1) {
         // prompt.
         std::cout << "Specify filename (or . to quit to main menu):";
 
         // Read input buffer
-        std::getline(std::cin, Fname);
+        std::getline(std::cin, fname);
 
-        if (!Fname.empty()) {
+        if (!fname.empty()) {
             // terminate with a period.
-            if (Fname.size() == 1 && Fname[0] == '.') {
+            if (fname.size() == 1 && fname[0] == '.') {
                 // return if '.' entered.
                 return false;
             }
 
             // open the input & check the version.
-            file = std::fstream(Fname, std::ios::in);
+            file = std::fstream(fname, std::ios::in);
             if (!file.is_open()) {
                 // cannot open the input.
                 std::cout << "File does not exist.";
             }
             else {
-                if (CheckFileVersionQ(file, Version)) {
+                if (CheckFileVersionQ(file, version)) {
                     return true;
                 }
                 else {
@@ -239,19 +238,18 @@ bool GetFile(std::string& Fname, const std::string Version, std::fstream& file)
 }
 
 /*******************************************************************************
- *  Find number of media in the list. At the same time, check the
- *  optical parameters.
+ *  Find number of mediums in the list. 
+ *  At the same time, check the optical parameters.
  ****/
 int FindNumMediaQ(std::fstream& file)
 {
-    std::string name;
     short num_media = 0;
 
     while (1) {
         std::string buf = FindDataLine(file);
 
-        if (buf[0] == '\0') {
-            std::cout << "Missing end.\n";
+        if (buf.empty()) {
+            std::cout << "Missing end." << std::endl;
             return 0;
         }
         else if (buf.find("end") != std::string::npos) {
@@ -260,11 +258,19 @@ int FindNumMediaQ(std::fstream& file)
         else {
             num_media++;
 
+            std::string name;
             double n, mua, mus, g;
-            sscanf_s(buf.c_str(), "%s%lf%lf%lf%lf", name, &n, &mua, &mus, &g);
-            if (n <= 0 || mua < 0 || mus < 0 || g < -1 || g > 1) {
-                printf("Bad optical parameters in %s\n", name);
-                return 0;
+            std::istringstream iss(buf);
+
+            if (iss >> name >> n >> mua >> mus >> g) {
+                if (n <= 0 || mua < 0 || mus < 0 || g < -1 || g > 1) {
+                    std::cout << "Bad optical parameters in " << name << std::endl;
+                    return 0;
+                }
+            }
+            else {
+                std::cout << "Reading number of mediums." << std::endl;
+                return num_media;
             }
         }
     }
@@ -273,42 +279,47 @@ int FindNumMediaQ(std::fstream& file)
 }
 
 /*******************************************************************************
- *  Read the parameters of one medium, assumming the
+ *  Read the parameters of one name, assumming the
  *  parameters have been checked with FindNumMediaQ().
  ****/
-bool ReadOneMediumQ(std::fstream& file, std::vector<Layer> media)
+bool ReadOneMediumQ(std::fstream& file, std::vector<Layer>& media)
 {
+    Layer medium;
     std::string buf = FindDataLine(file);
-    if (buf[0] == '\0') {
-        std::cout << "Shouldn't happen here!";
+    std::istringstream iss(buf);
+    
+    std::string name;
+    double n, mua, mus, g;
+
+    if (iss >> name >> n >> mua >> mus >> g) {
+        media.push_back(Layer { .name = name, .eta = n, .mua = mua, .mus = mus, .aniso = g });
+    }
+    else {
+        std::cout << "Reading medium parameters." << std::endl;
         return false;
     }
 
-    Layer medium;
-    sscanf_s(buf.c_str(), "%s%lf%lf%lf%lf", medium.medium, medium.n, medium.mua, medium.mus, medium.g);
-    media.push_back(medium);
-
-    return 1;
+    return true;
 }
 
 /*******************************************************************************
- *  Read the media list.
+ *  Read the mediums list.
  ****/
-bool ReadMediumListQ(std::fstream& file, RunParams& run_params)
+bool ReadMediumListQ(std::fstream& file, RunParams& params)
 {
     // Get current output position
     std::streampos file_pos = file.tellg();
 
     int num_media = FindNumMediaQ(file);
     if (num_media < 1) {
-        return 0;
+        return false;
     }
 
     // Seek to previous output position 
     file.seekg(file_pos, std::ios::beg);
 
     for (short i = 0; i < num_media; i++) {
-        ReadOneMediumQ(file, run_params.media);
+        ReadOneMediumQ(file, params.mediums);
     }
 
     // skip the signal end.
@@ -322,136 +333,133 @@ bool ReadMediumListQ(std::fstream& file, RunParams& run_params)
  *
  *	The input format can be either A for ASCII or B for binary.
  ****/
-bool ReadFnameFormatQ(std::fstream& file, RunParams& run_params)
+bool ReadFnameFormatQ(std::fstream& file, RunParams& params)
 {
     std::string buf = FindDataLine(file);
+    std::istringstream iss(buf);
 
-    if (sscanf_s(buf.c_str(), "%s %c", run_params.output_filename, &run_params.output_file_format, 1) != 2) {
-        std::cout << "Reading file name and format.\n";
+    char output_file_format;
+    if (iss >> params.output_filename >> output_file_format) {
+        if (output_file_format == 'A') {
+            params.output_file_format = FileFormat::ASCII;
+        }
+        else if (output_file_format == 'B') {
+            params.output_file_format = FileFormat::Binary;
+        }
+    }
+    else {
+        std::cout << "Reading file name and format." << std::endl;
         return false;
     }
-    // if (toupper(run_params.output_file_format) != 'B')
 
-    // now only support 'A' format.
-    run_params.output_file_format = FileFormat::ASCII;
+    // Only support 'A' format.
+    params.output_file_format = FileFormat::ASCII;
 
     return true;
 }
 
 /**************************************************************************
- *	Read the RunParams members dz, dr and dt.
+ *	Read the RunParams members grid_z, grid_r and grid_time.
  ****/
-bool ReadDzDrDtQ(std::istream& input, RunParams& run_params)
+bool ReadDzDrDtQ(std::istream& input, RunParams& params)
 {
     std::string buf = FindDataLine(input);
+    std::istringstream iss(buf);
 
-    if (sscanf_s(buf.c_str(), "%lf%lf%lf", &run_params.dz, &run_params.dr, &run_params.dt) != 3) {
-        std::cout << "Reading dz, dr, dt. \n";
+    if (iss >> params.grid_z >> params.grid_r >> params.grid_time) {
+        if (params.grid_z <= 0) {
+            std::cout << "Nonpositive dz." << std::endl;
+            return false;
+        }
+        if (params.grid_r <= 0) {
+            std::cout << "Nonpositive dr." << std::endl;
+            return false;
+        }
+        if (params.grid_time <= 0) {
+            std::cout << "Nonpositve dt. " << std::endl;
+            return false;
+        }
+    }
+    else {
+        std::cout << "Reading dz, dr, dt. " << std::endl;
         return false;
     }
-    if (run_params.dz <= 0) {
-        std::cout << "Nonpositive dz.\n";
-        return false;
-    }
-    if (run_params.dr <= 0) {
-        std::cout << "Nonpositive dr.\n";
-        return false;
-    }
-    if (run_params.dt <= 0) {
-        std::cout << "Nonpositve dt. \n";
-        return false;
-    }
+
     return true;
 }
 
 /**************************************************************************
- *	Read the RunParams members nz, nr, nt, na.
+ *	Read the RunParams members num_z, num_r, num_time, num_alpha.
  ****/
-bool ReadNzNrNtNaQ(std::istream& input, RunParams& run_params)
+bool ReadNzNrNtNaQ(std::istream& input, RunParams& params)
 {
     std::string buf = FindDataLine(input);
+    std::istringstream iss(buf);
 
-    float fz, fr, fa, ft;
+    if (iss >> params.num_z >> params.num_r >> params.num_time >> params.num_alpha) {
+        if (params.num_z <= 0) {
+            std::cout << "Nonpositive number of dz's." << std::endl;
+            return false;
+        }
+        if (params.num_r <= 0) {
+            std::cout << "Nonpositive number of dr's." << std::endl;
+            return false;
+        }
+        if (params.num_time <= 0) {
+            std::cout << "Nonpositive number of dt's." << std::endl;
+            return false;
+        }
+        if (params.num_alpha <= 0) {
+            std::cout << "Nonpositive number of da's." << std::endl;
+            return false;
+        }
 
-    /** read in number of dz, dr, da, dt. **/
-    if (sscanf_s(buf.c_str(), "%f%f%f%f", &fz, &fr, &ft, &fa) != 4) {
-        std::cout << "Reading number of dz, dr, dt, da's.\n";
+        params.grid_alpha = 0.5 * PI / params.num_alpha;
+    }
+    else {
+        std::cout << "Reading number of dz, dr, dt, da's." << std::endl;
         return false;
     }
-    if (fz <= 0) {
-        std::cout << "Nonpositive number of dz's.\n";
-        return false;
-    }
-    if (fr <= 0) {
-        std::cout << "Nonpositive number of dr's.\n";
-        return false;
-    }
-    if (fa <= 0) {
-        std::cout << "Nonpositive number of da's.\n";
-        return false;
-    }
-    if (ft <= 0) {
-        std::cout << "Nonpositive number of dt's.\n";
-        return false;
-    }
-
-    run_params.nz = (short)fz;
-    run_params.nr = (short)fr;
-    run_params.nt = (short)ft;
-    run_params.na = (short)fa;
-    run_params.da = 0.5 * PI / run_params.na;
 
     return true;
 }
 
 /**************************************************************************
- *   Initialize the RecordStru.
+ *   Initialize the Record struct.
  ****/
-void InitRecord(RunParams& run_params)
+void InitRecord(RunParams& params)
 {
-    run_params.record.Rd_r = 0;
-    run_params.record.Rd_a = 0;
-    run_params.record.Rd_ra = 0;
-    run_params.record.Rd_t = 0;
-    run_params.record.Rd_rt = 0;
-    run_params.record.Rd_at = 0;
-    run_params.record.Rd_rat = 0;
-    run_params.record.Td_r = 0;
-    run_params.record.Td_a = 0;
-    run_params.record.Td_ra = 0;
-    run_params.record.Td_t = 0;
-    run_params.record.Td_rt = 0;
-    run_params.record.Td_at = 0;
-    run_params.record.Td_rat = 0;
-    run_params.record.A_z = 0;
-    run_params.record.A_rz = 0;
-    run_params.record.A_t = 0;
-    run_params.record.A_zt = 0;
-    run_params.record.A_rzt = 0;
-}
-
-/**************************************************************************
- *	Change all characters in a string to upper case.
- ****/
-char* ToUpperString(char* string)
-{
-    for (int i = 0; i < (int)strlen(string); i++) {
-        string[i] = toupper(string[i]);
-    }
-
-    return string;
+    params.record.Rd_r = 0;
+    params.record.Rd_a = 0;
+    params.record.Rd_ra = 0;
+    params.record.Rd_t = 0;
+    params.record.Rd_rt = 0;
+    params.record.Rd_at = 0;
+    params.record.Rd_rat = 0;
+    params.record.Td_r = 0;
+    params.record.Td_a = 0;
+    params.record.Td_ra = 0;
+    params.record.Td_t = 0;
+    params.record.Td_rt = 0;
+    params.record.Td_at = 0;
+    params.record.Td_rat = 0;
+    params.record.A_z = 0;
+    params.record.A_rz = 0;
+    params.record.A_t = 0;
+    params.record.A_zt = 0;
+    params.record.A_rzt = 0;
 }
 
 /**************************************************************************
  *  Read which quantity is to be scored.
  ****/
-bool ReadRecordQ(std::istream& input, RunParams& run_params)
+bool ReadRecordQ(std::istream& input, RunParams& params)
 {
-    auto to_upper = [](std::string& str) {
-        std::transform(str.begin(), str.end(), str.begin(), [](unsigned char c) {
+    auto to_upper = [](std::string& string) {
+        std::transform(string.begin(), string.end(), string.begin(), [](unsigned char c) {
             return std::toupper(c);
         });
-        return str;
+        return string;
     };
 
     std::string string;
@@ -459,7 +467,7 @@ bool ReadRecordQ(std::istream& input, RunParams& run_params)
 
     std::string buf = FindDataLine(input);
     if (buf.empty()) {
-        std::cout << "Read scored quantities.\n";
+        std::cout << "Read scored quantities." << std::endl;
         error = true;
     }
 
@@ -488,64 +496,64 @@ bool ReadRecordQ(std::istream& input, RunParams& run_params)
         auto string_upper = to_upper(string);
 
         if (string_upper == "RD_R"sv) {
-            run_params.record.Rd_r = 1;
+            params.record.Rd_r = 1;
         }
         else if (string_upper == "RD_A"sv) {
-            run_params.record.Rd_a = 1;
+            params.record.Rd_a = 1;
         }
         else if (string_upper == "RD_RA"sv) {
-            run_params.record.Rd_ra = 1;
+            params.record.Rd_ra = 1;
         }
         else if (string_upper == "RD_T"sv) {
-            run_params.record.Rd_t = 1;
+            params.record.Rd_t = 1;
         }
         else if (string_upper == "RD_RT"sv) {
-            run_params.record.Rd_rt = 1;
+            params.record.Rd_rt = 1;
         }
         else if (string_upper == "RD_AT"sv) {
-            run_params.record.Rd_at = 1;
+            params.record.Rd_at = 1;
         }
         else if (string_upper == "RD_RAT"sv) {
-            run_params.record.Rd_rat = 1;
+            params.record.Rd_rat = 1;
         }
         else if (string_upper == "TD_R"sv) {
-            run_params.record.Td_r = 1;
+            params.record.Td_r = 1;
         }
         else if (string_upper == "TD_A"sv) {
-            run_params.record.Td_a = 1;
+            params.record.Td_a = 1;
         }
         else if (string_upper == "TD_RA"sv) {
-            run_params.record.Td_ra = 1;
+            params.record.Td_ra = 1;
         }
         else if (string_upper == "TD_T"sv) {
-            run_params.record.Td_t = 1;
+            params.record.Td_t = 1;
         }
         else if (string_upper == "TD_RT"sv) {
-            run_params.record.Td_rt = 1;
+            params.record.Td_rt = 1;
         }
         else if (string_upper == "TD_AT"sv) {
-            run_params.record.Td_at = 1;
+            params.record.Td_at = 1;
         }
         else if (string_upper == "TD_RAT"sv) {
-            run_params.record.Td_rat = 1;
+            params.record.Td_rat = 1;
         }
         else if (string_upper == "A_Z"sv) {
-            run_params.record.A_z = 1;
+            params.record.A_z = 1;
         }
         else if (string_upper == "A_RZ"sv) {
-            run_params.record.A_rz = 1;
+            params.record.A_rz = 1;
         }
         else if (string_upper == "A_T"sv) {
-            run_params.record.A_t = 1;
+            params.record.A_t = 1;
         }
         else if (string_upper == "A_ZT"sv) {
-            run_params.record.A_zt = 1;
+            params.record.A_zt = 1;
         }
         else if (string_upper == "A_RZT"sv) {
-            run_params.record.A_rzt = 1;
+            params.record.A_rzt = 1;
         }
         else {
-            printf("Unknown quantity: %s\n", string);
+            std::cout << "Unknown quantity: " << string << std::endl;
             error = true;
         }
     }
@@ -556,70 +564,70 @@ bool ReadRecordQ(std::istream& input, RunParams& run_params)
 /**************************************************************************
 *   Filter the Record struct.
 ****/
-bool FilterRecordQ(std::istream& input, RunParams& run_params)
+bool FilterRecordQ(std::istream& input, RunParams& params)
 {
-    InitRecord(run_params);
+    InitRecord(params);
 
-    if (!ReadRecordQ(input, run_params)) {
+    if (!ReadRecordQ(input, params)) {
         return false;
     }
 
-    if (run_params.record.Rd_rat) {
-        run_params.record.Rd_ra = 0;
-        run_params.record.Rd_rt = 0;
-        run_params.record.Rd_at = 0;
-        run_params.record.Rd_r = 0;
-        run_params.record.Rd_a = 0;
-        run_params.record.Rd_t = 0;
+    if (params.record.Rd_rat) {
+        params.record.Rd_ra = 0;
+        params.record.Rd_rt = 0;
+        params.record.Rd_at = 0;
+        params.record.Rd_r = 0;
+        params.record.Rd_a = 0;
+        params.record.Rd_t = 0;
     }
-    if (run_params.record.Rd_ra) {
-        run_params.record.Rd_r = 0;
-        run_params.record.Rd_a = 0;
+    if (params.record.Rd_ra) {
+        params.record.Rd_r = 0;
+        params.record.Rd_a = 0;
     }
-    if (run_params.record.Rd_rt) {
-        run_params.record.Rd_r = 0;
-        run_params.record.Rd_t = 0;
+    if (params.record.Rd_rt) {
+        params.record.Rd_r = 0;
+        params.record.Rd_t = 0;
     }
-    if (run_params.record.Rd_at) {
-        run_params.record.Rd_a = 0;
-        run_params.record.Rd_t = 0;
+    if (params.record.Rd_at) {
+        params.record.Rd_a = 0;
+        params.record.Rd_t = 0;
     }
-    if (run_params.record.Td_rat) {
-        run_params.record.Td_ra = 0;
-        run_params.record.Td_rt = 0;
-        run_params.record.Td_at = 0;
-        run_params.record.Td_r = 0;
-        run_params.record.Td_a = 0;
-        run_params.record.Td_t = 0;
+    if (params.record.Td_rat) {
+        params.record.Td_ra = 0;
+        params.record.Td_rt = 0;
+        params.record.Td_at = 0;
+        params.record.Td_r = 0;
+        params.record.Td_a = 0;
+        params.record.Td_t = 0;
     }
-    if (run_params.record.Td_ra) {
-        run_params.record.Td_r = 0;
-        run_params.record.Td_a = 0;
+    if (params.record.Td_ra) {
+        params.record.Td_r = 0;
+        params.record.Td_a = 0;
     }
-    if (run_params.record.Td_rt) {
-        run_params.record.Td_r = 0;
-        run_params.record.Td_t = 0;
+    if (params.record.Td_rt) {
+        params.record.Td_r = 0;
+        params.record.Td_t = 0;
     }
-    if (run_params.record.Td_at) {
-        run_params.record.Td_a = 0;
-        run_params.record.Td_t = 0;
+    if (params.record.Td_at) {
+        params.record.Td_a = 0;
+        params.record.Td_t = 0;
     }
-    if (run_params.record.A_rzt) {
-        run_params.record.A_rz = 0;
-        run_params.record.A_zt = 0;
-        run_params.record.A_z = 0;
-        run_params.record.A_t = 0;
+    if (params.record.A_rzt) {
+        params.record.A_rz = 0;
+        params.record.A_zt = 0;
+        params.record.A_z = 0;
+        params.record.A_t = 0;
     }
-    if (run_params.record.A_rz) {
-        run_params.record.A_z = 0;
+    if (params.record.A_rz) {
+        params.record.A_z = 0;
     }
-    if (run_params.record.A_zt) {
-        run_params.record.A_z = 0;
-        run_params.record.A_t = 0;
+    if (params.record.A_zt) {
+        params.record.A_z = 0;
+        params.record.A_t = 0;
     }
-    if (run_params.record.A_zt) {
-        run_params.record.A_z = 0;
-        run_params.record.A_t = 0;
+    if (params.record.A_zt) {
+        params.record.A_z = 0;
+        params.record.A_t = 0;
     }
     return true;
 }
@@ -627,34 +635,19 @@ bool FilterRecordQ(std::istream& input, RunParams& run_params)
 /**************************************************************************
  *  Read the threshold min_weight.
  ****/
-bool ReadWthQ(std::fstream& file, RunParams& run_params)
+bool ReadWthQ(std::fstream& file, RunParams& params)
 {
     std::string buf = FindDataLine(file);
+    std::istringstream iss(buf);
 
-    if (sscanf_s(buf.c_str(), "%lf", &(run_params.min_weight)) != 1) {
-        std::cout << "Reading threshold weight.\n";
-        return false;
+    if (iss >> params.min_weight) {
+        if (params.min_weight < 0 || params.min_weight >= 1.0) {
+            std::cout << "Threshold weight out of range (0-1)." << std::endl;
+            return false;
+        }
     }
-    if (run_params.min_weight < 0 || run_params.min_weight >= 1.0) {
-        std::cout << "Threshold weight out of range (0-1).\n";
-        return false;
-    }
-    return true;
-}
-
-/**************************************************************************
- *  Read the random number seed.
- ****/
-bool ReadRanSeedQ(std::fstream& file, RunParams& run_params)
-{
-    std::string buf = FindDataLine(file);
-
-    if (sscanf_s(buf.c_str(), "%ld", &(run_params.random_seed)) != 1) {
-        std::cout << "Reading random number seed.\n";
-        return false;
-    }
-    if (run_params.random_seed < 0) {
-        std::cout << "Nonpositive random number seed.\n";
+    else {
+        std::cout << "Reading threshold weight." << std::endl;
         return false;
     }
     return true;
@@ -665,24 +658,22 @@ bool ReadRanSeedQ(std::fstream& file, RunParams& run_params)
  ****/
 int FindNumLayersQ(std::fstream& file)
 {
-    std::string buf;
-    std::string name;
-
     short num_layers = 0;
-    double thick;
 
     while (1) {
         std::string buf = FindDataLine(file);
 
-        if (buf[0] == '\0') {
-            std::cout << "Missing end.\n";
+        if (buf.empty()) {
+            std::cout << "Missing end." << std::endl;
             return 0;
         }
         else if (buf.find("end") != std::string::npos) {
             break;
         }
         else {
-            if ((sscanf_s(buf.c_str(), "%s %lf", name, &thick) == 2) || (sscanf_s(buf.c_str(), "%s", name) == 1)) {
+            std::string name;
+            std::istringstream iss(buf);
+            if (iss >> name) {
                 num_layers++;
             }
         }
@@ -692,13 +683,13 @@ int FindNumLayersQ(std::fstream& file)
 }
 
 /**************************************************************************
- *  Check whether the medium name is in the media list.
+ *  Check whether the name name is in the mediums list.
  ****/
-bool ValidMediumNameQ(std::string& NameP, int& Index, RunParams& run_params)
+bool ValidMediumNameQ(std::string& name, int& index, RunParams& params)
 {
-    for (short i = 0; i < run_params.media.size(); i++) {
-        if (NameP == run_params.media[i].medium) {
-            Index = i;
+    for (short i = 0; i < params.mediums.size(); i++) {
+        if (name == params.mediums[i].name) {
+            index = i;
             return true;
         }
     }
@@ -708,12 +699,12 @@ bool ValidMediumNameQ(std::string& NameP, int& Index, RunParams& run_params)
 /**************************************************************************
  *	Read the parameters of all layers.
  ****/
-bool ReadLayerSpecsQ(std::fstream& file, RunParams& run_params)
+bool ReadLayerSpecsQ(std::fstream& file, RunParams& params)
 {
     std::string name;
     short i = 0;
 
-    // z coordinate of the current layer.
+    // z coordinate of the current current_layer.
     double z = 0.0;
     double thick = 0.0;
 
@@ -729,54 +720,58 @@ bool ReadLayerSpecsQ(std::fstream& file, RunParams& run_params)
     file.seekg(file_pos, std::ios::beg);
 
 
-    // Allocate an array for the layer parameters.
-    // layer 0 and layer Num_Layers + 1 are for ambient.
-    run_params.layers.resize(num_layers + 2);
+    // Allocate an array for the current_layer parameters.
+    // current_layer 0 and current_layer Num_Layers + 1 are for ambient.
+    params.layers.resize(num_layers + 2);
 
     for (i = 0; i <= num_layers + 1; i++) {
         std::string buf = FindDataLine(file);
+        std::istringstream iss(buf);
+
         if (i == 0 || i == num_layers + 1) {
-            if (sscanf_s(buf.c_str(), "%s", name) != 1) {
-                std::cout << "  Error in reading ambient layer name.\n";
+            if (!(iss >> name)) {
+                std::cout << "  Error in reading ambient layer name." << std::endl;
                 return false;
             }
         }
         else {
-            if (sscanf_s(buf.c_str(), "%s%lf", name, &thick) != 2) {
-                std::cout << "  Error in ReadLayerSpecsQ().\n";
-                return false;
+            if (iss >> name >> thick) {
+                if (thick <= 0.0) {
+                    std::cout << "  Nonpositive layer thickness." << std::endl;
+                    return false;
+                }
             }
-            else if (thick <= 0.0) {
-                std::cout << "  Nonpositive layer thickness.\n";
+            else {
+                std::cout << "  Error in ReadLayerSpecsQ()." << std::endl;
                 return false;
             }
         }
 
         int index;
-        if (!ValidMediumNameQ(name, index, run_params)) {
-            std::cout << "  Invalid medium name. \n";
+        if (!ValidMediumNameQ(name, index, params)) {
+            std::cout << "  Invalid medium name. " << std::endl;
             return false;
         }
 
-        run_params.layers[i].medium = name;
+        params.layers[i].name = name;
 
-        run_params.layers[i].n = run_params.media[index].n;
-        run_params.layers[i].mua = run_params.media[index].mua;
-        run_params.layers[i].mus = run_params.media[index].mus;
-        run_params.layers[i].g = run_params.media[index].g;
+        params.layers[i].eta = params.mediums[index].eta;
+        params.layers[i].mua = params.mediums[index].mua;
+        params.layers[i].mus = params.mediums[index].mus;
+        params.layers[i].aniso = params.mediums[index].aniso;
 
         if ((i != 0) && (i != num_layers + 1)) {
-            run_params.layers[i].z0 = z;
+            params.layers[i].top_z = z;
             z = z + thick;
-            run_params.layers[i].z1 = z;
+            params.layers[i].bot_z = z;
         }
         else if (i == 0) {
-            run_params.layers[i].z0 = 0.0;
-            run_params.layers[i].z1 = 0.0;
+            params.layers[i].top_z = 0.0;
+            params.layers[i].bot_z = 0.0;
         }
         else if (i == (num_layers + 1)) {
-            run_params.layers[i].z0 = z;
-            run_params.layers[i].z1 = z;
+            params.layers[i].top_z = z;
+            params.layers[i].bot_z = z;
         }
     }
 
@@ -786,74 +781,74 @@ bool ReadLayerSpecsQ(std::fstream& file, RunParams& run_params)
 /**************************************************************************
  *  Read the number of photons.
  *  Read computation time limit.
- *  Type = 0, read from a .mci input output;
- *  Type = 1, read from a .mco output output.
+ *  type = 0, read from a .mci input output;
+ *  type = 1, read from a .mco output output.
  ****/
-bool ReadNumPhotonsQ(std::istream& input, RunParams& run_params, char Type)
+bool ReadNumPhotonsQ(std::istream& input, RunParams& params, char type)
 {
     std::string buf = FindDataLine(reinterpret_cast<std::fstream&>(input));
 
-    if (Type == 0) {
-        run_params.add_num_photons = 0;
-        run_params.add_limit_seconds = 0;
+    if (type == 0) {
+        params.add_num_photons = 0;
+        params.add_limit_seconds = 0;
     }
 
-    float temp;
-    int hours, minutes;
-    if (sscanf_s(buf.c_str(), "%f %d:%d", &temp, &hours, &minutes) == 3) {
+    float temp = 0.f;
+    int hours = 0;
+    int minutes = 0;
+
+    std::istringstream iss(buf);
+
+    if (iss >> temp >> hours >> minutes) {
         if (((long)temp > 0) && (hours * 3600 + minutes * 60) >= 0) {
-            if (Type == 0) {
-                run_params.num_photons = (long)temp;
-                run_params.time_limit_seconds = hours * 3600 + minutes * 60;
+            if (type == 0) {
+                params.num_photons = (long)temp;
+                params.time_limit_seconds = hours * 3600 + minutes * 60;
             }
             else {
-                run_params.add_num_photons = (long)temp;
-                run_params.add_limit_seconds = hours * 3600 + minutes * 60;
+                params.add_num_photons = (long)temp;
+                params.add_limit_seconds = hours * 3600 + minutes * 60;
             }
-
-            run_params.control_bit = ControlBit::Both;
+            params.control_bit = ControlBit::Both;
         }
         else {
-            std::cout << "Nonpositive number of photons or time limit.\n";
+            std::cout << "Nonpositive number of photons or time limit." << std::endl;
             return false;
         }
-
     }
-    else if (sscanf_s(buf.c_str(), "%d:%d", &hours, &minutes) == 2) {
+    else if (iss >> hours >> minutes) {
         if ((hours * 3600 + minutes * 60) >= 0) {
-            if (Type == 0) {
-                run_params.time_limit_seconds = hours * 3600 + minutes * 60;
+            if (type == 0) {
+                params.time_limit_seconds = hours * 3600 + minutes * 60;
             }
             else {
-                run_params.add_limit_seconds = hours * 3600 + minutes * 60;
+                params.add_limit_seconds = hours * 3600 + minutes * 60;
             }
 
-            run_params.control_bit = ControlBit::TimeLimit;
+            params.control_bit = ControlBit::TimeLimit;
         }
         else {
-            std::cout << "Nonpositive time limit.\n";
+            std::cout << "Nonpositive time limit." << std::endl;
             return false;
         }
-
     }
-    else if (sscanf_s(buf.c_str(), "%f", &temp) == 1) {
+    else if (iss >> temp) {
         if ((long)temp > 0) {
-            if (Type == 0) {
-                run_params.num_photons = (long)temp;
+            if (type == 0) {
+                params.num_photons = (long)temp;
             }
             else {
-                run_params.add_num_photons = (long)temp;
+                params.add_num_photons = (long)temp;
             }
-            run_params.control_bit = ControlBit::NumPhotons;
+            params.control_bit = ControlBit::NumPhotons;
         }
         else {
-            std::cout << "Nonpositive number of photons.\n";
+            std::cout << "Nonpositive number of photons." << std::endl;
             return false;
         }
-
     }
     else {
-        std::cout << "Invalid number of photons or time limit.\n";
+        std::cout << "Invalid number of photons or time limit." << std::endl;
         return false;
     }
 
@@ -863,53 +858,57 @@ bool ReadNumPhotonsQ(std::istream& input, RunParams& run_params, char Type)
 /**************************************************************************
  *  Read the beam source type (Pencil/Isotropic).
  ****/
-bool ReadSourceTypeQ(std::fstream& file, RunParams& run_params)
+bool ReadSourceTypeQ(std::fstream& file, RunParams& params)
 {
     std::string b_type;
     std::string buf = FindDataLine(file);
+    std::istringstream iss(buf);
 
-    if (sscanf_s(buf.c_str(), "%s", b_type) != 1) {
-        std::cout << "Reading photon source type. \n";
-        return false;
-    }
-    if (b_type == "pencil"sv) {
-        run_params.source = BeamType::Pencil;
-        return true;
-    }
-    else if (b_type == "isotropic"sv) {
-        run_params.source = BeamType::Isotropic;
-        return true;
+    if (iss >> b_type) {
+        if (b_type == "pencil"sv) {
+            params.source = BeamType::Pencil;
+            return true;
+        }
+        else if (b_type == "isotropic"sv) {
+            params.source = BeamType::Isotropic;
+            return true;
+        }
+        else {
+            std::cout << "Unknow photon source type. " << std::endl;
+            return false;
+        }
     }
     else {
-        std::cout << "Unknow photon source type. \n";
+        std::cout << "Reading photon source type. " << std::endl;
         return false;
     }
+
+    return true;
 }
 
 /**************************************************************************
- *      Compute the index to layer according to the z coordinate.
+ *  Compute the index to layer according to the z coordinate.
  *	If the z is on an interface between layers, the returned index
  *	will point to the upper layer.
- *	Index 0 is the top ambient medium and index num_layers+1 is the
- *	bottom one.
+ *	Index 0 is the top ambient name and index num_layers+1 is the bottom one.
  ****/
-bool ZToLayerQ(double z, short* index, RunParams& run_params)
+bool ZToLayerQ(double z, short& index, RunParams& params)
 {
-    // index to layer.
+    // index to current_layer.
     short i = 0;
-    short num_layers = run_params.layers.size();
+    std::size_t num_layers = params.layers.size();
 
     if (z < 0.0) {
-        std::cout << "Nonpositive z coordinate.\n";
+        std::cout << "Nonpositive z coordinate." << std::endl;
         return false;
     }
-    else if (z > run_params.layers[num_layers].z1) {
-        std::cout << "Source is outside of the last layer. \n";
+    else if (z > params.layers[num_layers].bot_z) {
+        std::cout << "Source is outside of the last layer. " << std::endl;
         return false;
     }
     else {
-        while (z > run_params.layers[i].z1) { i++; }
-        *index = i;
+        while (z > params.layers[i].bot_z) { i++; }
+        index = i;
         return true;
     }
 }
@@ -917,72 +916,72 @@ bool ZToLayerQ(double z, short* index, RunParams& run_params)
 /**************************************************************************
  *  Read starting position of photon source.
  ****/
-bool ReadStartPQ(std::istream& input, RunParams& run_params)
+bool ReadStartPQ(std::istream& input, RunParams& params)
 {
     std::string buf = FindDataLine(input);
+    std::istringstream iss(buf);
 
     short slayer;
     double source_z;
     std::string medium_name;
 
-    // z and medium.
-    if ((sscanf_s(buf.c_str(), "%lf %s", &source_z, medium_name) == 2) && (medium_name[0] != '#' && medium_name[0] != '\n')) {
-        if (!ZToLayerQ(source_z, &slayer, run_params)) {
+    // z and name.
+    if (iss >> source_z >> medium_name && medium_name[0] != '#' && medium_name[0] != '\n') {
+        if (!ZToLayerQ(source_z, slayer, params)) {
             return false;
         }
 
-        if (run_params.layers[slayer].medium == medium_name) {
-            if ((fabs(source_z - run_params.layers[slayer].z1) < DBL_EPSILON) && (run_params.layers[slayer + 1].medium == medium_name)) {
+        if (params.layers[slayer].name == medium_name) {
+            if ((std::abs(source_z - params.layers[slayer].bot_z) < DBL_EPSILON) && (params.layers[slayer + 1].name == medium_name)) {
                 slayer++;
-                if (slayer > run_params.layers.size()) {
+                if (slayer > params.layers.size()) {
                     puts("Source is outside of the last layer.");
                     return false;
                 }
 
             }
             else {
-                std::cout << "Medium name and z coordinate do not match.\n";
+                std::cout << "Medium name and z coordinate do not match." << std::endl;
                 return false;
             }
         }
-
     }
     // z only.
-    else if (sscanf_s(buf.c_str(), "%lf", &(source_z)) == 1) {
-        if (!ZToLayerQ(source_z, &run_params.slayer, run_params)) {
+    else if (iss >> source_z) {
+        if (!ZToLayerQ(source_z, params.source_layer, params)) {
             return false;
         }
         medium_name = "";
     }
     else {
-        std::cout << "Invalid starting position of photon source.\n";
+        std::cout << "Invalid starting position of photon source." << std::endl;
         return false;
     }
 
-    if ((run_params.source == BeamType::Isotropic) && (source_z == 0.0)) {
-        std::cout << "Can not put isotropic source in upper ambient medium.\n";
+    if ((params.source == BeamType::Isotropic) && (source_z == 0.0)) {
+        std::cout << "Can not put isotropic source in upper ambient medium." << std::endl;
         return false;
     }
 
-    run_params.source_z = source_z;
-    run_params.medium_name = medium_name;
+    params.source_z = source_z;
+    params.source_medium_name = medium_name;
     return true;
 }
 
 /*************************************************************************
  *	Compute the critical angles for total internal
  *	reflection according to the relative refractive index
- *	of the layer.
+ *	of the current_layer.
  *	All layers are processed.
  ****/
 void CriticalAngle(std::vector<Layer>& layers)
 {
     for (short i = 1; i <= layers.size(); i++) {
-        double n1 = layers[i].n;
-        double n2 = layers[i - 1].n;
+        double n1 = layers[i].eta;
+        double n2 = layers[i - 1].eta;
         layers[i].cos_crit0 = n1 > n2 ? sqrt(1.0 - n2 * n2 / (n1 * n1)) : 0.0;
 
-        n2 = layers[i + 1].n;
+        n2 = layers[i + 1].eta;
         layers[i].cos_crit1 = n1 > n2 ? sqrt(1.0 - n2 * n2 / (n1 * n1)) : 0.0;
     }
 }
@@ -990,14 +989,14 @@ void CriticalAngle(std::vector<Layer>& layers)
 /**************************************************************************
  *	Read in the input parameters for one run.
  ****/
-void ReadRunParam(std::fstream& file, RunParams& run_params)
+void ReadRunParam(std::fstream& file, RunParams& params)
 {
-    if (!ReadFnameFormatQ(file, run_params)) {
+    if (!ReadFnameFormatQ(file, params)) {
         exit(1);
     }
 
     // Geometry.
-    if (!ReadLayerSpecsQ(file, run_params)) {
+    if (!ReadLayerSpecsQ(file, params)) {
         exit(1);
     }
 
@@ -1005,118 +1004,128 @@ void ReadRunParam(std::fstream& file, RunParams& run_params)
     FindDataLine(file);
 
     // Source.
-    if (!ReadSourceTypeQ(file, run_params)) {
+    if (!ReadSourceTypeQ(file, params)) {
         exit(1);
     }
-    if (!ReadStartPQ(file, run_params)) {
+    if (!ReadStartPQ(file, params)) {
         exit(1);
     }
 
     // Grids.
-    if (!ReadDzDrDtQ(file, run_params)) {
+    if (!ReadDzDrDtQ(file, params)) {
         exit(1);
     }
-    if (!ReadNzNrNtNaQ(file, run_params)) {
+    if (!ReadNzNrNtNaQ(file, params)) {
         exit(1);
     }
-    run_params.zm = run_params.dz * run_params.nz;
-    run_params.rm = run_params.dr * run_params.nr;
-    run_params.tm = run_params.dt * run_params.nt;
-    run_params.am = run_params.da * run_params.na;
+    params.max_z = params.grid_z * params.num_z;
+    params.max_r = params.grid_r * params.num_r;
+    params.max_time = params.grid_time * params.num_time;
+    params.max_alpha = params.grid_alpha * params.num_alpha;
 
     // Scored data categories.
-    if (!FilterRecordQ(file, run_params)) {
+    if (!FilterRecordQ(file, params)) {
         exit(1);
     }
 
     // Simulation control.
-    if (!ReadNumPhotonsQ(file, run_params, 0)) {
+    if (!ReadNumPhotonsQ(file, params, 0)) {
         exit(1);
     }
-    if (!ReadWthQ(file, run_params)) {
-        exit(1);
-    }
-    if (!ReadRanSeedQ(file, run_params)) {
+    if (!ReadWthQ(file, params)) {
         exit(1);
     }
 
-    CriticalAngle(run_params.layers);
+    CriticalAngle(params.layers);
 }
 
 /**************************************************************************
- *  Read the media list in interactive mode.
+ *  Read the mediums list in interactive mode.
  ****/
-void InterReadMediumList(RunParams& run_params)
+void InterReadMediumList(RunParams& params)
 {
-    std::string string;
     std::string medium;
     int num_media = 0;
 
     std::cout << "Specify medium list. Total number of mediums: ";
 
+    std::string string;
     std::getline(std::cin, string);
-    while (sscanf_s(string.c_str(), "%hd", run_params.media.size()) != 1 || run_params.media.size() <= 0) {
+    std::istringstream iss(string);
+
+    while (!(iss >> num_media) || num_media < 1) {
         std::cout << "Invalid medium number. Input again: ";
         std::getline(std::cin, string);
     }
 
-    // allocate an array for the layer parameters.
-    run_params.media.resize(num_media);
+    // Allocate space for the current_layer parameters.
+    params.mediums.resize(num_media);
 
-    for (short i = 0; i < run_params.media.size(); i++) {
-        printf("Specify medium %d: \n  Medium name: ", i + 1);
+    iss = std::istringstream(string);
+    for (short i = 0; i < params.mediums.size(); i++) {
+        std::cout << "Specify medium " << i+1 << ": " << std::endl << "  Medium name : ";
         std::getline(std::cin, string);
 
         bool name_taken = 0;
         do {
-            sscanf_s(string.c_str(), "%s", medium);
-            for (short j = 0; j < i; j++) {
-                if (run_params.media[j].medium == medium) {
-                    name_taken = 1;
-                    std::cout << "  Duplicate medium. Input again: ";
-                    std::getline(std::cin, string);
-                    break;
+            if (iss >> medium) {
+                // TODO: 
+                for (short j = 0; j < i; j++) {
+                    if (params.mediums[j].name == medium) {
+                        name_taken = 1;
+                        std::cout << "  Duplicate medium. Input again: ";
+                        std::getline(std::cin, string);
+                        break;
+                    }
                 }
             }
         } while (name_taken);
 
-        run_params.media[i].medium = medium;
+        params.mediums[i].name = medium;
 
         std::cout << "  Refractive index n (>= 1.0): ";
         std::getline(std::cin, string);
-        while (sscanf_s(string.c_str(), "%lf", &run_params.media[i].n) != 1 || run_params.media[i].n < 1.0) {
+        iss = std::istringstream(string);
+
+        while (!(iss >> params.mediums[i].eta) || params.mediums[i].eta < 1.0) {
             std::cout << "  Invalid refractive index. Input again (>= 1.0): ";
             std::getline(std::cin, string);
         }
 
         std::cout << "  Absorption coefficient mua (>= 0.0 /cm): ";
         std::getline(std::cin, string);
-        while (sscanf_s(string.c_str(), "%lf", &run_params.media[i].mua) != 1 || run_params.media[i].mua < 0.0) {
+        iss = std::istringstream(string);
+
+        while (!(iss >> params.mediums[i].mua) || params.mediums[i].mua < 0.0) {
             std::cout << "  Invalid absorption coefficient. Input again (>= 0.0): ";
             std::getline(std::cin, string);
         }
 
         std::cout << "  Scattering coefficient mus (>= 0.0 /cm): ";
         std::getline(std::cin, string);
-        while (sscanf_s(string.c_str(), "%lf", &run_params.media[i].mus) != 1 || run_params.media[i].mus < 0.0) {
+        iss = std::istringstream(string);
+
+        while (!(iss >> params.mediums[i].mus) || params.mediums[i].mus < 0.0) {
             std::cout << "  Invalid scattering coefficient. Input again (>= 0.0): ";
             std::getline(std::cin, string);
         }
 
         std::cout << "  Anisotropy factor g (0.0 - 1.0): ";
         std::getline(std::cin, string);
-        while (sscanf_s(string.c_str(), "%lf", &run_params.media[i].g) != 1 || run_params.media[i].g < 0.0 || run_params.media[i].g > 1.0) {
+        iss = std::istringstream(string);
+
+        while (!(iss >> params.mediums[i].aniso) || params.mediums[i].aniso < 0.0 || params.mediums[i].aniso > 1.0) {
             std::cout << "  Invalid anisotropy factor. Input again (0.0 - 1.0): ";
             std::getline(std::cin, string);
         }
-        std::cout << "\n";
+        std::cout << std::endl;
     }
 }
 
 /**************************************************************************
  *  Read the input name and the input format interactively.
  ****/
-void InterReadFnameFormat(RunParams& run_params)
+void InterReadFnameFormat(RunParams& params)
 {
     std::string fname;
     std::string fmode;
@@ -1140,261 +1149,238 @@ void InterReadFnameFormat(RunParams& run_params)
         }
     } while (fmode[0] != 'w');
 
-     run_params.output_filename = fname;
+     params.output_filename = fname;
 
-    //std::cout << "Output input format (A/B): ";
-    //fgets(fname, STRLEN, stdin);
-    //while (sscanf_s(fname, "%c", &run_params.output_file_format, 1) != 1) {
-    //    std::cout << "Error occured. Output input format (A/B): ";
-    //    fgets(fname, STRLEN, stdin);
-    //}
+    // Only support 'A' format.
+    params.output_file_format = FileFormat::ASCII;
 
-    //if (toupper(run_params.output_file_format) != 'B') {
-    //    run_params.output_file_format = 'A';
-    //}
-
-    // now only support 'A' format.
-    run_params.output_file_format = FileFormat::ASCII;
-
-    std::cout << "\n";
+    std::cout << std::endl;
 }
 
 /**************************************************************************
- *	Read dz, dr, dt interactively.
+ *	Read grid_z, grid_r, grid_time interactively.
  ****/
-void InterReadDzDrDt(RunParams& run_params)
+void InterReadDzDrDt(RunParams& params)
 {
     do {
-        std::cout << "Specify dz, dr, dt in one line\n";
+        std::cout << "Specify dz, dr, dt in one line" << std::endl;
         std::cout << "(all > 0.0 cm, e.g., 0.1 0.1 0.1): ";
-    } while (!ReadDzDrDtQ(std::cin, run_params));
+    } while (!ReadDzDrDtQ(std::cin, params));
 
-    std::cout << "\n";
+    std::cout << std::endl;
 }
 
 /**************************************************************************
- *      Read the RunParams members nz, nr, na interactively.
+ *      Read the RunParams members num_z, num_r, num_alpha interactively.
  ****/
-void InterReadNzNrNtNa(RunParams& run_params)
+void InterReadNzNrNtNa(RunParams& params)
 {
     do {
-        std::cout << "Specify nz, nr, nt, na in one line\n";
+        std::cout << "Specify nz, nr, nt, na in one line" << std::endl;
         std::cout << "(all > 0, e.g., 100 100 100 100): ";
-    } while (!ReadNzNrNtNaQ(std::cin, run_params));
+    } while (!ReadNzNrNtNaQ(std::cin, params));
 
-    run_params.da = 0.5 * PI / run_params.na;
-    std::cout << "\n";
+    params.grid_alpha = 0.5 * PI / params.num_alpha;
+    std::cout << std::endl;
 }
 
 /**************************************************************************
  *	Read and filter the quantities to be scored interactively.
  ****/
-void InterFilterRecord(RunParams& run_params)
+void InterFilterRecord(RunParams& params)
 {
     do {
-        std::cout << "Select scored quantities from the following data categories:\n";
-        std::cout << "\tRd_rat\t\t\tTd_rat\t\t\tA_rzt\n";
-        std::cout << "\tRd_ra\tRd_rt\tRd_at\tTd_ra\tTd_rt\tRd_at\tA_rz\tA_zt\n";
-        std::cout << "\tRd_r\tRd_a\tRd_t\tTd_r\tTd_a\tTd_t\tA_z\tA_t\n";
-    } while (!FilterRecordQ(std::cin, run_params));
+        std::cout << "Select scored quantities from the following data categories:" << std::endl;
+        std::cout << "\tRd_rat\t\t\tTd_rat\t\t\tA_rzt" << std::endl;
+        std::cout << "\tRd_ra\tRd_rt\tRd_at\tTd_ra\tTd_rt\tRd_at\tA_rz\tA_zt" << std::endl;
+        std::cout << "\tRd_r\tRd_a\tRd_t\tTd_r\tTd_a\tTd_t\tA_z\tA_t" << std::endl;
+    } while (!FilterRecordQ(std::cin, params));
 
-    std::cout << "\n";
+    std::cout << std::endl;
 }
 
 /**************************************************************************
  *	Read the threshold min_weight interactively.
  ****/
-void InterReadWth(RunParams& run_params)
+void InterReadWth(RunParams& params)
 {
-    std::string string;
-
     std::cout << "Input threshold weight (0 <= wth < 1.0, 0.0001 recommended): ";
+
+    std::string string;
     std::getline(std::cin, string);
-    while (sscanf_s(string.c_str(), "%lf", &run_params.min_weight) != 1 || run_params.min_weight < 0 || run_params.min_weight >= 1) {
+    std::istringstream iss(string);
+
+    while (!(iss >> params.min_weight) || params.min_weight < 0 || params.min_weight >= 1) {
         std::cout << "Invalid wth. Input again (0 <= wth < 1.0): ";
         std::getline(std::cin, string);
     }
 
-    std::cout << "\n";
-}
-
-/**************************************************************************
- *	Read the random seed interactively.
- ****/
-void InterReadRanSeed(RunParams& run_params)
-{
-    std::string string;
-
-    std::cout << "Input random number seed (1 <= ran_seed <= 32000): ";
-    std::getline(std::cin, string);
-    while (sscanf_s(string.c_str(), "%ld", &run_params.random_seed) != 1 || run_params.random_seed < 1 || run_params.random_seed > 32000) {
-        std::cout << "Invalid ran_seed. Input again (1 <= ran_seed <= 32000): ";
-        std::getline(std::cin, string);
-    }
-
-    std::cout << "\n";
+    std::cout << std::endl;
 }
 
 /**************************************************************************
  ****/
-void PrintMediumNames(RunParams& run_params)
+void PrintMediumNames(RunParams& params)
 {
-    std::cout << "Available medium types:\n";
+    std::cout << "Available medium types:" << std::endl;
 
     int j = 1;
-    for (int i = 0; i < run_params.media.size(); i++) {
-        printf("%-16s", run_params.media[i].medium);
+    for (int i = 0; i < params.mediums.size(); i++) {
+        std::cout << std::format("{:<16}", params.mediums[i].name);
         if (j % 4 == 0) {
-            std::cout << "\n";
+            std::cout << std::endl;
         }
         j++;
     }
 
-    std::cout << "\n";
+    std::cout << std::endl;
 }
 
 /**************************************************************************
- *	Read layer specifications interactively.
+ *	Read current_layer specifications interactively.
  ****/
-void InterReadLayerSpecs(RunParams& run_params)
+void InterReadLayerSpecs(RunParams& params)
 {
-    std::string string;
     std::string name;
     int num_layers;
 
-    // z coordinate of the current layer.
+    // z coordinate of the current current_layer.
     double z = 0.0;
 
     int index;
 
     std::cout << "\nSpecify layer list. ";
-    PrintMediumNames(run_params);
+    PrintMediumNames(params);
     std::cout << "\nTotal number of layers: ";
 
+    std::string string;
     std::getline(std::cin, string);
-    while (sscanf_s(string.c_str(), "%hd", &num_layers) != 1 || num_layers <= 0) {
+    std::istringstream iss(string);
+
+    while (!(iss >> num_layers) || num_layers < 1) {
         std::cout << "Invalid layer number. Input again: ";
         std::getline(std::cin, string);
     }
 
-    // Allocate an array for the layer parameters.
-    // layer 0 and layer Num_Layers + 1 are for ambient.
-    run_params.layers.resize(num_layers + 2);
+    // Allocate an array for the current_layer parameters.
+    // current_layer 0 and current_layer Num_Layers + 1 are for ambient.
+    params.layers.resize(num_layers + 2);
 
     for (short i = 0; i <= num_layers + 1; i++) {
         bool error = 1;
         while (error) {
             error = 0;
             if (i == 0) {
-                std::cout << "\n  Name of upper ambient medium: ";
+                std::cout << std::endl << "  Name of upper ambient medium: ";
                 std::getline(std::cin, string);
-                sscanf_s(string.c_str(), "%s", name);
+                iss = std::istringstream(string);
+                iss >> name;
             }
-            else if (i == run_params.layers.size() + 1) {
-                std::cout << "\n  Name of lower ambient medium: ";
+            else if (i == params.layers.size() + 1) {
+                std::cout << std::endl << "  Name of lower ambient medium: ";
                 std::getline(std::cin, string);
-                sscanf_s(string.c_str(), "%s", name);
+                iss = std::istringstream(string);
+                iss >> name;
             }
             else {
-                printf("\n  Medium name of layer %d: ", i);
+                std::cout << std::endl << "  Medium name of layer " << i << ": ";
                 std::getline(std::cin, string);
-                sscanf_s(string.c_str(), "%s", name);
+                iss = std::istringstream(string);
+                iss >> name;
             }
 
-            if (!ValidMediumNameQ(name, index, run_params)) {
+            if (!ValidMediumNameQ(name, index, params)) {
                 std::cout << "  Invalid medium name. Input again.";
                 error = 1;
             }
         }
 
-        run_params.layers[i].medium = name;
-        run_params.layers[i].n = run_params.media[index].n;
-        run_params.layers[i].mua = run_params.media[index].mua;
-        run_params.layers[i].mus = run_params.media[index].mus;
-        run_params.layers[i].g = run_params.media[index].g;
+        params.layers[i].name = name;
+        params.layers[i].eta = params.mediums[index].eta;
+        params.layers[i].mua = params.mediums[index].mua;
+        params.layers[i].mus = params.mediums[index].mus;
+        params.layers[i].aniso = params.mediums[index].aniso;
 
-        if ((i != 0) && (i != run_params.layers.size() + 1)) {
-            printf("  Input the thickness of layer %d (thickness > 0.0 cm): ", i);
+        if ((i != 0) && (i != params.layers.size() + 1)) {
+            std::cout << "  Input the thickness of layer " << i << " (thickness > 0.0 cm) : ";
             std::getline(std::cin, string);
 
             double thick = 0.0;
-            while (sscanf_s(string.c_str(), "%lf", &thick) != 1 || thick <= 0) {
+            iss = std::istringstream(string);
+            while (!(iss >> thick) || thick <= 0) {
                 std::cout << "  Invalid thickness. Input again (thickness > 0.0 cm): ";
                 std::getline(std::cin, string);
             }
-            run_params.layers[i].z0 = z;
+            params.layers[i].top_z = z;
             z = z + thick;
-            run_params.layers[i].z1 = z;
+            params.layers[i].bot_z = z;
         }
         else if (i == 0) {
-            run_params.layers[i].z0 = 0.0;
-            run_params.layers[i].z1 = 0.0;
+            params.layers[i].top_z = 0.0;
+            params.layers[i].bot_z = 0.0;
         }
-        else if (i == run_params.layers.size() + 1) {
-            run_params.layers[i].z0 = z;
-            run_params.layers[i].z1 = z;
+        else if (i == params.layers.size() + 1) {
+            params.layers[i].top_z = z;
+            params.layers[i].bot_z = z;
         }
     }
 
-    std::cout << "\n";
+    std::cout << std::endl;
 }
 
 /**************************************************************************
  *  Read the number of photons, or computation time interactively.
  ****/
-void InterReadNumPhotons(RunParams& run_params)
+void InterReadNumPhotons(RunParams& params)
 {
-    std::cout << "Specify number of photons or time in hh:mm format,\n";
+    std::cout << "Specify number of photons or time in hh:mm format," << std::endl;
     std::cout << "or both in one line (e.g. 10000 5:30): ";
 
-    while (!ReadNumPhotonsQ(std::cin, run_params, 0)) {
+    while (!ReadNumPhotonsQ(std::cin, params, 0)) {
         std::cout << "Input again: ";
     }
 
-    std::cout << "\n";
+    std::cout << std::endl;
 }
 
 /**************************************************************************
  *  Read the beam source type (Pencil/Isotropic).
  ****/
-void InterReadSourceType(RunParams& run_params)
+void InterReadSourceType(RunParams& params)
 {
-    std::string string;
-
     std::cout << "Input source type (p = pencil / i = isotropic): ";
-    std::getline(std::cin, string);
 
-    char c;
-    while (sscanf_s(string.c_str(), "%c", &c, 1) != 1 || !(toupper(c) == 'P' || toupper(c) == 'I')) {
+    char c; std::cin.get(c);
+    while (std::toupper(c) != 'P' || std::toupper(c) != 'I') {
         std::cout << "Invalid type. Input again (p = pencil / i = isotropic): ";
-        std::getline(std::cin, string);
+        std::cin.get(c);
     }
 
-    if (toupper(c) == 'P') {
-        run_params.source = BeamType::Pencil;
+    if (std::toupper(c) == 'P') {
+        params.source = BeamType::Pencil;
     }
     else {
-        run_params.source = BeamType::Isotropic;
+        params.source = BeamType::Isotropic;
     }
 
-    std::cout << "\n";
+    std::cout << std::endl;
 }
 
 /**************************************************************************
  *  Read starting position of photon source.
  ****/
-void InterReadStartP(RunParams& run_params)
+void InterReadStartP(RunParams& params)
 {
     do {
-        printf("Input the z coordinate of source (0.0 - %f cm) and the medium\n", run_params.layers[run_params.layers.size() - 1].z1);
+        std::cout << "Input the z coordinate of source (0.0 - " << params.layers[params.layers.size() - 1].bot_z << " cm) and the medium" << std::endl;
         std::cout << "where the source is if the z is on an interface (e.g. 1.0 [air]):";
-    } while (!ReadStartPQ(std::cin, run_params));
+    } while (!ReadStartPQ(std::cin, params));
 
-    std::cout << "\n";
+    std::cout << std::endl;
 }
 
 /*************************************************************************
- *  If input is stdout, freeze the screen and print a more message on screen
+ *  If input is stdin, freeze the screen and print a more message on screen
  *  every 20 lines. The Line is the line index.
  ****/
 void More(std::ostream& output, int& Line)
@@ -1406,18 +1392,18 @@ void More(std::ostream& output, int& Line)
 
             char c;
             do {
-                // TODO:
-                fread(&c, 1, 1, stdin);
+                // Read one character from standard input
+                std::cin.get(c);
             } while (c != '\n');
         }
     }
 }
 
 /*************************************************************************
- * Write medium list to the output.
+ * Write name list to the output.
  * If input is stdout, freeze the screen every 20 lines.
  ****/
-void PutMediumListToFile(std::ostream& output, RunParams& run_params, int& Line)
+void PutMediumListToFile(std::ostream& output, RunParams& params, int& Line)
 {
     std::string format;
 
@@ -1426,14 +1412,14 @@ void PutMediumListToFile(std::ostream& output, RunParams& run_params, int& Line)
     output << std::format("#\tname\t\tn\tmua\tmus\tg\n");
     Line++;
 
-    for (int i = 0; i < run_params.media.size(); i++) {
+    for (int i = 0; i < params.mediums.size(); i++) {
         More(output, Line);
-        Layer s = run_params.media[i];
-        if (s.medium.size() + 1 > 8) {
-            output << std::format("\t%s \t%G\t%G\t%G\t%G\n", s.medium, s.n, s.mua, s.mus, s.g);
+        Layer s = params.mediums[i];
+        if (s.name.size() + 1 > 8) {
+            output << std::format("\t%s \t%G\t%G\t%G\t%G\n", s.name, s.eta, s.mua, s.mus, s.aniso);
         }
         else {
-            output << std::format("\t%s \t\t%G\t%G\t%G\t%G\n", s.medium, s.n, s.mua, s.mus, s.g);
+            output << std::format("\t%s \t\t%G\t%G\t%G\t%G\n", s.name, s.eta, s.mua, s.mus, s.aniso);
         }
         Line++;
     }
@@ -1441,91 +1427,91 @@ void PutMediumListToFile(std::ostream& output, RunParams& run_params, int& Line)
     Line++;
 }
 
-void PutFnameFormatToFile(std::ostream& output, RunParams& run_params, int& Line)
+void PutFnameFormatToFile(std::ostream& output, RunParams& params, int& Line)
 {
     More(output, Line);
-    output << std::format("%s \t%c\t\t\t# output file name, format.\n", run_params.output_filename, 'A');
+    output << std::format("%s \t%c\t\t\t# output file name, format.\n", params.output_filename, 'A');
     Line++;
 }
 
-void PutDzDrDtToFile(std::ostream& output, RunParams& run_params, int& Line)
+void PutDzDrDtToFile(std::ostream& output, RunParams& params, int& Line)
 {
     More(output, Line);
-    output << std::format("%G\t%G\t%G\t\t\t# dz, dr, dt.\n", run_params.dz, run_params.dr, run_params.dt);
+    output << std::format("%G\t%G\t%G\t\t\t# dz, dr, dt.\n", params.grid_z, params.grid_r, params.grid_time);
     Line++;
 }
 
-void PutNzNrNtNaToFile(std::ostream& output, RunParams& run_params, int& Line)
+void PutNzNrNtNaToFile(std::ostream& output, RunParams& params, int& Line)
 {
     More(output, Line);
-    output << std::format("%d\t%d\t%d\t%d\t\t# nz, nr, nt, na.\n", run_params.nz, run_params.nr, run_params.nt, run_params.na);
+    output << std::format("%d\t%d\t%d\t%d\t\t# nz, nr, nt, na.\n", params.num_z, params.num_r, params.num_time, params.num_alpha);
     Line++;
 }
 
-void PutScoredToFile(std::ostream& output, RunParams& run_params, int& Line)
+void PutScoredToFile(std::ostream& output, RunParams& params, int& Line)
 {
     More(output, Line);
     output << std::format("# This simulation will score the following categories:\n");
     Line++;
 
     More(output, Line);
-    if (run_params.record.Rd_r) {
+    if (params.record.Rd_r) {
         output << std::format("Rd_r \t");
     }
-    if (run_params.record.Rd_a) {
+    if (params.record.Rd_a) {
         output << std::format("Rd_a \t");
     }
-    if (run_params.record.Rd_ra) {
+    if (params.record.Rd_ra) {
         output << std::format("Rd_ra \t");
     }
-    if (run_params.record.Rd_t) {
+    if (params.record.Rd_t) {
         output << std::format("Rd_t \t");
     }
-    if (run_params.record.Rd_rt) {
+    if (params.record.Rd_rt) {
         output << std::format("Rd_rt \t");
     }
-    if (run_params.record.Rd_at) {
+    if (params.record.Rd_at) {
         output << std::format("Rd_at \t");
     }
-    if (run_params.record.Rd_rat) {
+    if (params.record.Rd_rat) {
         output << std::format("Rd_rat \t");
     }
 
-    if (run_params.record.Td_r) {
+    if (params.record.Td_r) {
         output << std::format("Td_r \t");
     }
-    if (run_params.record.Td_a) {
+    if (params.record.Td_a) {
         output << std::format("Td_a \t");
     }
-    if (run_params.record.Td_ra) {
+    if (params.record.Td_ra) {
         output << std::format("Td_ra \t");
     }
-    if (run_params.record.Td_t) {
+    if (params.record.Td_t) {
         output << std::format("Td_t \t");
     }
-    if (run_params.record.Td_rt) {
+    if (params.record.Td_rt) {
         output << std::format("Td_rt \t");
     }
-    if (run_params.record.Td_at) {
+    if (params.record.Td_at) {
         output << std::format("Td_at \t");
     }
-    if (run_params.record.Td_rat) {
+    if (params.record.Td_rat) {
         output << std::format("Td_rat \t");
     }
 
-    if (run_params.record.A_z) {
+    if (params.record.A_z) {
         output << std::format("A_z \t");
     }
-    if (run_params.record.A_rz) {
+    if (params.record.A_rz) {
         output << std::format("A_rz \t");
     }
-    if (run_params.record.A_t) {
+    if (params.record.A_t) {
         output << std::format("A_t \t");
     }
-    if (run_params.record.A_zt) {
+    if (params.record.A_zt) {
         output << std::format("A_zt \t");
     }
-    if (run_params.record.A_rzt) {
+    if (params.record.A_rzt) {
         output << std::format("A_rzt \t");
     }
 
@@ -1533,21 +1519,14 @@ void PutScoredToFile(std::ostream& output, RunParams& run_params, int& Line)
     Line++;
 }
 
-void PutWthToFile(std::ostream& output, RunParams& run_params, int& Line)
+void PutWthToFile(std::ostream& output, RunParams& params, int& Line)
 {
     More(output, Line);
-    output << std::format("%G\t\t\t\t\t# threshold weight.\n", run_params.min_weight);
+    output << std::format("%G\t\t\t\t\t# threshold weight.\n", params.min_weight);
     Line++;
 }
 
-void PutRanSeedToFile(std::ostream& output, RunParams& run_params, int& Line)
-{
-    More(output, Line);
-    output << std::format("%ld\t\t\t\t\t# random number seed.\n", run_params.random_seed);
-    Line++;
-}
-
-void PutLayerSpecsToFile(std::ostream& output, RunParams& run_params, int& Line)
+void PutLayerSpecsToFile(std::ostream& output, RunParams& params, int& Line)
 {
     std::string format;
 
@@ -1555,21 +1534,21 @@ void PutLayerSpecsToFile(std::ostream& output, RunParams& run_params, int& Line)
     output << std::format("# \tmedium \t\tthickness\n");
     Line++;
 
-    for (int i = 0; i <= run_params.layers.size() + 1; i++) {
+    for (int i = 0; i <= params.layers.size() + 1; i++) {
         Layer s;
         More(output, Line);
 
-        s = run_params.layers[i];
-        if (i != 0 && i != run_params.layers.size() + 1) {
-            if (s.medium.size() + 1 > 8) {
-                output << std::format("\t%s \t%G\n", s.medium, s.z1 - s.z0);
+        s = params.layers[i];
+        if (i != 0 && i != params.layers.size() + 1) {
+            if (s.name.size() + 1 > 8) {
+                output << std::format("\t%s \t%G\n", s.name, s.bot_z - s.top_z);
             }
             else {
-                output << std::format("\t%s \t\t%G\n", s.medium, s.z1 - s.z0);
+                output << std::format("\t%s \t\t%G\n", s.name, s.bot_z - s.top_z);
             }
         }
         else {
-            output << std::format("\t%s\n", s.medium);
+            output << std::format("\t%s\n", s.name);
         }
         Line++;
     }
@@ -1579,28 +1558,28 @@ void PutLayerSpecsToFile(std::ostream& output, RunParams& run_params, int& Line)
     Line++;
 }
 
-void PutNumPhotonsToFile(std::ostream& output, RunParams& run_params, int& Line)
+void PutNumPhotonsToFile(std::ostream& output, RunParams& params, int& Line)
 {
     More(output, Line);
 
-    if (run_params.control_bit == ControlBit::NumPhotons) {
-        output << std::format("%ld  \t\t\t\t\t# no. of photons | time\n", run_params.num_photons);
+    if (params.control_bit == ControlBit::NumPhotons) {
+        output << std::format("%ld  \t\t\t\t\t# no. of photons | time\n", params.num_photons);
     }
-    else if (run_params.control_bit == ControlBit::TimeLimit) {
-        output << std::format("%ld:%ld\t\t\t\t\t# no. of photons | time\n", run_params.time_limit_seconds / 3600, run_params.time_limit_seconds % 3600 / 60);
+    else if (params.control_bit == ControlBit::TimeLimit) {
+        output << std::format("%ld:%ld\t\t\t\t\t# no. of photons | time\n", params.time_limit_seconds / 3600, params.time_limit_seconds % 3600 / 60);
     }
     else {
-        output << std::format("%ld  \t%ld:%ld\t\t\t\t# no. of photons | time\n", run_params.num_photons, run_params.time_limit_seconds / 3600, run_params.time_limit_seconds % 3600 / 60);
+        output << std::format("%ld  \t%ld:%ld\t\t\t\t# no. of photons | time\n", params.num_photons, params.time_limit_seconds / 3600, params.time_limit_seconds % 3600 / 60);
     }
 
     Line++;
 }
 
-void PutSourceTypeToFile(std::ostream& output, RunParams& run_params, int& Line)
+void PutSourceTypeToFile(std::ostream& output, RunParams& params, int& Line)
 {
     More(output, Line);
 
-    if (run_params.source == BeamType::Pencil) {
+    if (params.source == BeamType::Pencil) {
         output << std::format("pencil \t\t\t\t\t# src type: pencil/isotropic.\n");
     }
     else {
@@ -1610,18 +1589,18 @@ void PutSourceTypeToFile(std::ostream& output, RunParams& run_params, int& Line)
     Line++;
 }
 
-void PutStartPToFile(std::ostream& output, RunParams& run_params, int& Line)
+void PutStartPToFile(std::ostream& output, RunParams& params, int& Line)
 {
     More(output, Line);
 
-    if (run_params.medium_name.empty()) {
-        output << std::format("%G\t\t\t\t\t# starting position of source.\n", run_params.source_z);
+    if (params.source_medium_name.empty()) {
+        output << std::format("%G\t\t\t\t\t# starting position of source.\n", params.source_z);
     }
-    else if (run_params.medium_name.size() + 1 > 8) {
-        output << std::format("%G\t%s \t\t\t# starting position of source.\n", run_params.source_z, run_params.medium_name);
+    else if (params.source_medium_name.size() + 1 > 8) {
+        output << std::format("%G\t%s \t\t\t# starting position of source.\n", params.source_z, params.source_medium_name);
     }
     else {
-        output << std::format("%G\t%s \t\t\t\t# starting position of source.\n", run_params.source_z, run_params.medium_name);
+        output << std::format("%G\t%s \t\t\t\t# starting position of source.\n", params.source_z, params.source_medium_name);
     }
 
     Line++;
@@ -1631,53 +1610,52 @@ void PutStartPToFile(std::ostream& output, RunParams& run_params, int& Line)
  *  Write input parameters to the input output.
  *  If input is stdout, freeze the screen every 20 lines.
  ****/
-void PutInputToFile(std::ostream& output, RunParams& run_params)
+void PutInputToFile(std::ostream& output, RunParams& params)
 {
     // line index.
     output << std::format("mcmli2.0 \t\t\t# file version \n\n");
     int line = 2;
-    PutMediumListToFile(output, run_params, line);
+    PutMediumListToFile(output, params, line);
 
     More(output, line);
     output << std::format("\n# Specify data for run 1\n");
     line += 2;
 
-    PutFnameFormatToFile(output, run_params, line);
+    PutFnameFormatToFile(output, params, line);
 
     // geometry.
     More(output, line);
     output << std::format("\n");
     line++;
-    PutLayerSpecsToFile(output, run_params, line);
+    PutLayerSpecsToFile(output, params, line);
 
     // source.
     More(output, line);
     output << std::format("\n");
     line++;
-    PutSourceTypeToFile(output, run_params, line);
-    PutStartPToFile(output, run_params, line);
+    PutSourceTypeToFile(output, params, line);
+    PutStartPToFile(output, params, line);
 
     // grids.
     More(output, line);
     output << std::format("\n");
     line++;
-    PutDzDrDtToFile(output, run_params, line);
-    PutNzNrNtNaToFile(output, run_params, line);
+    PutDzDrDtToFile(output, params, line);
+    PutNzNrNtNaToFile(output, params, line);
 
     // scored data categories.
     More(output, line);
     output << std::format("\n");
     line++;
-    PutScoredToFile(output, run_params, line);
+    PutScoredToFile(output, params, line);
 
     // simulation control.
     More(output, line);
     output << std::format("\n");
     line++;
 
-    PutNumPhotonsToFile(output, run_params, line);
-    PutWthToFile(output, run_params, line);
-    PutRanSeedToFile(output, run_params, line);
+    PutNumPhotonsToFile(output, params, line);
+    PutWthToFile(output, params, line);
 
     More(output, line);
     output << std::format("end #of runs\n\n");
@@ -1686,26 +1664,26 @@ void PutInputToFile(std::ostream& output, RunParams& run_params)
 /**************************************************************************
  *  Read in the input parameters for one run in interactive mode.
  ****/
-void InterReadParam(RunParams& run_params)
+void InterReadParam(RunParams& params)
 {
-    std::string string;
-
-    InterReadMediumList(run_params);
-    InterReadFnameFormat(run_params);
-    InterReadLayerSpecs(run_params);
-    InterReadSourceType(run_params);
-    InterReadStartP(run_params);
-    InterReadDzDrDt(run_params);
-    InterReadNzNrNtNa(run_params);
-    InterFilterRecord(run_params);
-    InterReadNumPhotons(run_params);
-    InterReadWth(run_params);
-    InterReadRanSeed(run_params);
+    InterReadMediumList(params);
+    InterReadFnameFormat(params);
+    InterReadLayerSpecs(params);
+    InterReadSourceType(params);
+    InterReadStartP(params);
+    InterReadDzDrDt(params);
+    InterReadNzNrNtNa(params);
+    InterFilterRecord(params);
+    InterReadNumPhotons(params);
+    InterReadWth(params);
 
     std::cout << "Do you want to save the input to a file? (Y/N)";
-    std::getline(std::cin, string);
-    if (toupper(string[0]) == 'Y') {
+    char c; std::cin.get(c);
+
+    if (std::toupper(c) == 'Y') {
         std::cout << "Give the file name to save input: ( .mci): ";
+
+        std::string string;
         std::getline(std::cin, string);
 
         std::fstream file(string, std::ios::out);
@@ -1713,47 +1691,47 @@ void InterReadParam(RunParams& run_params)
             std::cout << "Can not open the file to write." << std::endl;
         }
         else {
-            PutInputToFile(file, run_params);
+            PutInputToFile(file, params);
         }
     }
 }
 
 /**************************************************************************
  *  Check consistance of input parameters for one run.
- *  Such as: the consistance of medium list, layer
+ *  Such as: the consistance of name list, current_layer
  *  list, souce starting position and source type.
  ****/
-bool CheckInputConsis(RunParams& run_params)
+bool CheckInputConsis(RunParams& params)
 {
-    for (int i = 0; i <= run_params.layers.size() + 1; i++) {
+    for (int i = 0; i <= params.layers.size() + 1; i++) {
         int index;
-        if (!ValidMediumNameQ(run_params.layers[i].medium, index, run_params)) {
-            printf("Invalid medium name of layer %d.\n", i);
+        if (!ValidMediumNameQ(params.layers[i].name, index, params)) {
+            std::cout << "Invalid medium name of layer " << i << "." << std::endl;
             return 0;
         }
         else {
-            run_params.layers[i].n = run_params.media[index].n;
-            run_params.layers[i].mua = run_params.media[index].mua;
-            run_params.layers[i].mus = run_params.media[index].mus;
-            run_params.layers[i].g = run_params.media[index].g;
+            params.layers[i].eta = params.mediums[index].eta;
+            params.layers[i].mua = params.mediums[index].mua;
+            params.layers[i].mus = params.mediums[index].mus;
+            params.layers[i].aniso = params.mediums[index].aniso;
         }
     }
 
-    if ((run_params.source == BeamType::Isotropic) && (run_params.source_z == 0.0)) {
-        std::cout << "Can not put isotropic source in upper ambient medium.\n";
+    if ((params.source == BeamType::Isotropic) && (params.source_z == 0.0)) {
+        std::cout << "Can not put isotropic source in upper ambient medium." << std::endl;
         return 0;
     }
-    if (!ZToLayerQ(run_params.source_z, &run_params.slayer, run_params)) {
+    if (!ZToLayerQ(params.source_z, params.source_layer, params)) {
         return 0;
     }
 
-    if (run_params.medium_name[0] != '\0') {
-        if (run_params.layers[run_params.slayer].medium == run_params.medium_name) {
-            if ((fabs(run_params.source_z - run_params.layers[run_params.slayer].z1) < DBL_EPSILON) && (run_params.layers[run_params.slayer + 1].medium == run_params.medium_name)) {
-                run_params.slayer++;
+    if (params.source_medium_name[0] != '\0') {
+        if (params.layers[params.source_layer].name == params.source_medium_name) {
+            if ((std::abs(params.source_z - params.layers[params.source_layer].bot_z) < DBL_EPSILON) && (params.layers[params.source_layer + 1].name == params.source_medium_name)) {
+                params.source_layer++;
             }
             else {
-                std::cout << "Medium name and z coordinate do not match.\n";
+                std::cout << "Medium name and z coordinate do not match." << std::endl;
                 return false;
             }
         }
@@ -1800,114 +1778,105 @@ char QuitOrContinue()
     return (toupper(string[0]));
 }
 
-void ChangeMediumList(RunParams& run_params)
+void ChangeMediumList(RunParams& params)
 {
     int line = 1;
-    std::cout << "Current medium list: \n";
-    PutMediumListToFile(std::cout, run_params, line);
-    std::cout << "\n";
+    std::cout << "Current medium list: " << std::endl;
+    PutMediumListToFile(std::cout, params, line);
+    std::cout << std::endl;
 
     if (QuitOrContinue() == 'Y') {
-        run_params.media.clear();
-        InterReadMediumList(run_params);
+        params.mediums.clear();
+        InterReadMediumList(params);
     }
 }
 
-void ChangeFnameFormat(RunParams& run_params)
+void ChangeFnameFormat(RunParams& params)
 {
     int line = 1;
-    std::cout << "Current output file name and format: \n";
-    PutFnameFormatToFile(std::cout, run_params, line);
-    std::cout << "\n";
-    InterReadFnameFormat(run_params);
+    std::cout << "Current output file name and format: " << std::endl;
+    PutFnameFormatToFile(std::cout, params, line);
+    std::cout << std::endl;
+    InterReadFnameFormat(params);
 }
 
-void ChangeDzDrDt(RunParams& run_params)
+void ChangeDzDrDt(RunParams& params)
 {
     int line = 1;
-    std::cout << "Current dz, dr, dt: \n";
-    PutDzDrDtToFile(std::cout, run_params, line);
-    std::cout << "\n";
-    InterReadDzDrDt(run_params);
+    std::cout << "Current dz, dr, dt: " << std::endl;
+    PutDzDrDtToFile(std::cout, params, line);
+    std::cout << std::endl;
+    InterReadDzDrDt(params);
 }
 
-void ChangeNzNrNtNa(RunParams& run_params)
+void ChangeNzNrNtNa(RunParams& params)
 {
     int line = 1;
-    std::cout << "Current nz, nr, nt, na: \n";
-    PutNzNrNtNaToFile(std::cout, run_params, line);
-    std::cout << "\n";
-    InterReadNzNrNtNa(run_params);
+    std::cout << "Current nz, nr, nt, na: " << std::endl;
+    PutNzNrNtNaToFile(std::cout, params, line);
+    std::cout << std::endl;
+    InterReadNzNrNtNa(params);
 }
 
-void ChangeRecord(RunParams& run_params)
+void ChangeRecord(RunParams& params)
 {
     int line = 1;
-    PutScoredToFile(std::cout, run_params, line);
-    std::cout << "\n";
+    PutScoredToFile(std::cout, params, line);
+    std::cout << std::endl;
 
     if (QuitOrContinue() == 'Y') {
-        InterFilterRecord(run_params);
+        InterFilterRecord(params);
     }
 }
 
-void ChangeWth(RunParams& run_params)
+void ChangeWth(RunParams& params)
 {
     int line = 1;
-    std::cout << "Current threshold weight: \n";
-    PutWthToFile(std::cout, run_params, line);
-    std::cout << "\n";
-    InterReadWth(run_params);
+    std::cout << "Current threshold weight: " << std::endl;
+    PutWthToFile(std::cout, params, line);
+    std::cout << std::endl;
+    InterReadWth(params);
 }
 
-void ChangeRanSeed(RunParams& run_params)
+void ChangeLayerSpecs(RunParams& params)
 {
     int line = 1;
-    std::cout << "Current random number seed: \n";
-    PutRanSeedToFile(std::cout, run_params, line);
-    std::cout << "\n";
-    InterReadRanSeed(run_params);
-}
-
-void ChangeLayerSpecs(RunParams& run_params)
-{
-    int line = 1;
-    std::cout << "Current layer sepcification: \n";
-    PutLayerSpecsToFile(std::cout, run_params, line);
-    std::cout << "\n";
+    std::cout << "Current layer sepcification: " << std::endl;
+    PutLayerSpecsToFile(std::cout, params, line);
+    std::cout << std::endl;
 
     if (QuitOrContinue() == 'Y') {
-        InterReadLayerSpecs(run_params);
+        InterReadLayerSpecs(params);
     }
 }
 
-void ChangeNumPhotons(RunParams& run_params)
+void ChangeNumPhotons(RunParams& params)
 {
     int line = 1;
-    std::cout << "Current value: \n";
-    PutNumPhotonsToFile(std::cout, run_params, line);
-    std::cout << "\n";
-    InterReadNumPhotons(run_params);
+    std::cout << "Current value: " << std::endl;
+    PutNumPhotonsToFile(std::cout, params, line);
+    std::cout << std::endl;
+    InterReadNumPhotons(params);
 }
 
-void ChangeSourceType(RunParams& run_params)
+void ChangeSourceType(RunParams& params)
 {
     int line = 1;
-    std::cout << "Current source type: \n";
-    PutSourceTypeToFile(std::cout, run_params, line);
-    std::cout << "\n";
-    InterReadSourceType(run_params);
+    std::cout << "Current source type: " << std::endl;
+    PutSourceTypeToFile(std::cout, params, line);
+    std::cout << std::endl;
+    InterReadSourceType(params);
 }
 
-void ChangeStartP(RunParams& run_params)
+void ChangeStartP(RunParams& params)
 {
     int line = 1;
-    std::cout << "Layer Specification: \n";
-    PutLayerSpecsToFile(std::cout, run_params, line);
-    std::cout << "\nCurrent starting position: \n";
-    PutStartPToFile(std::cout, run_params, line);
-    std::cout << "\n";
-    InterReadStartP(run_params);
+    std::cout << "Layer Specification: " << std::endl;
+    PutLayerSpecsToFile(std::cout, params, line);
+    std::cout << "\nCurrent starting position: " << std::endl;
+    PutStartPToFile(std::cout, params, line);
+    std::cout << std::endl;
+    InterReadStartP(params);
 }
 
 /************************************************************************
@@ -1915,55 +1884,51 @@ void ChangeStartP(RunParams& run_params)
  *  return 2 if string[0] = X, quit to the main menu;
  *  return 0 otherwise.
  ****/
-int BranchChangeMenu(std::string& string, RunParams& run_params)
+int BranchChangeMenu(std::string& string, RunParams& params)
 {
     switch (toupper(string[0])) {
         case 'M':
-            ChangeMediumList(run_params);
+            ChangeMediumList(params);
             break;
 
         case 'F':
-            ChangeFnameFormat(run_params);
+            ChangeFnameFormat(params);
             break;
 
         case 'D':
-            ChangeDzDrDt(run_params);
+            ChangeDzDrDt(params);
             break;
 
         case 'N':
-            ChangeNzNrNtNa(run_params);
+            ChangeNzNrNtNa(params);
             break;
 
         case 'C':
-            ChangeRecord(run_params);
+            ChangeRecord(params);
             break;
 
         case 'W':
-            ChangeWth(run_params);
-            break;
-
-        case 'R':
-            ChangeRanSeed(run_params);
+            ChangeWth(params);
             break;
 
         case 'L':
-            ChangeLayerSpecs(run_params);
+            ChangeLayerSpecs(params);
             break;
 
         case 'P':
-            ChangeNumPhotons(run_params);
+            ChangeNumPhotons(params);
             break;
 
         case 'S':
-            ChangeSourceType(run_params);
+            ChangeSourceType(params);
             break;
 
         case 'Z':
-            ChangeStartP(run_params);
+            ChangeStartP(params);
             break;
 
         case 'O':
-            PutInputToFile(std::cout, run_params);
+            PutInputToFile(std::cout, params);
             break;
 
         case 'H':
@@ -1987,7 +1952,7 @@ int BranchChangeMenu(std::string& string, RunParams& run_params)
  *   Return 1 if quit change and start simulation;
  *   return 0 if exit to main menu.
  ****/
-bool RunChangedInput(RunParams& run_params)
+bool RunChangedInput(RunParams& params)
 {
     std::string string;
     int branch;
@@ -2005,7 +1970,7 @@ bool RunChangedInput(RunParams& run_params)
             } while (string.empty());
 
             // string[0] is 'X' or 'Q'.
-            if (branch = BranchChangeMenu(string, run_params)) {
+            if (branch = BranchChangeMenu(string, params)) {
                 break;
             }
         } while (1);
@@ -2021,21 +1986,21 @@ bool RunChangedInput(RunParams& run_params)
                 std::cout << "Can not open the file to write." << std::endl;
             }
             else {
-                PutInputToFile(file, run_params);
+                PutInputToFile(file, params);
             }
         }
 
         // quit change menu and start simulation.
         if (branch == 1) {
-            if (!CheckInputConsis(run_params)) {
+            if (!CheckInputConsis(params)) {
                 do {
                     std::cout << "Change input or exit to main menu (c/x): ";
                     std::getline(std::cin, string);
                 } while (!string.empty() || toupper(string[0]) != 'X' && toupper(string[0]) != 'C');
 
                 if (toupper(string[0]) == 'X') {
-                    run_params.media.clear();
-                    run_params.layers.clear();
+                    params.mediums.clear();
+                    params.layers.clear();
                     return false;
                 }
                 else {
@@ -2049,8 +2014,8 @@ bool RunChangedInput(RunParams& run_params)
         }
         // exit to menu.
         else {
-            run_params.media.clear();
-            run_params.layers.clear();
+            params.mediums.clear();
+            params.layers.clear();
             return false;
         }
     }
@@ -2153,9 +2118,9 @@ bool EndOfRunsQ(std::istream& input)
     std::streampos file_pos = input.tellg();
 
     std::string buf = FindDataLine(input);
-    if (buf[0] == '\0') {
+    if (buf.empty()) {
         found = false;
-        std::cout << "Missing end.\n";
+        std::cout << "Missing end." << std::endl;
     }
     else if (buf.find("end") != std::string::npos) {
         found = false;
@@ -2169,35 +2134,35 @@ bool EndOfRunsQ(std::istream& input)
 /**************************************************************************
  *  Check the input parameters for all runs.
  *  This function will count number of runs and assign it to
- *  run_params.num_runs.
+ *  params.num_runs.
  ****/
-void CheckParamFromFile(std::fstream& input, RunParams& run_params)
+void CheckParamFromFile(std::fstream& input, RunParams& params)
 {
     short i_run = 0;
     NameLink head = NULL;
 
-    if (!ReadMediumListQ(input, run_params)) {
+    if (!ReadMediumListQ(input, params)) {
         exit(1);
     }
 
     std::streampos file_pos = input.tellg();
 
     do {
-        printf("Checking input data for run %d\n", ++i_run);
-        ReadRunParam(input, run_params);
+        std::cout << "Checking input data for run " << ++i_run << std::endl;
+        ReadRunParam(input, params);
 
         // output files share the same input name.
-        bool name_taken = FnameTaken(run_params.output_filename, &head);
+        bool name_taken = FnameTaken(params.output_filename, &head);
         if (name_taken) {
-            printf("file name %s duplicated.\n", run_params.output_filename);
+            std::cout << "file name " << params.output_filename << " duplicated." << std::endl;
             exit(1);
         }
 
         // TODO:?
-        //run_params.layers.clear();
+        //params.layers.clear();
     } while (!EndOfRunsQ(input));
 
-    run_params.num_runs = i_run;
+    params.num_runs = i_run;
     FreeFnameList(head);
     input.seekg(file_pos, std::ios::beg);
 }
@@ -2210,7 +2175,7 @@ void CheckParamFromFile(std::fstream& input, RunParams& run_params)
  *	& A_rz[][iz] start from -1 storing the collimated
  *	responses.
  ****/
-void InitOutputData(RunParams& run_params, Tracer& tracer)
+void InitOutputData(RunParams& params, Tracer& tracer)
 {
     tracer.R.sp = 0.0;
     tracer.R.b = 0.0;
@@ -2258,9 +2223,9 @@ void InitOutputData(RunParams& run_params, Tracer& tracer)
  *      (area perpendicular to photon direction)
  *		x(solid angle)x(No. of photons).
  *	or
- *		[2*PI*r*dr*cos(a)]x[2*PI*sin(a)*da]x[No. of photons]
+ *		[2*PI*r*grid_r*cos(a)]x[2*PI*sin(a)*grid_alpha]x[No. of photons]
  *	or
- *		[2*PI*PI*dr*da*r*sin(2a)]x[No. of photons]
+ *		[2*PI*PI*grid_r*grid_alpha*r*sin(2a)]x[No. of photons]
  ****
  *	Scale Rd(r) and Td(r) by
  *		(area on the surface)x(No. of photons).
@@ -2270,16 +2235,16 @@ void InitOutputData(RunParams& run_params, Tracer& tracer)
  ****
  *  Mode = 0, scale Rd and Td; Mode = 1, unscale Rd and Td.
  ****/
-void ScaleRdTd(RunParams& run_params, Tracer& tracer, char Mode)
+void ScaleRdTd(RunParams& params, Tracer& tracer, char Mode)
 {
-    short nr = run_params.nr;
-    short na = run_params.na;
-    short nt = run_params.nt;
-    double dr = run_params.dr;
-    double da = run_params.da;
-    double dt = run_params.dt;
+    short nr = params.num_r;
+    short na = params.num_alpha;
+    short nt = params.num_time;
+    double dr = params.grid_r;
+    double da = params.grid_alpha;
+    double dt = params.grid_time;
 
-    double scale1 = (double)run_params.num_photons;
+    double scale1 = (double)params.num_photons;
     if (Mode == 0) {
         tracer.R.de = 1 / scale1 * sqrt(tracer.R.de - tracer.R.d * tracer.R.d / scale1);
         tracer.T.de = 1 / scale1 * sqrt(tracer.T.de - tracer.T.d * tracer.T.d / scale1);
@@ -2303,8 +2268,8 @@ void ScaleRdTd(RunParams& run_params, Tracer& tracer, char Mode)
         tracer.T.be = (scale1 * tracer.T.be) * (scale1 * tracer.T.be) + 1 / scale1 * tracer.T.b * tracer.T.b;
     }
 
-    scale1 = dt * run_params.num_photons;
-    if (run_params.record.Rd_t) {
+    scale1 = dt * params.num_photons;
+    if (params.record.Rd_t) {
         for (short it = 0; it < nt; it++) {
             // scale Rd_t.
             if (Mode == 0) {
@@ -2317,7 +2282,7 @@ void ScaleRdTd(RunParams& run_params, Tracer& tracer, char Mode)
         }
     }
 
-    if (run_params.record.Td_t) {
+    if (params.record.Td_t) {
         for (short it = 0; it < nt; it++) {
             // scale Td_t.
             if (Mode == 0) {
@@ -2330,10 +2295,10 @@ void ScaleRdTd(RunParams& run_params, Tracer& tracer, char Mode)
         }
     }
 
-    scale1 = 2.0 * PI * dr * dr * run_params.num_photons;
-    // area is 2*PI*[(ir+0.5)*dr]*dr.  ir + 0.5 to be added.
+    scale1 = 2.0 * PI * dr * dr * params.num_photons;
+    // area is 2*PI*[(ir+0.5)*grid_r]*grid_r.  ir + 0.5 to be added.
 
-    if (run_params.record.Rd_r) {
+    if (params.record.Rd_r) {
         for (short ir = 0; ir < nr; ir++) {
             double scale2 = 1.0 / ((ir + 0.5) * scale1);
             // scale Rd_r.
@@ -2347,7 +2312,7 @@ void ScaleRdTd(RunParams& run_params, Tracer& tracer, char Mode)
         }
     }
 
-    if (run_params.record.Td_r) {
+    if (params.record.Td_r) {
         for (short ir = 0; ir < nr; ir++) {
             double scale2 = 1.0 / ((ir + 0.5) * scale1);
             // scale Td_r.
@@ -2362,7 +2327,7 @@ void ScaleRdTd(RunParams& run_params, Tracer& tracer, char Mode)
     }
 
     scale1 *= dt;
-    if (run_params.record.Rd_rt) {
+    if (params.record.Rd_rt) {
         for (short ir = 0; ir < nr; ir++) {
             for (short it = 0; it < nt; it++) {
                 double scale2 = 1.0 / ((ir + 0.5) * scale1);
@@ -2378,7 +2343,7 @@ void ScaleRdTd(RunParams& run_params, Tracer& tracer, char Mode)
         }
     }
 
-    if (run_params.record.Td_rt) {
+    if (params.record.Td_rt) {
         for (short ir = 0; ir < nr; ir++) {
             for (short it = 0; it < nt; it++) {
                 double scale2 = 1.0 / ((ir + 0.5) * scale1);
@@ -2394,10 +2359,10 @@ void ScaleRdTd(RunParams& run_params, Tracer& tracer, char Mode)
         }
     }
 
-    scale1 = PI * da * run_params.num_photons;
-    // solid angle times cos(a) is PI*sin(2a)*da. sin(2a) to be added.
+    scale1 = PI * da * params.num_photons;
+    // solid angle times cos(a) is PI*sin(2a)*grid_alpha. sin(2a) to be added.
 
-    if (run_params.record.Rd_a) {
+    if (params.record.Rd_a) {
         for (short ia = 0; ia < na; ia++) {
             double scale2 = 1.0 / (sin(2.0 * (ia + 0.5) * da) * scale1);
             // scale Rd_a.
@@ -2411,7 +2376,7 @@ void ScaleRdTd(RunParams& run_params, Tracer& tracer, char Mode)
         }
     }
 
-    if (run_params.record.Td_a) {
+    if (params.record.Td_a) {
         for (short ia = 0; ia < na; ia++) {
             double scale2 = 1.0 / (sin(2.0 * (ia + 0.5) * da) * scale1);
             // scale Td_a.
@@ -2426,7 +2391,7 @@ void ScaleRdTd(RunParams& run_params, Tracer& tracer, char Mode)
     }
 
     scale1 *= dt;
-    if (run_params.record.Rd_at) {
+    if (params.record.Rd_at) {
         for (short ia = 0; ia < na; ia++) {
             for (short it = 0; it < nt; it++) {
                 double scale2 = 1.0 / (sin(2.0 * (ia + 0.5) * da) * scale1);
@@ -2442,7 +2407,7 @@ void ScaleRdTd(RunParams& run_params, Tracer& tracer, char Mode)
         }
     }
 
-    if (run_params.record.Td_at) {
+    if (params.record.Td_at) {
         for (short ia = 0; ia < na; ia++) {
             for (short it = 0; it < nt; it++) {
                 double scale2 = 1.0 / (sin(2.0 * (ia + 0.5) * da) * scale1);
@@ -2458,8 +2423,8 @@ void ScaleRdTd(RunParams& run_params, Tracer& tracer, char Mode)
         }
     }
 
-    scale1 = 2.0 * PI * dr * dr * PI * da * run_params.num_photons;
-    if (run_params.record.Rd_ra) {
+    scale1 = 2.0 * PI * dr * dr * PI * da * params.num_photons;
+    if (params.record.Rd_ra) {
         for (short ir = 0; ir < nr; ir++) {
             for (short ia = 0; ia < na; ia++) {
                 double scale2 = 1.0 / ((ir + 0.5) * sin(2.0 * (ia + 0.5) * da) * scale1);
@@ -2475,7 +2440,7 @@ void ScaleRdTd(RunParams& run_params, Tracer& tracer, char Mode)
         }
     }
 
-    if (run_params.record.Td_ra) {
+    if (params.record.Td_ra) {
         for (short ir = 0; ir < nr; ir++) {
             for (short ia = 0; ia < na; ia++) {
                 double scale2 = 1.0 / ((ir + 0.5) * sin(2.0 * (ia + 0.5) * da) * scale1);
@@ -2492,7 +2457,7 @@ void ScaleRdTd(RunParams& run_params, Tracer& tracer, char Mode)
     }
 
     scale1 *= dt;
-    if (run_params.record.Rd_rat) {
+    if (params.record.Rd_rat) {
         for (short ir = 0; ir < nr; ir++) {
             for (short ia = 0; ia < na; ia++) {
                 for (short it = 0; it < nt; it++) {
@@ -2510,7 +2475,7 @@ void ScaleRdTd(RunParams& run_params, Tracer& tracer, char Mode)
         }
     }
 
-    if (run_params.record.Td_rat) {
+    if (params.record.Td_rat) {
         for (short ir = 0; ir < nr; ir++) {
             for (short ia = 0; ia < na; ia++) {
                 for (short it = 0; it < nt; it++) {
@@ -2533,15 +2498,15 @@ void ScaleRdTd(RunParams& run_params, Tracer& tracer, char Mode)
  *	Scale absorption arrays properly.
  *  Mode = 0, scale A; Mode = 1, unscale A.
  ****/
-void ScaleA(RunParams& run_params, Tracer& tracer, char Mode)
+void ScaleA(RunParams& params, Tracer& tracer, char Mode)
 {
-    short nz = run_params.nz;
-    short nr = run_params.nr;
-    short nt = run_params.nt;
-    double dz = run_params.dz;
-    double dr = run_params.dr;
-    double dt = run_params.dt;
-    double scale1 = (double)run_params.num_photons;
+    short nz = params.num_z;
+    short nr = params.num_r;
+    short nt = params.num_time;
+    double dz = params.grid_z;
+    double dr = params.grid_r;
+    double dt = params.grid_time;
+    double scale1 = (double)params.num_photons;
 
     // scale A.
     if (Mode == 0) {
@@ -2555,7 +2520,7 @@ void ScaleA(RunParams& run_params, Tracer& tracer, char Mode)
     }
 
     double scale2 = scale1 * dt;
-    if (run_params.record.A_t) {
+    if (params.record.A_t) {
         for (short it = 0; it < nt; it++) {
             // scale A_t.
             if (Mode == 0) {
@@ -2569,7 +2534,7 @@ void ScaleA(RunParams& run_params, Tracer& tracer, char Mode)
     }
 
     scale1 *= dz;
-    if (run_params.record.A_z) {
+    if (params.record.A_z) {
         for (short iz = 0; iz < nz; iz++) {
             // scale A_z.
             if (Mode == 0) {
@@ -2583,7 +2548,7 @@ void ScaleA(RunParams& run_params, Tracer& tracer, char Mode)
     }
 
     scale2 = scale1 * dt;
-    if (run_params.record.A_zt) {
+    if (params.record.A_zt) {
         for (short iz = 0; iz < nz; iz++) {
             for (short it = 0; it < nt; it++) {
                 // scale A_zt.
@@ -2598,7 +2563,7 @@ void ScaleA(RunParams& run_params, Tracer& tracer, char Mode)
         }
     }
 
-    if (run_params.record.A_rz) {
+    if (params.record.A_rz) {
         for (short iz = 0; iz < nz; iz++) {
             // scale Ab_z.
             if (Mode == 0) {
@@ -2611,7 +2576,7 @@ void ScaleA(RunParams& run_params, Tracer& tracer, char Mode)
         }
     }
 
-    if (run_params.record.A_rzt) {
+    if (params.record.A_rzt) {
         for (short iz = 0; iz < nz; iz++) {
             for (short it = 0; it < nt; it++) {
                 // scale Ab_zt.
@@ -2626,8 +2591,8 @@ void ScaleA(RunParams& run_params, Tracer& tracer, char Mode)
         }
     }
 
-    scale1 = 2.0 * PI * dr * dr * dz * run_params.num_photons;
-    if (run_params.record.A_rz) {
+    scale1 = 2.0 * PI * dr * dr * dz * params.num_photons;
+    if (params.record.A_rz) {
         for (short ir = 0; ir < nr; ir++) {
             for (short iz = 0; iz < nz; iz++) {
                 // scale A_rz.
@@ -2643,7 +2608,7 @@ void ScaleA(RunParams& run_params, Tracer& tracer, char Mode)
     }
 
     scale2 = scale1 * dt;
-    if (run_params.record.A_rzt) {
+    if (params.record.A_rzt) {
         for (short ir = 0; ir < nr; ir++) {
             for (short iz = 0; iz < nz; iz++) {
                 for (short it = 0; it < nt; it++) {
@@ -2665,10 +2630,10 @@ void ScaleA(RunParams& run_params, Tracer& tracer, char Mode)
  *	Scale results of current run.
  *  Mode = 0, scale result; Mode = 1, unscale result.
  ****/
-void ScaleResult(RunParams& run_params, Tracer& tracer, char Mode)
+void ScaleResult(RunParams& params, Tracer& tracer, char Mode)
 {
-    ScaleRdTd(run_params, tracer, Mode);
-    ScaleA(run_params, tracer, Mode);
+    ScaleRdTd(params, tracer, Mode);
+    ScaleA(params, tracer, Mode);
 }
 
 /**************************************************************************
@@ -2679,35 +2644,22 @@ void ScaleResult(RunParams& run_params, Tracer& tracer, char Mode)
  ****/
 void WriteVersion(std::fstream& file, const std::string& version)
 {
-    file << version << " \t# Version number of the file format.\n\n";
-    file << "####\n# Data categories include: \n";
-    file << "# InParam, RAT, \n";
-    file << "# Rd_r\tRd_a\tRd_ra\tRd_t\tRd_rt\tRd_at\tRd_rat\n";
-    file << "# Td_r\tTd_a\tTd_ra\tTd_t\tTd_rt\tTd_at\tTd_rat\n";
-    file << "# A_z\tA_rz\tA_t\tA_zt\tA_rzt\n";
-    file << "####\n\n";
+    file << version << " \t# Version number of the file format.\n" << std::endl;
+    file << "####\n# Data categories include: " << std::endl;
+    file << "# InParam, RAT, " << std::endl;
+    file << "# Rd_r\tRd_a\tRd_ra\tRd_t\tRd_rt\tRd_at\tRd_rat" << std::endl;
+    file << "# Td_r\tTd_a\tTd_ra\tTd_t\tTd_rt\tTd_at\tTd_rat" << std::endl;
+    file << "# A_z\tA_rz\tA_t\tA_zt\tA_rzt" << std::endl;
+    file << "####\n" << std::endl;
 }
 
 /***************************************************************************
- * Save the status of the random number generater to output input.
+ * Save the status of the random number generator to output file.
  ****/
 void SaveRandomStatus(std::fstream& file)
 {
-    // get the status.
-    long status[57];
-    RandomGen();
     file << std::format("# status of the random number generator:");
-
-    for (int i = 0; i < 57; i++) {
-        if (i % 5) {
-            file << std::format("%14ld", status[i]);
-        }
-        else {
-            file << std::format("\n%14ld ", status[i]);
-        }
-    }
-
-    file << std::format("\n\n");
+    file << RandomEngine;
 }
 
 /***************************************************************************
@@ -2717,19 +2669,11 @@ void SaveRandomStatus(std::fstream& file)
 void RestoreRandomStatus(std::fstream& file)
 {
     std::string buf;
-    long status[57];
-
     do {
         std::getline(file, buf);
     } while (buf[0] != '#');
 
-    for (int i = 0; i < 57; i++) {
-        file >> status[i];
-        //fscanf_s(file, "%ld", &status[i]);
-    }
-
-    // TODO: restore the status.
-    RandomGen();
+    file >> RandomEngine;
 }
 
 /**************************************************************************
@@ -2757,28 +2701,28 @@ void ReadRAT(std::fstream& file, Tracer& tracer)
     std::string buf = FindDataLine(file);
 
     buf = FindDataLine(file);
-    //sscanf_s(buf, "%lf", &(tracer.R.sp));
-    file >> tracer.R.sp;
+    std::istringstream iss(buf);
+    iss >> tracer.R.sp;
 
     buf = FindDataLine(file);
-    //sscanf_s(buf, "%lf %lf", &(tracer.R.b), &(tracer.R.be));
-    file >> tracer.R.b >> tracer.R.be;
+    iss = std::istringstream(buf);
+    iss >> tracer.R.b >> tracer.R.be;
 
     buf = FindDataLine(file);
-    //sscanf_s(buf, "%lf %lf", &(tracer.R.d), &(tracer.R.de));
-    file >> tracer.R.d >> tracer.R.de;
+    iss = std::istringstream(buf);
+    iss >> tracer.R.d >> tracer.R.de;
 
     buf = FindDataLine(file);
-    //sscanf_s(buf, "%lf %lf", &(tracer.A.a), &(tracer.A.e));
-    file >> tracer.A.a >> tracer.A.e;
+    iss = std::istringstream(buf);
+    iss >> tracer.A.a >> tracer.A.e;
 
     buf = FindDataLine(file);
-    //sscanf_s(buf, "%lf %lf", &(tracer.T.b), &(tracer.T.be));
-    file >> tracer.T.b >> tracer.T.be;
+    iss = std::istringstream(buf);
+    iss >> tracer.T.b >> tracer.T.be;
 
     buf = FindDataLine(file);
-    //sscanf_s(buf, "%lf %lf", &(tracer.T.d), &(tracer.T.de));
-    file >> tracer.T.d >> tracer.T.de;
+    iss = std::istringstream(buf);
+    iss >> tracer.T.d >> tracer.T.de;
 }
 
 /**************************************************************************
@@ -3548,17 +3492,17 @@ void IOTd_t(std::fstream& file, short Nt, Tracer& tracer, char Mode)
  *  Mode = 0, read result back from a output input.
  *  Mode = 1, write result to a output input;
  ****/
-void IOResult(std::fstream& file, RunParams& run_params, Tracer& tracer, char Mode)
+void IOResult(std::fstream& file, RunParams& params, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
-        if (run_params.output_file_format == FileFormat::ASCII) {
+        if (params.output_file_format == FileFormat::ASCII) {
             WriteVersion(file, "mcmloA2.0");
         }
         else {
             WriteVersion(file, "mcmloB2.0");
         }
 
-        PutInputToFile(file, run_params);
+        PutInputToFile(file, params);
         SaveRandomStatus(file);
         WriteRAT(file, tracer);
     }
@@ -3568,64 +3512,64 @@ void IOResult(std::fstream& file, RunParams& run_params, Tracer& tracer, char Mo
     }
 
     // reflectance, absorption, transmittance.
-    if (run_params.record.A_rzt) {
-        IOA_rzt(file, run_params.nr, run_params.nz, run_params.nt, tracer, Mode);
+    if (params.record.A_rzt) {
+        IOA_rzt(file, params.num_r, params.num_z, params.num_time, tracer, Mode);
     }
-    if (run_params.record.A_rz) {
-        IOA_rz(file, run_params.nr, run_params.nz, tracer, Mode);
+    if (params.record.A_rz) {
+        IOA_rz(file, params.num_r, params.num_z, tracer, Mode);
     }
-    if (run_params.record.A_zt) {
-        IOA_zt(file, run_params.nz, run_params.nt, tracer, Mode);
+    if (params.record.A_zt) {
+        IOA_zt(file, params.num_z, params.num_time, tracer, Mode);
     }
-    if (run_params.record.A_z) {
-        IOA_z(file, run_params.nz, tracer, Mode);
+    if (params.record.A_z) {
+        IOA_z(file, params.num_z, tracer, Mode);
     }
-    if (run_params.record.A_t) {
-        IOA_t(file, run_params.nt, tracer, Mode);
-    }
-
-    if (run_params.record.Rd_rat) {
-        IORd_rat(file, run_params.nr, run_params.na, run_params.nt, tracer, Mode);
-    }
-    if (run_params.record.Rd_ra) {
-        IORd_ra(file, run_params.nr, run_params.na, tracer, Mode);
-    }
-    if (run_params.record.Rd_rt) {
-        IORd_rt(file, run_params.nr, run_params.nt, tracer, Mode);
-    }
-    if (run_params.record.Rd_at) {
-        IORd_at(file, run_params.na, run_params.nt, tracer, Mode);
-    }
-    if (run_params.record.Rd_r) {
-        IORd_r(file, run_params.nr, tracer, Mode);
-    }
-    if (run_params.record.Rd_a) {
-        IORd_a(file, run_params.na, tracer, Mode);
-    }
-    if (run_params.record.Rd_t) {
-        IORd_t(file, run_params.nt, tracer, Mode);
+    if (params.record.A_t) {
+        IOA_t(file, params.num_time, tracer, Mode);
     }
 
-    if (run_params.record.Td_rat) {
-        IOTd_rat(file, run_params.nr, run_params.na, run_params.nt, tracer, Mode);
+    if (params.record.Rd_rat) {
+        IORd_rat(file, params.num_r, params.num_alpha, params.num_time, tracer, Mode);
     }
-    if (run_params.record.Td_ra) {
-        IOTd_ra(file, run_params.nr, run_params.na, tracer, Mode);
+    if (params.record.Rd_ra) {
+        IORd_ra(file, params.num_r, params.num_alpha, tracer, Mode);
     }
-    if (run_params.record.Td_rt) {
-        IOTd_rt(file, run_params.nr, run_params.nt, tracer, Mode);
+    if (params.record.Rd_rt) {
+        IORd_rt(file, params.num_r, params.num_time, tracer, Mode);
     }
-    if (run_params.record.Td_at) {
-        IOTd_at(file, run_params.na, run_params.nt, tracer, Mode);
+    if (params.record.Rd_at) {
+        IORd_at(file, params.num_alpha, params.num_time, tracer, Mode);
     }
-    if (run_params.record.Td_r) {
-        IOTd_r(file, run_params.nr, tracer, Mode);
+    if (params.record.Rd_r) {
+        IORd_r(file, params.num_r, tracer, Mode);
     }
-    if (run_params.record.Td_a) {
-        IOTd_a(file, run_params.na, tracer, Mode);
+    if (params.record.Rd_a) {
+        IORd_a(file, params.num_alpha, tracer, Mode);
     }
-    if (run_params.record.Td_t) {
-        IOTd_t(file, run_params.nt, tracer, Mode);
+    if (params.record.Rd_t) {
+        IORd_t(file, params.num_time, tracer, Mode);
+    }
+
+    if (params.record.Td_rat) {
+        IOTd_rat(file, params.num_r, params.num_alpha, params.num_time, tracer, Mode);
+    }
+    if (params.record.Td_ra) {
+        IOTd_ra(file, params.num_r, params.num_alpha, tracer, Mode);
+    }
+    if (params.record.Td_rt) {
+        IOTd_rt(file, params.num_r, params.num_time, tracer, Mode);
+    }
+    if (params.record.Td_at) {
+        IOTd_at(file, params.num_alpha, params.num_time, tracer, Mode);
+    }
+    if (params.record.Td_r) {
+        IOTd_r(file, params.num_r, tracer, Mode);
+    }
+    if (params.record.Td_a) {
+        IOTd_a(file, params.num_alpha, tracer, Mode);
+    }
+    if (params.record.Td_t) {
+        IOTd_t(file, params.num_time, tracer, Mode);
     }
 
     file.close();

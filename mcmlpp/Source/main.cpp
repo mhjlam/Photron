@@ -2,7 +2,7 @@
  *	Copyright Univ. of Texas M.D. Anderson Cancer Center, 1992-1996.
  *	Program name: MCML.
  *	The main program for Monte Carlo simulation of light transport
- *	in multi-layered turbid media.
+ *	in multi-layered turbid mediums.
  ****/
 
 
@@ -36,6 +36,11 @@ bool GetFile(std::string&, const std::string, std::fstream&);
 bool ReadNumPhotonsQ(std::istream&, RunParams&, char);
 bool CheckFileVersionQ(std::fstream&, const std::string);
 
+
+std::mt19937 RandomEngine;
+std::uniform_real_distribution<double> Distribution;
+
+
 /**************************************************************************
  *  If F = 0, reset the clock and return 0.
  *
@@ -59,7 +64,7 @@ bool CheckFileVersionQ(std::fstream&, const std::string);
  *  to the real time unless the system is multi-tasking during
  *  the Monte Carlo simulation, which usually is not true.
  ****/
-long long PunchTime(char F, std::string& msg, RunParams& run_params)
+long long PunchTime(char F, std::string& msg, RunParams& params)
 {
     // real time reference.
     static system_clock::time_point rt0;
@@ -76,8 +81,8 @@ long long PunchTime(char F, std::string& msg, RunParams& run_params)
     auto real_time_secs = duration_cast<seconds>(now - rt0);
 
     if (F == 1) {
-        real_time_secs += seconds(run_params.add_limit_seconds);
-        std::string formatted_time = std::format("This took {:%H:%M:%S}.", elapsed);
+        real_time_secs += seconds(params.add_limit_seconds);
+        msg = std::format("This took {:%H:%M:%S}.", elapsed);
     }
 
     return real_time_secs.count();
@@ -89,19 +94,19 @@ long long PunchTime(char F, std::string& msg, RunParams& run_params)
  *	P1 is the number of computed photon packets.
  *	Pt is the total number of photon packets.
  ****/
-void PredictDoneTime(long P1, RunParams& run_params)
+void PredictDoneTime(long P1, RunParams& params)
 {
     auto now = std::chrono::system_clock::now();
     std::cout << std::format("{:%H:%M %a %m/%d/%Y}\t", now);
 
-    if (run_params.control_bit == ControlBit::TimeLimit || run_params.control_bit == ControlBit::Both) {
+    if (params.control_bit == ControlBit::TimeLimit || params.control_bit == ControlBit::Both) {
         std::string msg;
 
-        auto done_time = now + (seconds(PunchTime(2, msg, run_params)) / seconds(P1) * seconds(run_params.num_photons - P1));
+        auto done_time = now + (seconds(PunchTime(2, msg, params)) / seconds(P1) * seconds(params.num_photons - P1));
 
-        if (run_params.control_bit == ControlBit::Both) {
-            if (!(done_time < (now + seconds(run_params.time_limit_seconds) - seconds(PunchTime(2, msg, run_params))))) {
-                done_time = (now + seconds(run_params.time_limit_seconds) - seconds(PunchTime(2, msg, run_params)));
+        if (params.control_bit == ControlBit::Both) {
+            if (!(done_time < (now + seconds(params.time_limit_seconds) - seconds(PunchTime(2, msg, params))))) {
+                done_time = (now + seconds(params.time_limit_seconds) - seconds(PunchTime(2, msg, params)));
             }
         }
 
@@ -113,13 +118,13 @@ void PredictDoneTime(long P1, RunParams& run_params)
 /**************************************************************************
  *	Generate a string representing the user-specified done time.
  ****/
-std::string FormDateString(RunParams& run_params)
+std::string FormDateString(RunParams& params)
 {
     std::string msg;
 
     auto now = system_clock::now();
-    auto time_limit = seconds(run_params.time_limit_seconds);
-    auto punch_time = seconds(PunchTime(2, msg, run_params));
+    auto time_limit = seconds(params.time_limit_seconds);
+    auto punch_time = seconds(PunchTime(2, msg, params));
     
     auto done_time = now + time_limit - punch_time;
 
@@ -129,31 +134,31 @@ std::string FormDateString(RunParams& run_params)
 /**************************************************************************
  *	Report how and when the simultion will be terminated.
  ****/
-void ReportControlInfo(short NumRunsLeft, RunParams& run_params)
+void ReportControlInfo(short NumRunsLeft, RunParams& params)
 {
     std::string string;
 
-    printf("\nStarting run #%d. ", run_params.num_runs - NumRunsLeft);
-    switch (run_params.control_bit) {
+    std::cout << std::endl << "Starting run #" << params.num_runs - NumRunsLeft  << ". ";
+    switch (params.control_bit) {
         case ControlBit::NumPhotons: {
-            printf("Tracing %ld photons.\n\n", run_params.num_photons);
-            std::cout << "\tPhotons Done\tCurrent Time\t\tEstimated Done Time\n";
-            std::cout << "\t------------\t--------------------\t--------------------\n";
+            std::cout << "Tracing " << params.num_photons << " photons." << std::endl << std::endl;
+            std::cout << "\tPhotons Done\tCurrent Time\t\tEstimated Done Time" << std::endl;
+            std::cout << "\t------------\t--------------------\t--------------------" << std::endl;
             break;
         }
         case ControlBit::TimeLimit: {
-            std::string date = FormDateString(run_params);
-            std::cout << "The simulation will terminate on " << date << ".\n\n";
-            std::cout << "\tPhotons Done\tCurrent Time\n";
-            std::cout << "\t------------\t--------------------\n";
+            std::string date = FormDateString(params);
+            std::cout << "The simulation will terminate on " << date << ".\n" << std::endl;
+            std::cout << "\tPhotons Done\tCurrent Time" << std::endl;
+            std::cout << "\t------------\t--------------------" << std::endl;
             break;
         }
         case ControlBit::Both: {
-            std::string date = FormDateString(run_params);
-            std::cout << "Tracing " << run_params.num_photons << " photons ";
-            std::cout << "with a deadline at " << date << ".\n\n";
-            std::cout << "\tPhotons Done\tCurrent Time\t\tEstimated Done Time\n";
-            std::cout << "\t------------\t--------------------\t--------------------\n";
+            std::string date = FormDateString(params);
+            std::cout << "Tracing " << params.num_photons << " photons ";
+            std::cout << "with a deadline at " << date << ".\n" << std::endl;
+            std::cout << "\tPhotons Done\tCurrent Time\t\tEstimated Done Time" << std::endl;
+            std::cout << "\t------------\t--------------------\t--------------------" << std::endl;
             break;
         }
     }
@@ -164,41 +169,41 @@ void ReportControlInfo(short NumRunsLeft, RunParams& run_params)
  *	after calculating 10 photons or every 1/10 of total
  *	number of photons.
  *
- *	Pi is the number of traced photons so far.
+ *	photons_traced is the number of traced photons so far.
  ****/
-void ReportStatus(long Pi, RunParams& run_params)
+void ReportStatus(long photons_traced, RunParams& params)
 {
-    if (run_params.control_bit == ControlBit::TimeLimit) {
-        printf("%11ld(%6.2f%%)\t", Pi, (float)Pi * 100 / run_params.num_photons);
+    if (params.control_bit == ControlBit::TimeLimit) {
+        std::cout << std::format("%11ld(%6.2f%%)\t", photons_traced, (float)photons_traced * 100 / params.num_photons);
     }
-    else if (run_params.control_bit == ControlBit::Both) {
-        printf("\t%12ld\t", Pi);
+    else if (params.control_bit == ControlBit::Both) {
+        std::cout << std::format("\t%12ld\t", photons_traced);
     }
     else {
-        printf("%11ld(%6.2f%%)\t", Pi, (float)Pi * 100 / run_params.num_photons);
+        std::cout << std::format("%11ld(%6.2f%%)\t", photons_traced, (float)photons_traced * 100 / params.num_photons);
     }
 
-    PredictDoneTime(Pi, run_params);
+    PredictDoneTime(photons_traced, params);
 }
 
 /**************************************************************************
  *	Report time, photon number traced and write results.
  ****/
-void ReportResult(RunParams& run_params, Tracer& tracer)
+void ReportResult(RunParams& params, Tracer& tracer)
 {
     std::string time_report;
-    PunchTime(1, time_report, run_params);
-    printf("\nFinished tracing %ld photons. %s\n", run_params.num_photons, time_report.c_str());
+    PunchTime(1, time_report, params);
+    std::cout << std::endl << "Finished tracing " << params.num_photons << " photons. " << time_report << std::endl;
 
-    ScaleResult(run_params, tracer, 0);
+    ScaleResult(params, tracer, 0);
 
-    std::fstream file(run_params.output_filename, std::ios::in | std::ios::out);
+    std::fstream file(params.output_filename, std::ios::in | std::ios::out);
 
     if (!file.is_open()) {
-        std::cout << "Can not open output file to write.\n";
+        std::cout << "Can not open output file to write." << std::endl;
         exit(1);
     }
-    IOResult(file, run_params, tracer, 1);
+    IOResult(file, params, tracer, 1);
 }
 
 /**************************************************************************
@@ -215,20 +220,20 @@ std::string GetFnameFromArgv(int argc, char* argv[])
  *  Type = 0: start a new simulation;
  *  Type = 1: continue previous simulation.
  ****/
-void DoOneRun(short NumRunsLeft, RunParams& run_params, Tracer& tracer, char Type)
+void DoOneRun(short NumRunsLeft, RunParams& params, Tracer& tracer, char Type)
 {
     int tens = 10;
 
     // start a new simulation.
     if (Type == 0) {
-        if (run_params.slayer == 0) {
-            tracer.R.sp = Rspecular(run_params.layers);
+        if (params.source_layer == 0) {
+            tracer.R.sp = Rspecular(params.layers);
         }
     }
     
     std::string msg;
-    PunchTime(0, msg, run_params);
-    ReportControlInfo(NumRunsLeft, run_params);
+    PunchTime(0, msg, params);
+    ReportControlInfo(NumRunsLeft, params);
 
     // photon number traced. 
     long i_photon = 1;
@@ -238,62 +243,62 @@ void DoOneRun(short NumRunsLeft, RunParams& run_params, Tracer& tracer, char Typ
 
     do {
         Photon photon;
-        LaunchPhoton(tracer.R.sp, run_params, tracer, photon);
-        TracePhoton(run_params, photon, tracer);
+        LaunchPhoton(tracer.R.sp, params, tracer, photon);
+        TracePhoton(params, photon, tracer);
 
         // report status every ten photons.
         if (i_photon == tens) {
             tens *= 10;
-            ReportStatus(i_photon, run_params);
+            ReportStatus(i_photon, params);
         }
         i_photon++;
-        if (run_params.control_bit == ControlBit::TimeLimit) {
-            exit_switch = (i_photon > run_params.num_photons);
+        if (params.control_bit == ControlBit::TimeLimit) {
+            exit_switch = (i_photon > params.num_photons);
         }
-        else if (run_params.control_bit == ControlBit::Both) {
-            exit_switch = (PunchTime(2, msg, run_params) >= run_params.time_limit_seconds);
+        else if (params.control_bit == ControlBit::Both) {
+            exit_switch = (PunchTime(2, msg, params) >= params.time_limit_seconds);
         }
         else {
-            exit_switch = (i_photon > run_params.num_photons) || (PunchTime(2, msg, run_params) >= run_params.time_limit_seconds);
+            exit_switch = (i_photon > params.num_photons) || (PunchTime(2, msg, params) >= params.time_limit_seconds);
         }
     }
     while (!exit_switch);
 
-    run_params.num_photons = run_params.add_num_photons + i_photon - 1;
-    run_params.time_limit_seconds = run_params.add_limit_seconds + (long)PunchTime(2, msg, run_params);
-    run_params.control_bit = ControlBit::Both;
+    params.num_photons = params.add_num_photons + i_photon - 1;
+    params.time_limit_seconds = params.add_limit_seconds + (long)PunchTime(2, msg, params);
+    params.control_bit = ControlBit::Both;
 
-    ReportResult(run_params, tracer);
+    ReportResult(params, tracer);
 }
 
 /**************************************************************************
  *	In continuation runs, ask for additional number of photons or time.
  ****/
-void add_num_photons(RunParams& run_params)
+void add_num_photons(RunParams& params)
 {
-    printf("\n%ld photons have been traced in the previous simulation.", run_params.num_photons);
-    std::cout << "\nSpecify additional photons or compution time in hh:mm format,";
-    std::cout << "\nor both in one line (e.g. 10000 5:30): ";
+    std::cout << std::endl << params.num_photons << (" photons have been traced in the previous simulation.");
+    std::cout << std::endl << "Specify additional photons or compution time in hh:mm format,";
+    std::cout << std::endl << "or both in one line (e.g. 10000 5:30): ";
 
-    while (!ReadNumPhotonsQ(std::cin, run_params, 1)) {
+    while (!ReadNumPhotonsQ(std::cin, params, 1)) {
         std::cout << "Input again: ";
     }
 
-    std::cout << "\n";
+    std::cout << std::endl;
 }
 
 /**************************************************************************
  *	Start a new simulation non-interactively.
  *  Read input parameter from file input_filename.
  ****/
-void NonInterSimu(std::fstream& file, RunParams& run_params, Tracer& tracer)
+void Simulate(std::fstream& file, RunParams& params, Tracer& tracer)
 {
-    CheckParamFromFile(file, run_params);
-    short num_runs_left = run_params.num_runs;
+    CheckParamFromFile(file, params);
+    short num_runs_left = params.num_runs;
     while (num_runs_left--) {
-        ReadRunParam(file, run_params);
-        InitOutputData(run_params, tracer);
-        DoOneRun(num_runs_left, run_params, tracer, 0);
+        ReadRunParam(file, params);
+        InitOutputData(params, tracer);
+        DoOneRun(num_runs_left, params, tracer, 0);
     }
     file.close();
     exit(0);
@@ -302,19 +307,19 @@ void NonInterSimu(std::fstream& file, RunParams& run_params, Tracer& tracer)
 /**************************************************************************
  *	Read input parameters from a file with interactive change.
  ****/
-void FileInterSimu(RunParams& run_params, Tracer& tracer)
+void FileInterSimu(RunParams& params, Tracer& tracer)
 {
     std::string input_filename;
     std::fstream input_file;
 
     if (GetFile(input_filename, "mcmli2.0", input_file)) {
-        if (ReadMediumListQ(input_file, run_params)) {
-            ReadRunParam(input_file, run_params);
-            std::cout << "The parameters of the first run have been read in.\n";
+        if (ReadMediumListQ(input_file, params)) {
+            ReadRunParam(input_file, params);
+            std::cout << "The parameters of the first run have been read in." << std::endl;
 
-            if (RunChangedInput(run_params)) {
-                InitOutputData(run_params, tracer);
-                DoOneRun(0, run_params, tracer, 0);
+            if (RunChangedInput(params)) {
+                InitOutputData(params, tracer);
+                DoOneRun(0, params, tracer, 0);
                 input_file.close();
                 exit(0);
             }
@@ -326,9 +331,9 @@ void FileInterSimu(RunParams& run_params, Tracer& tracer)
 /**************************************************************************
  *	Continue a previous simulation.
  ****/
-void ContinueSimu(RunParams& run_params, Tracer& tracer)
+void ContinueSimu(RunParams& params, Tracer& tracer)
 {
-    std::cout << "Specify the output file name of a previous simulation. \n";
+    std::cout << "Specify the output file name of a previous simulation. " << std::endl;
     
     std::string input_filename;
     std::fstream file;
@@ -339,19 +344,19 @@ void ContinueSimu(RunParams& run_params, Tracer& tracer)
 
     // skip the line of file version.
     FindDataLine(file);
-    if (!ReadMediumListQ(file, run_params)) {
+    if (!ReadMediumListQ(file, params)) {
         exit(1);
     }
-    ReadRunParam(file, run_params);
+    ReadRunParam(file, params);
 
-    add_num_photons(run_params);
-    InitOutputData(run_params, tracer);
-    IOResult(file, run_params, tracer, 0);
-    ScaleResult(run_params, tracer, 1);
+    add_num_photons(params);
+    InitOutputData(params, tracer);
+    IOResult(file, params, tracer, 0);
+    ScaleResult(params, tracer, 1);
 
-    std::swap(run_params.num_photons, run_params.add_num_photons);
-    std::swap(run_params.time_limit_seconds, run_params.add_limit_seconds);
-    DoOneRun(0, run_params, tracer, 1);
+    std::swap(params.num_photons, params.add_num_photons);
+    std::swap(params.time_limit_seconds, params.add_limit_seconds);
+    DoOneRun(0, params, tracer, 1);
     exit(0);
 }
 
@@ -385,7 +390,7 @@ void ShowMainMenu(void)
 
 /**************************************************************************
  ****/
-void BranchMainMenu(std::string& string, RunParams& run_params, Tracer& tracer)
+void BranchMainMenu(std::string& string, RunParams& params, Tracer& tracer)
 {
     switch (toupper(string[0])) {
         case 'A':
@@ -401,7 +406,7 @@ void BranchMainMenu(std::string& string, RunParams& run_params, Tracer& tracer)
             std::fstream input_file;
             
             if (GetFile(input_filename, "mcmli2.0", input_file)) {
-                NonInterSimu(input_file, run_params, tracer);
+                Simulate(input_file, params, tracer);
             }
             break;
         }
@@ -409,17 +414,17 @@ void BranchMainMenu(std::string& string, RunParams& run_params, Tracer& tracer)
         // read a file with an interactive change.
         case 'M':
         {
-            FileInterSimu(run_params, tracer);
+            FileInterSimu(params, tracer);
             break;
         }
 
         // interactive.
         case 'I':
         {
-            InterReadParam(run_params);
-            if (RunChangedInput(run_params)) {
-                InitOutputData(run_params, tracer);
-                DoOneRun(0, run_params, tracer, 0);
+            InterReadParam(params);
+            if (RunChangedInput(params)) {
+                InitOutputData(params, tracer);
+                DoOneRun(0, params, tracer, 0);
                 exit(0);
             }
             break;
@@ -427,7 +432,7 @@ void BranchMainMenu(std::string& string, RunParams& run_params, Tracer& tracer)
 
         case 'C':
         {
-            ContinueSimu(run_params, tracer);
+            ContinueSimu(params, tracer);
             break;
         }
 
@@ -455,7 +460,10 @@ void BranchMainMenu(std::string& string, RunParams& run_params, Tracer& tracer)
  ****/
 int main(int argc, char* argv[])
 {
-    std::cout << "MCML Version 2.0, Copyright (c) 1992-1996\n\n";
+    std::cout << "MCML Version 2.0, Copyright (c) 1992-1996\n" << std::endl;
+
+    RandomEngine.seed(std::random_device{}());
+    Distribution = std::uniform_real_distribution<double>(0.0, 1.0);
 
     // non-interactive.
     if (argc >= 2) {
@@ -464,9 +472,9 @@ int main(int argc, char* argv[])
 
         if (input_file_ptr.is_open()) {
             if (CheckFileVersionQ(input_file_ptr, "mcmli2.0")) {
-                RunParams in_param;
-                Tracer out_param;
-                NonInterSimu(input_file_ptr, in_param, out_param);
+                RunParams params;
+                Tracer tracer;
+                Simulate(input_file_ptr, params, tracer);
             }
         }
         exit(0);
@@ -482,8 +490,8 @@ int main(int argc, char* argv[])
             while (str.empty());
 
             Tracer tracer;
-            RunParams run_params;
-            BranchMainMenu(str, run_params, tracer);
+            RunParams params;
+            BranchMainMenu(str, params, tracer);
         }
     }
 }

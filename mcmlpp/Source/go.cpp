@@ -7,8 +7,6 @@
 
 #include "mcml.hpp"
 
-#include <random>
-
 
  // 1=split photon, 0=statistical reflection.
 constexpr int PARTIAL_REFLECTION = 0;
@@ -20,47 +18,19 @@ constexpr double ONE_MINUS_COS_ZERO = 1.0E-12;
 // If cos(theta) <= COS90D, theta >= PI/2 - 1e-6 rad.
 constexpr double COS_90_DEGREES = 1.0E-6;
 
-/**************************************************************************
- *	A random number generator that generates uniformly
- *	distributed random numbers between 0 and 1 inclusive.
- *	The algorithm is based on:
- *	W.H. Press, S.A. Teukolsky, W.T. Vetterling, and B.P.
- *	Flannery, "Numerical Recipes in C," Cambridge University
- *	Press, 2nd edition, (1992).
- *	and
- *	D.E. Knuth, "Seminumerical Algorithms," 2nd edition, vol. 2
- *	of "The Art of Computer Programming", Addison-Wesley, (1981).
- *
- *	When Type is 0, sets Seed as the seed. Make sure 0<Seed<32000.
- *	When Type is 1, returns a random number.
- *	When Type is 2, gets the status of the generator.
- *	When Type is 3, restores the status of the generator.
- *
- *	The status of the generator is represented by Status[0..56].
- *
- *	Make sure you initialize the seed before you get random
- *	numbers.
- ****/
-double RandomGen()
-{
-    std::random_device random_device;                               // Non-deterministic seed
-    std::mt19937 generator(random_device());                        // Mersenne Twister generator
-    std::uniform_real_distribution<double> distribution(0.0, 1.0);  // Uniform distribution [0,1]
-    return distribution(generator);
-}
 
 /**************************************************************************
  *	Compute the specular reflectance.
  *
- *	If the first layer is a turbid medium, use the Fresnel reflection from
- *  the boundary between the top abmient medium and the first layer as the
+ *	If the first current_layer is a turbid name, use the Fresnel reflection from
+ *  the boundary between the top abmient name and the first current_layer as the
  *  specular reflectance.
  *
  *	The subroutine assumes the Layerspecs array is correctly initialized.
  ****/
 double Rspecular(std::vector<Layer>& layers)
 {
-    double r = (layers[0].n - layers[1].n) / (layers[0].n + layers[1].n);
+    double r = (layers[0].eta - layers[1].eta) / (layers[0].eta + layers[1].eta);
     return (r * r);
 }
 
@@ -85,23 +55,23 @@ void Spin(double g, Photon& photon)
     double uz = photon.uz;
 
     // sample theta.
-    double temp = (1 - g * g) / (1 - g + 2 * g * RandomGen());
-    double cost = (g == 0.0) ? 2 * RandomGen() - 1 : (1 + g * g - temp * temp) / (2 * g);
+    double temp = (1 - g * g) / (1 - g + 2 * g * RandomNumber());
+    double cost = (g == 0.0) ? 2 * RandomNumber() - 1 : (1 + g * g - temp * temp) / (2 * g);
 
     // sqrt is faster than sin.
-    double sint = sqrt(1.0 - cost * cost);
+    double sint = std::sqrt(1.0 - cost * cost);
 
     // sample psi.
-    double psi = 2.0 * PI * RandomGen();
-    double cosp = cos(psi);
+    double psi = 2.0 * PI * RandomNumber();
+    double cosp = std::cos(psi);
 
     // sqrt is faster than sin.
-    double sinp = (psi < PI) ? sqrt(1.0 - cosp * cosp) : -sqrt(1.0 - cosp * cosp);
+    double sinp = (psi < PI) ? std::sqrt(1.0 - cosp * cosp) : -std::sqrt(1.0 - cosp * cosp);
 
     // update directional cosines.
 
     // close to perpendicular.
-    if (1 - fabs(uz) <= ONE_MINUS_COS_ZERO) {
+    if (1 - std::abs(uz) <= ONE_MINUS_COS_ZERO) {
         photon.ux = sint * cosp;
         photon.uy = sint * sinp;
 
@@ -109,7 +79,7 @@ void Spin(double g, Photon& photon)
         photon.uz = cost * sign(uz);
     }
     else {
-        double temp = sqrt(1.0 - uz * uz);
+        double temp = std::sqrt(1.0 - uz * uz);
         photon.ux = sint * (ux * uz * cosp - uy * sinp) / temp + ux * cost;
         photon.uy = sint * (uy * uz * cosp + ux * sinp) / temp + uy * cost;
         photon.uz = -sint * cosp * temp + uz * cost;
@@ -119,24 +89,24 @@ void Spin(double g, Photon& photon)
 /**************************************************************************
  *	Initialize a photon packet.
  *
- *	If an Isotropic source is launched inside a glass layer, we check
+ *	If an Isotropic source is launched inside a glass current_layer, we check
  *	whether the photon will be total-internally reflected.  If it
  *	does, the photon is killed to avoid a infinite travelling inside
  *	the glass layer.
  ****/
-void LaunchPhoton(double Rsp, RunParams& run_params, Tracer& tracer, Photon& photon)
+void LaunchPhoton(double Rsp, RunParams& params, Tracer& tracer, Photon& photon)
 {
-    photon.w = 1.0 - Rsp;
+    photon.min_weight = 1.0 - Rsp;
     photon.alive = 1;
-    photon.layer = (run_params.slayer != 0) ? run_params.slayer : 1;
-    photon.s = 0;
-    photon.sleft = 0;
-    photon.scatters = 0;
-    photon.time = 0;
+    photon.current_layer = (params.source_layer != 0) ? params.source_layer : 1;
+    photon.step_size = 0;
+    photon.step_size_left = 0;
+    photon.num_scatters = 0;
+    photon.flight_time = 0;
 
     photon.x = 0.0;
     photon.y = 0.0;
-    photon.z = run_params.source_z;
+    photon.z = params.source_z;
     photon.ux = 0.0;
     photon.uy = 0.0;
     photon.uz = 1.0;
@@ -147,19 +117,19 @@ void LaunchPhoton(double Rsp, RunParams& run_params, Tracer& tracer, Photon& pho
     tracer.R.bi = 0.0;
     tracer.R.di = 0.0;
 
-    if (run_params.source == BeamType::Isotropic) {
-        Layer layer = run_params.layers[photon.layer];
+    if (params.source == BeamType::Isotropic) {
+        Layer layer = params.layers[photon.current_layer];
 
         // to avoid scoring into Rb or Tb.
-        photon.scatters++;
+        photon.num_scatters++;
 
         // isotropically scatter the photon.
         Spin(0.0, photon);
 
-        // glass layer.
+        // glass current_layer.
         if (layer.mua == 0.0 && layer.mus == 0.0) {
             // total internal reflection
-            if (fabs(photon.uz) <= layer.cos_crit0 && fabs(photon.uz) <= layer.cos_crit1) {
+            if (std::abs(photon.uz) <= layer.cos_crit0 && std::abs(photon.uz) <= layer.cos_crit1) {
                 photon.alive = 0;
             }
         }
@@ -167,14 +137,14 @@ void LaunchPhoton(double Rsp, RunParams& run_params, Tracer& tracer, Photon& pho
 }
 
 /**************************************************************************
- *	Move the photon S away in the current layer of medium.
+ *	Move the photon S away in the current current_layer of name.
  ****/
 void Hop(Photon& photon, double S, double n)
 {
     photon.x += S * photon.ux;
     photon.y += S * photon.uy;
     photon.z += S * photon.uz;
-    photon.time += S * n * ONE_OVER_C;
+    photon.flight_time += S * n * ONE_OVER_C;
 }
 
 /**************************************************************************
@@ -186,11 +156,11 @@ void Hop(Photon& photon, double S, double n)
 void SetStepSize(Photon& photon)
 {
     // make a new step.
-    if (photon.s == 0.0) {
+    if (photon.step_size == 0.0) {
         // avoid zero.
         double rnd;
-        while ((rnd = RandomGen()) <= 0.0);
-        photon.s = -log(rnd);
+        while ((rnd = RandomNumber()) <= 0.0);
+        photon.step_size = -std::log(rnd);
     }
 }
 
@@ -198,10 +168,10 @@ void SetStepSize(Photon& photon)
  *	Return the distance between the photon position to the boundary along
  *  the photon direction.
  ****/
-double PathToBoundary(Photon& photon, RunParams& run_params)
+double PathToBoundary(Photon& photon, RunParams& params)
 {
     // length to boundary.
-    short layer = photon.layer;
+    short layer = photon.current_layer;
     double uz = photon.uz;
 
     // Distance to the boundary.
@@ -209,11 +179,11 @@ double PathToBoundary(Photon& photon, RunParams& run_params)
 
     // path > 0.
     if (uz > 0.0) {
-        path = (run_params.layers[layer].z1 - photon.z) / uz;
+        path = (params.layers[layer].bot_z - photon.z) / uz;
     }
     // path > 0.
     else if (uz < 0.0) {
-        path = (run_params.layers[layer].z0 - photon.z) / uz;
+        path = (params.layers[layer].top_z - photon.z) / uz;
     }
 
     return (path);
@@ -229,52 +199,53 @@ double PathToBoundary(Photon& photon, RunParams& run_params)
  *	The dropped min_weight is assigned to the absorption array
  *	elements.
  ****/
-void Drop(RunParams& run_params, Photon& photon, Tracer& tracer)
+void Drop(RunParams& params, Photon& photon, Tracer& tracer)
 {
     // Absorbed min_weight.
     double x = photon.x;
     double y = photon.y;
 
-    short layer = photon.layer;
-    Record record = run_params.record;
+    short layer = photon.current_layer;
+    Record record = params.record;
 
     // Update photon min_weight.
-    double mua = run_params.layers[layer].mua;
-    double mus = run_params.layers[layer].mus;
-    double dwa = photon.w * mua / (mua + mus);
-    photon.w -= dwa;
+    double mua = params.layers[layer].mua;
+    double mus = params.layers[layer].mus;
+    double dwa = photon.min_weight * mua / (mua + mus);
+    photon.min_weight -= dwa;
 
     // Compute array indices.
     short iz, ir, it;
+
     if (record.A_rzt || record.A_zt || record.A_z || record.A_rz) {
-        if (photon.z >= run_params.zm) {
-            iz = run_params.nz - 1;
+        if (photon.z >= params.max_z) {
+            iz = params.num_z - 1;
         }
         else {
-            iz = (short)(photon.z / run_params.dz);
+            iz = static_cast<short>(photon.z / params.grid_z);
         }
     }
 
     if (record.A_rzt || record.A_zt || record.A_t) {
-        if (photon.time >= run_params.tm) {
-            it = run_params.nt - 1;
+        if (photon.flight_time >= params.max_time) {
+            it = params.num_time - 1;
         }
         else {
-            it = (short)floor(photon.time / run_params.dt);
+            it = static_cast<short>(std::floor(photon.flight_time / params.grid_time));
         }
     }
 
     // Assign dwa to an absorption array element.
 
     // Scattered.
-    if (photon.scatters) {
+    if (photon.num_scatters) {
         if (record.A_rzt || record.A_rz) {
-            double temp = sqrt(x * x + y * y);
-            if (temp >= run_params.rm) {
-                ir = run_params.nr - 1;
+            double temp = std::sqrt(x * x + y * y);
+            if (temp >= params.max_r) {
+                ir = params.num_r - 1;
             }
             else {
-                ir = (short)(temp / run_params.dr);
+                ir = static_cast<short>(temp / params.grid_r);
             }
         }
         if (record.A_rzt) {
@@ -315,13 +286,13 @@ void Drop(RunParams& run_params, Photon& photon, Tracer& tracer)
 void Roulette(Photon& photon)
 {
     // already dead.
-    if (photon.w == 0.0) {
+    if (photon.min_weight == 0.0) {
         photon.alive = 0;
     }
 
     // survived the roulette.
-    else if (RandomGen() < CHANCE) {
-        photon.w /= CHANCE;
+    else if (RandomNumber() < CHANCE) {
+        photon.min_weight /= CHANCE;
     }
     else {
         photon.alive = 0;
@@ -336,49 +307,48 @@ void Roulette(Photon& photon)
  *	than the critical angle is ruled out.
  *
  *	cai: cosine of the incident angle ai.
- *	cat_Ptr: pointer to the cosine of the transmission
- *			 angle at.
+ *	cos_at: pointer to the cosine of the transmission angle at.
  *
  * 	Avoid trigonometric function operations as much as
  *	possible, because they are computation-intensive.
  *
  * ni:  incident refractive index
- * nt:  transmit refractive index
+ * num_time:  transmit refractive index
  * cai: cosine of angle ai. +
  ****/
-double RFresnel(double ni, double nt, double cai, double* cat_Ptr)
+double RFresnel(double ni, double nt, double cai, double& cos_at)
 {
     // Matched boundary.
     if (ni == nt) {
-        *cat_Ptr = cai;
+        cos_at = cai;
         return 0.0;
     }
     // Normal incidence.
     else if (1 - cai <= ONE_MINUS_COS_ZERO) {
-        *cat_Ptr = cai;
+        cos_at = cai;
         double r = (nt - ni) / (nt + ni);
         return r * r;
     }
     // Very slant incidence.
     else if (cai < COS_90_DEGREES) {
-        *cat_Ptr = 0.0;
+        cos_at = 0.0;
         return 1.0;
     }
     // General incidence.
     else {
         // Sine of the angles ai & at.
-        double sai = sqrt(1 - cai * cai);
+        double sai = std::sqrt(1 - cai * cai);
         double sat = ni * sai / nt;
 
         // Total internal reflection.
         if (sat >= 1.0) {
-            *cat_Ptr = 0.0;
+            cos_at = 0.0;
             return 1.0;
         }
 
         // cosine of at.
-        double cat = sqrt(1 - sat * sat);
-        *cat_Ptr = cat;
+        double cat = std::sqrt(1 - sat * sat);
+        cos_at = cat;
 
         // cosines of ai+at & ai-at.
         double cap = cai * cat - sai * sat;	// c+ = cc - ss.
@@ -395,162 +365,162 @@ double RFresnel(double ni, double nt, double cai, double* cat_Ptr)
 }
 
 /**************************************************************************
- *	Record the photon min_weight exiting the first layer(uz<0),
+ *	Record the photon min_weight exiting the first current_layer(uz<0),
  *	to the reflection array.
  *
  *	Update the photon min_weight as well.
  ****/
-void RecordR(double Refl, RunParams& run_params, Photon& photon, Tracer& tracer) // reflectance.
+void RecordR(double Refl, RunParams& params, Photon& photon, Tracer& tracer) // reflectance.
 {
     double x = photon.x;
     double y = photon.y;
-    Record record = run_params.record;
+    Record record = params.record;
 
     short ir, ia, it;	// index to r & angle.
     if (record.Rd_rat || record.Rd_at || record.Rd_rt || record.Rd_t) {
-        if (photon.time >= run_params.tm) {
-            it = run_params.nt - 1;
+        if (photon.flight_time >= params.max_time) {
+            it = params.num_time - 1;
         }
         else {
-            it = (short)floor(photon.time / run_params.dt);
+            it = static_cast<short>(std::floor(photon.flight_time / params.grid_time));
         }
     }
 
     // Scattered.
-    if (photon.scatters) {
+    if (photon.num_scatters) {
         if (record.Rd_rat || record.Rd_rt || record.Rd_ra || record.Rd_r) {
-            double temp = sqrt(x * x + y * y);
-            if (temp >= run_params.rm) {
-                ir = run_params.nr - 1;
+            double temp = std::sqrt(x * x + y * y);
+            if (temp >= params.max_r) {
+                ir = params.num_r - 1;
             }
             else {
-                ir = (short)(temp / run_params.dr);
+                ir = static_cast<short>(temp / params.grid_r);
             }
         }
         if (record.Rd_rat || record.Rd_at || record.Rd_ra || record.Rd_a) {
-            if ((ia = (short)(acos(-photon.uz) / run_params.da) > run_params.na - 1)) {
-                ia = run_params.na - 1;
+            if ((ia = static_cast<short>(std::acos(-photon.uz) / params.grid_alpha) > params.num_alpha - 1)) {
+                ia = params.num_alpha - 1;
             }
         }
 
         // Assign photon min_weight to the reflection array element.
         if (record.Rd_rat) {
-            tracer.R.rat[ir][ia][it] += photon.w * (1.0 - Refl);
+            tracer.R.rat[ir][ia][it] += photon.min_weight * (1.0 - Refl);
         }
         if (record.Rd_ra) {
-            tracer.R.ra[ir][ia] += photon.w * (1.0 - Refl);
+            tracer.R.ra[ir][ia] += photon.min_weight * (1.0 - Refl);
         }
 
         if (record.Rd_rt) {
-            tracer.R.rt[ir][it] += photon.w * (1.0 - Refl);
+            tracer.R.rt[ir][it] += photon.min_weight * (1.0 - Refl);
         }
         if (record.Rd_r) {
-            tracer.R.r[ir] += photon.w * (1.0 - Refl);
+            tracer.R.r[ir] += photon.min_weight * (1.0 - Refl);
         }
 
         if (record.Rd_at) {
-            tracer.R.at[ia][it] += photon.w * (1.0 - Refl);
+            tracer.R.at[ia][it] += photon.min_weight * (1.0 - Refl);
         }
         if (record.Rd_a) {
-            tracer.R.a[ia] += photon.w * (1.0 - Refl);
+            tracer.R.a[ia] += photon.min_weight * (1.0 - Refl);
         }
         if (record.Rd_t) {
-            tracer.R.t[it] += photon.w * (1.0 - Refl);
+            tracer.R.t[it] += photon.min_weight * (1.0 - Refl);
         }
-        tracer.R.di += photon.w * (1.0 - Refl);
+        tracer.R.di += photon.min_weight * (1.0 - Refl);
 
     }
 
     // Ballistic.
     else {
-        tracer.R.bi += photon.w * (1.0 - Refl);
+        tracer.R.bi += photon.min_weight * (1.0 - Refl);
     }
 
-    photon.w *= Refl;
+    photon.min_weight *= Refl;
 }
 
 /**************************************************************************
- *	Record the photon min_weight exiting the last layer (uz > 0), no matter
- *  whether the layer is glass or not, to the transmittance array.
+ *	Record the photon min_weight exiting the last current_layer (uz > 0), no matter
+ *  whether the current_layer is glass or not, to the transmittance array.
  *
  *	Update the photon min_weight as well.
  ****/
-void RecordT(double Refl, RunParams& run_params, Photon& photon, Tracer& tracer)
+void RecordT(double Refl, RunParams& params, Photon& photon, Tracer& tracer)
 {
     double x = photon.x;
     double y = photon.y;
-    Record record = run_params.record;
+    Record record = params.record;
 
     // Index to r & angle.
     short ir, ia, it;
     if (record.Td_rat || record.Td_at || record.Td_rt || record.Td_t) {
-        if (photon.time >= run_params.tm) {
-            it = run_params.nt - 1;
+        if (photon.flight_time >= params.max_time) {
+            it = params.num_time - 1;
         }
         else {
-            it = (short)floor(photon.time / run_params.dt);
+            it = static_cast<short>(std::floor(photon.flight_time / params.grid_time));
         }
     }
 
     // Scattered.
-    if (photon.scatters) {
+    if (photon.num_scatters) {
         if (record.Td_rat || record.Td_rt || record.Td_ra || record.Td_r) {
-            double temp = sqrt(x * x + y * y);
-            if (temp >= run_params.rm) {
-                ir = run_params.nr - 1;
+            double temp = std::sqrt(x * x + y * y);
+            if (temp >= params.max_r) {
+                ir = params.num_r - 1;
             }
             else {
-                ir = (short)(temp / run_params.dr);
+                ir = (short)(temp / params.grid_r);
             }
         }
         if (record.Td_rat || record.Td_at || record.Td_ra || record.Td_a) {
-            if ((ia = (short)(acos(photon.uz) / run_params.da) > run_params.na - 1)) {
-                ia = run_params.na - 1;
+            if ((ia = static_cast<short>(std::acos(photon.uz) / params.grid_alpha) > params.num_alpha - 1)) {
+                ia = params.num_alpha - 1;
             }
         }
 
         // Assign photon min_weight to the transmittance array element.
         if (record.Td_rat) {
-            tracer.T.rat[ir][ia][it] += photon.w * (1.0 - Refl);
+            tracer.T.rat[ir][ia][it] += photon.min_weight * (1.0 - Refl);
         }
         if (record.Td_ra) {
-            tracer.T.ra[ir][ia] += photon.w * (1.0 - Refl);
+            tracer.T.ra[ir][ia] += photon.min_weight * (1.0 - Refl);
         }
 
         if (record.Td_rt) {
-            tracer.T.rt[ir][it] += photon.w * (1.0 - Refl);
+            tracer.T.rt[ir][it] += photon.min_weight * (1.0 - Refl);
         }
         if (record.Td_r) {
-            tracer.T.r[ir] += photon.w * (1.0 - Refl);
+            tracer.T.r[ir] += photon.min_weight * (1.0 - Refl);
         }
 
         if (record.Td_at) {
-            tracer.T.at[ia][it] += photon.w * (1.0 - Refl);
+            tracer.T.at[ia][it] += photon.min_weight * (1.0 - Refl);
         }
         if (record.Td_a) {
-            tracer.T.a[ia] += photon.w * (1.0 - Refl);
+            tracer.T.a[ia] += photon.min_weight * (1.0 - Refl);
         }
 
         if (record.Td_t) {
-            tracer.T.t[it] += photon.w * (1.0 - Refl);
+            tracer.T.t[it] += photon.min_weight * (1.0 - Refl);
         }
-        tracer.T.di += photon.w * (1.0 - Refl);
+        tracer.T.di += photon.min_weight * (1.0 - Refl);
     }
 
     // Collimated.
     else {
-        tracer.T.bi += photon.w * (1.0 - Refl);
+        tracer.T.bi += photon.min_weight * (1.0 - Refl);
     }
 
-    photon.w *= Refl;
+    photon.min_weight *= Refl;
 }
 
 /**************************************************************************
  *	Decide whether the photon will be transmitted or
  *	reflected on the upper boundary (uz<0) of the current
- *	layer.
+ *	current_layer.
  *
- *	If "layer" is the first layer, the photon packet will
+ *	If "current_layer" is the first current_layer, the photon packet will
  *	be partially transmitted and partially reflected if
  *	PARTIAL_REFLECTION is set to 1,
  *	or the photon packet will be either transmitted or
@@ -559,12 +529,12 @@ void RecordT(double Refl, RunParams& run_params, Photon& photon, Tracer& tracer)
  *
  *	Record the transmitted photon min_weight as reflection.
  *
- *	If the "layer" is not the first layer and the photon
- *	packet is transmitted, move the photon to "layer-1".
+ *	If the "current_layer" is not the first current_layer and the photon
+ *	packet is transmitted, move the photon to "current_layer-1".
  *
  *	Update the photon parmameters.
  ****/
-void CrossUpOrNot(RunParams& run_params, Photon& photon, Tracer& tracer)
+void CrossUpOrNot(RunParams& params, Photon& photon, Tracer& tracer)
 {
     // z directional cosine.
     double uz = photon.uz;
@@ -572,20 +542,20 @@ void CrossUpOrNot(RunParams& run_params, Photon& photon, Tracer& tracer)
     // cosines of transmission alpha. always * +.
     double uz1 = 0.0;
 
-    short layer = photon.layer;
-    double ni = run_params.layers[layer].n;
-    double nt = run_params.layers[layer - 1].n;
+    short layer = photon.current_layer;
+    double ni = params.layers[layer].eta;
+    double nt = params.layers[layer - 1].eta;
 
     // Get reflectance. If 1.0, then total internal reflection.
-    double r = (-uz <= run_params.layers[layer].cos_crit0) ? 1.0 : RFresnel(ni, nt, -uz, &uz1);
+    double r = (-uz <= params.layers[layer].cos_crit0) ? 1.0 : RFresnel(ni, nt, -uz, uz1);
 
 #if PARTIAL_REFLECTION
     if (layer == 1 && r < 1.0) {	// partially transmitted.
         photon.uz = -uz1;	// escaped photon.
-        RecordR(r, run_params, Photon_Ptr, Out_Ptr);
+        RecordR(r, params, Photon_Ptr, Out_Ptr);
         photon.uz = -uz;	// reflected photon.
     }
-    else if (RandomNum > r) {	// transmitted to layer-1.
+    else if (RandomNum > r) {	// transmitted to current_layer-1.
         photon.layer--;
         photon.ux *= ni / nt;
         photon.uy *= ni / nt;
@@ -594,15 +564,15 @@ void CrossUpOrNot(RunParams& run_params, Photon& photon, Tracer& tracer)
     else			// reflected.
         photon.uz = -uz;
 #else
-    // transmitted to layer-1.
-    if (RandomGen() > r) {
+    // transmitted to current_layer-1.
+    if (RandomNumber() > r) {
         if (layer == 1) {
             photon.uz = -uz1;
-            RecordR(0.0, run_params, photon, tracer);
+            RecordR(0.0, params, photon, tracer);
             photon.alive = 0;	// escaped.
         }
         else {
-            photon.layer--;
+            photon.current_layer--;
             photon.ux *= ni / nt;
             photon.uy *= ni / nt;
             photon.uz = -uz1;
@@ -618,16 +588,16 @@ void CrossUpOrNot(RunParams& run_params, Photon& photon, Tracer& tracer)
 /**************************************************************************
  *	Decide whether the photon will be transmitted  or be
  *	reflected on the bottom boundary (uz>0) of the current
- *	layer.
+ *	current_layer.
  *
  *	If the photon is transmitted, move the photon to
- *	"layer+1". If "layer" is the last layer, record the
+ *	"current_layer+1". If "current_layer" is the last current_layer, record the
  *	transmitted min_weight as transmittance. See comments for
  *	CrossUpOrNot.
  *
  *	Update the photon parmameters.
  ****/
-void CrossDnOrNot(RunParams& run_params, Photon& photon, Tracer& tracer)
+void CrossDnOrNot(RunParams& params, Photon& photon, Tracer& tracer)
 {
     // z directional cosine.
     double uz = photon.uz;
@@ -635,20 +605,20 @@ void CrossDnOrNot(RunParams& run_params, Photon& photon, Tracer& tracer)
     // cosines of transmission alpha.
     double uz1 = 0.0;
 
-    short layer = photon.layer;
-    double ni = run_params.layers[layer].n;
-    double nt = run_params.layers[layer + 1].n;
+    short layer = photon.current_layer;
+    double ni = params.layers[layer].eta;
+    double nt = params.layers[layer + 1].eta;
 
     // Get reflectance. If 1.0, then total internal reflection.
-    double r = (uz <= run_params.layers[layer].cos_crit1) ? 1.0 : RFresnel(ni, nt, uz, &uz1);
+    double r = (uz <= params.layers[layer].cos_crit1) ? 1.0 : RFresnel(ni, nt, uz, uz1);
 
 #if PARTIAL_REFLECTION
-    if (layer == run_params.layers.size() && r < 1.0) {
+    if (layer == params.layers.size() && r < 1.0) {
         photon.uz = uz1;
-        RecordT(r, run_params, Photon_Ptr, Out_Ptr);
+        RecordT(r, params, Photon_Ptr, Out_Ptr);
         photon.uz = -uz;
     }
-    else if (RandomNum > r) {	// transmitted to layer+1.
+    else if (RandomNum > r) {	// transmitted to current_layer+1.
         photon.layer++;
         photon.ux *= ni / nt;
         photon.uy *= ni / nt;
@@ -657,17 +627,17 @@ void CrossDnOrNot(RunParams& run_params, Photon& photon, Tracer& tracer)
     else			// reflected.
         photon.uz = -uz;
 #else
-    // transmitted to layer+1.
-    if (RandomGen() > r) {
-        if (layer == run_params.layers.size()) {
+    // transmitted to current_layer+1.
+    if (RandomNumber() > r) {
+        if (layer == params.layers.size()) {
             photon.uz = uz1;
-            RecordT(0.0, run_params, photon, tracer);
+            RecordT(0.0, params, photon, tracer);
 
             // escaped.
             photon.alive = 0;
         }
         else {
-            photon.layer++;
+            photon.current_layer++;
             photon.ux *= ni / nt;
             photon.uy *= ni / nt;
             photon.uz = uz1;
@@ -683,7 +653,7 @@ void CrossDnOrNot(RunParams& run_params, Photon& photon, Tracer& tracer)
 /**************************************************************************
  *	Set a step size if the previous step has finished.
  *
- *	If the step size fits in the current layer, move the photon,
+ *	If the step size fits in the current current_layer, move the photon,
  *	drop some min_weight, choose a new photon direction for propagation.
  *
  *	If the step size is long enough for the photon to
@@ -693,39 +663,39 @@ void CrossDnOrNot(RunParams& run_params, Photon& photon, Tracer& tracer)
  *	Second, update the step size to the unfinished step size.
  *	Third, decide whether the photon is reflected or transmitted.
  ****/
-void HopDropSpin(RunParams& run_params, Photon& photon, Tracer& tracer)
+void HopDropSpin(RunParams& params, Photon& photon, Tracer& tracer)
 {
-    Layer layer_struct = run_params.layers[photon.layer];
+    Layer layer_struct = params.layers[photon.current_layer];
     double mut = layer_struct.mua + layer_struct.mus;
     SetStepSize(photon);
 
     // distance between photon and boundary cm.
-    double path = PathToBoundary(photon, run_params);
+    double path = PathToBoundary(photon, params);
 
     // hit boundary.
-    if (path * mut <= photon.s) {
+    if (path * mut <= photon.step_size) {
         // move to boundary plane.
-        Hop(photon, path, layer_struct.n);
+        Hop(photon, path, layer_struct.eta);
 
         // update s.
-        photon.s -= path * mut;
+        photon.step_size -= path * mut;
 
         if (photon.uz < 0.0) {
-            CrossUpOrNot(run_params, photon, tracer);
+            CrossUpOrNot(params, photon, tracer);
         }
         else {
-            CrossDnOrNot(run_params, photon, tracer);
+            CrossDnOrNot(params, photon, tracer);
         }
     }
-    // fit in layer.
+    // fit in current_layer.
     else {
-        Hop(photon, photon.s / mut, layer_struct.n);
+        Hop(photon, photon.step_size / mut, layer_struct.eta);
 
         // update s.
-        photon.s = 0;
-        Drop(run_params, photon, tracer);
-        Spin(run_params.layers[photon.layer].g, photon);
-        photon.scatters++;
+        photon.step_size = 0;
+        Drop(params, photon, tracer);
+        Spin(params.layers[photon.current_layer].aniso, photon);
+        photon.num_scatters++;
     }
 }
 
@@ -733,11 +703,11 @@ void HopDropSpin(RunParams& run_params, Photon& photon, Tracer& tracer)
  *	Trace a photon, then compute the 0D constants including A, R, T and
  *	their standard errors.
  ****/
-void TracePhoton(RunParams& run_params, Photon& photon, Tracer& tracer)
+void TracePhoton(RunParams& params, Photon& photon, Tracer& tracer)
 {
     do {
-        HopDropSpin(run_params, photon, tracer);
-        if (photon.alive && photon.w < run_params.min_weight) {
+        HopDropSpin(params, photon, tracer);
+        if (photon.alive && photon.min_weight < params.min_weight) {
             Roulette(photon);
         }
     } while (photon.alive);
