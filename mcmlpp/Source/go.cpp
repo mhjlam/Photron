@@ -7,6 +7,8 @@
 
 #include "mcml.hpp"
 
+#include <numbers>
+
 
  // 1=split photon, 0=statistical reflection.
 constexpr int PARTIAL_REFLECTION = 0;
@@ -62,11 +64,11 @@ void Spin(double g, Photon& photon)
     double sint = std::sqrt(1.0 - cost * cost);
 
     // sample psi.
-    double psi = 2.0 * PI * RandomNumber();
+    double psi = 2.0 * std::numbers::pi * RandomNumber();
     double cosp = std::cos(psi);
 
     // sqrt is faster than sin.
-    double sinp = (psi < PI) ? std::sqrt(1.0 - cosp * cosp) : -std::sqrt(1.0 - cosp * cosp);
+    double sinp = (psi < std::numbers::pi) ? std::sqrt(1.0 - cosp * cosp) : -std::sqrt(1.0 - cosp * cosp);
 
     // update directional cosines.
 

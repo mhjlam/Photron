@@ -17,6 +17,10 @@
 #include <algorithm>
 #include <string_view>
 
+#include <ranges>
+#include <numbers>
+#include <variant>
+#include <optional>
 
 using namespace std::literals;
 
@@ -32,6 +36,139 @@ struct NameList
 
 typedef struct NameList NameNode;
 typedef NameNode* NameLink;
+
+
+using SpecValue = std::variant<int, double, std::string>;
+using OptSpecValue = std::optional<SpecValue>;
+
+std::vector<SpecValue> ParseLine(std::string& input, std::string err, std::size_t min_expected = 1)
+{
+    std::istringstream stream(input);
+    std::vector<SpecValue> values;
+
+    std::string token;
+    while (stream >> token) {
+        // Attempt to parse as integer
+        try {
+            std::size_t pos;
+            int val = std::stoi(token, &pos);
+            if (pos == token.length()) {
+                values.emplace_back(val);
+                continue;
+            }
+        }
+        catch (std::exception& e) {
+            std::cerr << e.what() << std::endl;
+            return {};
+        }
+
+        // Attempt to parse as double
+        try {
+            std::size_t pos;
+            double val = std::stod(token, &pos);
+            if (pos == token.length()) {
+                values.emplace_back(val);
+                continue;
+            }
+        }
+        catch (std::exception& e) {
+            std::cerr << e.what() << std::endl;
+            return {};
+        }
+
+        // Treat as a string instead
+        if (!token.empty()) {
+            values.emplace_back(token);
+        }
+
+        std::cerr << err << std::endl;
+    }
+
+    if (values.empty() || values.size() < min_expected) {
+        std::cerr << err << std::endl;
+        return {};
+    }
+
+    return values;
+}
+
+OptSpecValue ParseInput(std::string err)
+{
+    std::string input;
+    std::getline(std::cin, input);
+
+    // Attempt to parse as integer
+    try {
+        std::size_t pos;
+        int val = std::stoi(input, &pos);
+        if (pos == input.length()) {
+            return val;
+        }
+    }
+    catch (std::exception& e) {
+        std::cerr << e.what() << std::endl;
+        return {};
+    }
+
+    // Attempt to parse as double
+    try {
+        std::size_t pos;
+        double val = std::stod(input, &pos);
+        if (pos == input.length()) {
+            return val;
+        }
+    }
+    catch (std::exception& e) {
+        std::cerr << e.what() << std::endl;
+        return {};
+    }
+
+    // Treat as a string instead
+    if (!input.empty()) {
+        return input;
+    }
+
+    std::cerr << err << std::endl;
+    return {};
+}
+
+int GetIntValue(std::optional<std::variant<int, double, std::string>>& opt_int, int& target_int)
+{
+    if (std::holds_alternative<int>(opt_int.value())) {
+        int val = std::get<int>(opt_int.value());
+        target_int = val;
+        return val;
+    }
+    return 0;
+}
+
+double GetDoubleValue(std::optional<std::variant<int, double, std::string>>& opt_double, double& target_double)
+{
+    if (std::holds_alternative<double>(opt_double.value())) {
+        double val = std::get<double>(opt_double.value());
+        target_double = val;
+        return val;
+    }
+    return 0.0;
+}
+
+std::string GetStringValue(std::optional<std::variant<int, double, std::string>>& opt_string, std::string& target_string)
+{
+    if (std::holds_alternative<std::string>(opt_string.value())) {
+        std::string val = std::get<std::string>(opt_string.value());
+        target_string = val;
+        return val;
+    }
+    return {};
+}
+
+std::string& to_upper(std::string& str)
+{
+    std::ranges::transform(str, str.begin(), [](unsigned char c) { 
+        return std::toupper(c);
+    });
+    return str;
+}
 
 
 /**************************************************************************
@@ -95,7 +232,7 @@ bool CheckCharQ(std::string& Str)
 
     while (i < sl) {
         if (Str[i] < 0 || Str[i] > 255) {
-            std::cout << "Non-ASCII file" << std::endl;
+            std::cerr << "Non-ASCII file" << std::endl;
             return false;
         }
         else if (isprint(Str[i]) || isspace(Str[i])) {
@@ -151,29 +288,24 @@ std::string FindDataLine(std::fstream& file)
     // No datalines found
     return {};
 }
+
 /**************************************************************************
  *	Skip space or comment lines and return a data line.
  ****/
 std::string FindDataLine(std::istream& stream)
 {
-    static std::string buf;
+    std::string line;
 
     // skip space or comment lines.
     do {
-        std::string line;
         std::getline(stream, line);
 
-        if (line.empty()) {
-            std::cout << "Incomplete data." << std::endl;
-            buf[0] = '\0';
-            break;
+        if (!line.empty()) {
+            CheckCharQ(line);
         }
-        else {
-            CheckCharQ(buf);
-        }
-    } while (CommentLineQ(buf));
+    } while (CommentLineQ(line));
 
-    return buf;
+    return line;
 }
 
 /**************************************************************************
@@ -191,7 +323,7 @@ bool CheckFileVersionQ(std::fstream& file, const std::string version)
     } while (CommentLineQ(line));
 
     if (line.empty() || line.find(version) == std::string::npos) {
-        std::cout << "Wrong file version.";
+        std::cerr << "Wrong file version.";
         return false;
     }
     return true;
@@ -222,7 +354,7 @@ bool GetFile(std::string& fname, const std::string version, std::fstream& file)
             file = std::fstream(fname, std::ios::in);
             if (!file.is_open()) {
                 // cannot open the input.
-                std::cout << "File does not exist.";
+                std::cerr << "File does not exist.";
             }
             else {
                 if (CheckFileVersionQ(file, version)) {
@@ -249,7 +381,7 @@ int FindNumMediaQ(std::fstream& file)
         std::string buf = FindDataLine(file);
 
         if (buf.empty()) {
-            std::cout << "Missing end." << std::endl;
+            std::cerr << "Missing end." << std::endl;
             return 0;
         }
         else if (buf.find("end") != std::string::npos) {
@@ -258,19 +390,20 @@ int FindNumMediaQ(std::fstream& file)
         else {
             num_media++;
 
-            std::string name;
-            double n, mua, mus, g;
-            std::istringstream iss(buf);
-
-            if (iss >> name >> n >> mua >> mus >> g) {
-                if (n <= 0 || mua < 0 || mus < 0 || g < -1 || g > 1) {
-                    std::cout << "Bad optical parameters in " << name << std::endl;
-                    return 0;
-                }
+            auto extracted = ParseLine(buf, "Error reading number of mediums.", 5);
+            if (extracted.empty()) {
+                return 0;
             }
-            else {
-                std::cout << "Reading number of mediums." << std::endl;
-                return num_media;
+
+            std::string name = std::get<std::string>(extracted[0]);
+            double n = std::get<double>(extracted[1]);
+            double mua = std::get<double>(extracted[2]);
+            double mus = std::get<double>(extracted[3]);
+            double g = std::get<double>(extracted[4]);
+
+            if (n <= 0 || mua < 0 || mus < 0 || g < -1 || g > 1) {
+                std::cerr << "Bad optical parameters in " << name << std::endl;
+                return 0;
             }
         }
     }
@@ -284,21 +417,20 @@ int FindNumMediaQ(std::fstream& file)
  ****/
 bool ReadOneMediumQ(std::fstream& file, std::vector<Layer>& media)
 {
-    Layer medium;
     std::string buf = FindDataLine(file);
-    std::istringstream iss(buf);
-    
-    std::string name;
-    double n, mua, mus, g;
-
-    if (iss >> name >> n >> mua >> mus >> g) {
-        media.push_back(Layer { .name = name, .eta = n, .mua = mua, .mus = mus, .aniso = g });
-    }
-    else {
-        std::cout << "Reading medium parameters." << std::endl;
+    auto extracted = ParseLine(buf, "Error reading medium parameters.", 5);
+    if (extracted.empty()) {
         return false;
     }
 
+    std::string name = std::get<std::string>(extracted[0]);
+    double n = std::get<double>(extracted[1]);
+    double mua = std::get<double>(extracted[2]);
+    double mus = std::get<double>(extracted[3]);
+    double g = std::get<double>(extracted[4]);
+
+    // Add new medium to the list.
+    media.push_back(Layer{ .name = name, .eta = n, .mua = mua, .mus = mus, .aniso = g });
     return true;
 }
 
@@ -336,24 +468,22 @@ bool ReadMediumListQ(std::fstream& file, RunParams& params)
 bool ReadFnameFormatQ(std::fstream& file, RunParams& params)
 {
     std::string buf = FindDataLine(file);
-    std::istringstream iss(buf);
-
-    char output_file_format;
-    if (iss >> params.output_filename >> output_file_format) {
-        if (output_file_format == 'A') {
-            params.output_file_format = FileFormat::ASCII;
-        }
-        else if (output_file_format == 'B') {
-            params.output_file_format = FileFormat::Binary;
-        }
-    }
-    else {
-        std::cout << "Reading file name and format." << std::endl;
+    auto extracted = ParseLine(buf, "Error reading file name.", 1);
+    if (extracted.empty()) {
         return false;
     }
 
-    // Only support 'A' format.
-    params.output_file_format = FileFormat::ASCII;
+    std::string output_file_format = std::get<std::string>(extracted[0]);
+
+    //if (output_file_format == "B") {
+    //    params.output_file_format = FileFormat::Binary;
+    //}
+    //else {
+    //    params.output_file_format = FileFormat::ASCII;
+    //}
+
+    // Only support ASCII format.
+    params.output_file_format = FileFormat::Ascii;
 
     return true;
 }
@@ -364,26 +494,31 @@ bool ReadFnameFormatQ(std::fstream& file, RunParams& params)
 bool ReadDzDrDtQ(std::istream& input, RunParams& params)
 {
     std::string buf = FindDataLine(input);
-    std::istringstream iss(buf);
-
-    if (iss >> params.grid_z >> params.grid_r >> params.grid_time) {
-        if (params.grid_z <= 0) {
-            std::cout << "Nonpositive dz." << std::endl;
-            return false;
-        }
-        if (params.grid_r <= 0) {
-            std::cout << "Nonpositive dr." << std::endl;
-            return false;
-        }
-        if (params.grid_time <= 0) {
-            std::cout << "Nonpositve dt. " << std::endl;
-            return false;
-        }
-    }
-    else {
-        std::cout << "Reading dz, dr, dt. " << std::endl;
+    auto extracted = ParseLine(buf, "Error reading dz, dr, dt.", 3);
+    if (extracted.size() != 3) {
         return false;
     }
+
+    double dz = std::get<double>(extracted[0]);
+    double dr = std::get<double>(extracted[1]);
+    double dt = std::get<double>(extracted[2]);
+
+    if (dz <= 0) {
+        std::cerr << "Nonpositive dz." << std::endl;
+        return false;
+    }
+    if (dr <= 0) {
+        std::cerr << "Nonpositive dr." << std::endl;
+        return false;
+    }
+    if (dt <= 0) {
+        std::cerr << "Nonpositve dt. " << std::endl;
+        return false;
+    }
+
+    params.grid_z = dz;
+    params.grid_r = dr;
+    params.grid_time = dt;
 
     return true;
 }
@@ -394,32 +529,38 @@ bool ReadDzDrDtQ(std::istream& input, RunParams& params)
 bool ReadNzNrNtNaQ(std::istream& input, RunParams& params)
 {
     std::string buf = FindDataLine(input);
-    std::istringstream iss(buf);
-
-    if (iss >> params.num_z >> params.num_r >> params.num_time >> params.num_alpha) {
-        if (params.num_z <= 0) {
-            std::cout << "Nonpositive number of dz's." << std::endl;
-            return false;
-        }
-        if (params.num_r <= 0) {
-            std::cout << "Nonpositive number of dr's." << std::endl;
-            return false;
-        }
-        if (params.num_time <= 0) {
-            std::cout << "Nonpositive number of dt's." << std::endl;
-            return false;
-        }
-        if (params.num_alpha <= 0) {
-            std::cout << "Nonpositive number of da's." << std::endl;
-            return false;
-        }
-
-        params.grid_alpha = 0.5 * PI / params.num_alpha;
-    }
-    else {
-        std::cout << "Reading number of dz, dr, dt, da's." << std::endl;
+    auto extracted = ParseLine(buf, "Reading number of dz, dr, dt, da.", 4);
+    if (extracted.size() != 3) {
         return false;
     }
+
+    int nz = std::get<int>(extracted[0]);
+    int nr = std::get<int>(extracted[1]);
+    int nt = std::get<int>(extracted[3]);
+    int na = std::get<int>(extracted[4]);
+
+    if (nz <= 0) {
+        std::cerr << "Nonpositive number of dz." << std::endl;
+        return false;
+    }
+    if (nr <= 0) {
+        std::cerr << "Nonpositive number of dr." << std::endl;
+        return false;
+    }
+    if (nt <= 0) {
+        std::cerr << "Nonpositive number of dt." << std::endl;
+        return false;
+    }
+    if (na <= 0) {
+        std::cerr << "Nonpositive number of da." << std::endl;
+        return false;
+    }
+
+    params.num_z = nz;
+    params.num_r = nr;
+    params.num_time = nt;
+    params.num_alpha = na;
+    params.grid_alpha = 0.5 * std::numbers::pi / params.num_alpha;
 
     return true;
 }
@@ -638,18 +779,19 @@ bool FilterRecordQ(std::istream& input, RunParams& params)
 bool ReadWthQ(std::fstream& file, RunParams& params)
 {
     std::string buf = FindDataLine(file);
-    std::istringstream iss(buf);
-
-    if (iss >> params.min_weight) {
-        if (params.min_weight < 0 || params.min_weight >= 1.0) {
-            std::cout << "Threshold weight out of range (0-1)." << std::endl;
-            return false;
-        }
-    }
-    else {
-        std::cout << "Reading threshold weight." << std::endl;
+    auto extracted = ParseLine(buf, "Error reading threshold weight.");
+    if (extracted.empty()) {
         return false;
     }
+
+    double wth = std::get<double>(extracted[0]);
+
+    if (wth < 0 || wth >= 1.0) {
+        std::cerr << "Threshold weight out of range (0-1)." << std::endl;
+        return false;
+    }
+
+    params.min_weight = wth;
     return true;
 }
 
@@ -658,22 +800,21 @@ bool ReadWthQ(std::fstream& file, RunParams& params)
  ****/
 int FindNumLayersQ(std::fstream& file)
 {
+    std::string buf;
     short num_layers = 0;
 
-    while (1) {
-        std::string buf = FindDataLine(file);
+    // While "end" has not been found
+    while (buf.find("end") == std::string::npos) {
+        buf = FindDataLine(file);
 
         if (buf.empty()) {
             std::cout << "Missing end." << std::endl;
             return 0;
         }
-        else if (buf.find("end") != std::string::npos) {
-            break;
-        }
         else {
-            std::string name;
-            std::istringstream iss(buf);
-            if (iss >> name) {
+            // Read layer name
+            auto extracted = ParseLine(buf, "Error reading layer name.");
+            if (!extracted.empty() && std::holds_alternative<std::string>(extracted[0])) {
                 num_layers++;
             }
         }
@@ -702,11 +843,7 @@ bool ValidMediumNameQ(std::string& name, int& index, RunParams& params)
 bool ReadLayerSpecsQ(std::fstream& file, RunParams& params)
 {
     std::string name;
-    short i = 0;
-
-    // z coordinate of the current current_layer.
-    double z = 0.0;
-    double thick = 0.0;
+    double thickness = 0.0;
 
     // Save current output position
     std::streampos file_pos = file.tellg();
@@ -724,32 +861,37 @@ bool ReadLayerSpecsQ(std::fstream& file, RunParams& params)
     // current_layer 0 and current_layer Num_Layers + 1 are for ambient.
     params.layers.resize(num_layers + 2);
 
-    for (i = 0; i <= num_layers + 1; i++) {
+    for (short i = 0; i <= num_layers + 1; i++) {
         std::string buf = FindDataLine(file);
-        std::istringstream iss(buf);
 
+        // Top and bottom layers (get only name)
         if (i == 0 || i == num_layers + 1) {
-            if (!(iss >> name)) {
-                std::cout << "  Error in reading ambient layer name." << std::endl;
+            // Get name only
+            auto extracted = ParseLine(buf, "Error reading layer specs.");
+            if (extracted.empty()) {
                 return false;
             }
+
+            name = std::get<std::string>(extracted[0]);
         }
         else {
-            if (iss >> name >> thick) {
-                if (thick <= 0.0) {
-                    std::cout << "  Nonpositive layer thickness." << std::endl;
-                    return false;
-                }
+            // Get name and thickness
+            auto extracted = ParseLine(buf, "Error reading layer specs.", 2);
+            if (extracted.empty()) {
+                return false;
             }
-            else {
-                std::cout << "  Error in ReadLayerSpecsQ()." << std::endl;
+            name = std::get<std::string>(extracted[0]);
+            thickness = std::get<double>(extracted[1]);
+
+            if (thickness <= 0.0) {
+                std::cerr << "Nonpositive layer thickness." << std::endl;
                 return false;
             }
         }
 
         int index;
         if (!ValidMediumNameQ(name, index, params)) {
-            std::cout << "  Invalid medium name. " << std::endl;
+            std::cerr << "  Invalid medium name. " << std::endl;
             return false;
         }
 
@@ -760,16 +902,17 @@ bool ReadLayerSpecsQ(std::fstream& file, RunParams& params)
         params.layers[i].mus = params.mediums[index].mus;
         params.layers[i].aniso = params.mediums[index].aniso;
 
-        if ((i != 0) && (i != num_layers + 1)) {
+        // z coordinate of the current current_layer.
+        double z = 0.0;
+
+        // Intermediate layers
+        if (i != 0 && i != (num_layers + 1)) {
             params.layers[i].top_z = z;
-            z = z + thick;
+            z += thickness;
             params.layers[i].bot_z = z;
         }
-        else if (i == 0) {
-            params.layers[i].top_z = 0.0;
-            params.layers[i].bot_z = 0.0;
-        }
-        else if (i == (num_layers + 1)) {
+        // Top and bottom layers
+        else {
             params.layers[i].top_z = z;
             params.layers[i].bot_z = z;
         }
@@ -781,74 +924,72 @@ bool ReadLayerSpecsQ(std::fstream& file, RunParams& params)
 /**************************************************************************
  *  Read the number of photons.
  *  Read computation time limit.
- *  type = 0, read from a .mci input output;
- *  type = 1, read from a .mco output output.
+ *  type = 0, read from a .mci input file;
+ *  type = 1, read from a .mco output file.
  ****/
 bool ReadNumPhotonsQ(std::istream& input, RunParams& params, char type)
 {
-    std::string buf = FindDataLine(reinterpret_cast<std::fstream&>(input));
-
-    if (type == 0) {
-        params.add_num_photons = 0;
-        params.add_limit_seconds = 0;
+    std::string buf = FindDataLine(input);
+    auto extracted = ParseLine(buf, "Error reading number of photons or time limit.");
+    if (extracted.empty()) {
+        return false;
     }
 
-    float temp = 0.f;
-    int hours = 0;
-    int minutes = 0;
+    if (extracted.size() == 1) {
+        int num_photons = std::get<int>(extracted[0]);
 
-    std::istringstream iss(buf);
-
-    if (iss >> temp >> hours >> minutes) {
-        if (((long)temp > 0) && (hours * 3600 + minutes * 60) >= 0) {
-            if (type == 0) {
-                params.num_photons = (long)temp;
-                params.time_limit_seconds = hours * 3600 + minutes * 60;
-            }
-            else {
-                params.add_num_photons = (long)temp;
-                params.add_limit_seconds = hours * 3600 + minutes * 60;
-            }
-            params.control_bit = ControlBit::Both;
-        }
-        else {
-            std::cout << "Nonpositive number of photons or time limit." << std::endl;
-            return false;
-        }
-    }
-    else if (iss >> hours >> minutes) {
-        if ((hours * 3600 + minutes * 60) >= 0) {
-            if (type == 0) {
-                params.time_limit_seconds = hours * 3600 + minutes * 60;
-            }
-            else {
-                params.add_limit_seconds = hours * 3600 + minutes * 60;
-            }
-
-            params.control_bit = ControlBit::TimeLimit;
-        }
-        else {
-            std::cout << "Nonpositive time limit." << std::endl;
-            return false;
-        }
-    }
-    else if (iss >> temp) {
-        if ((long)temp > 0) {
-            if (type == 0) {
-                params.num_photons = (long)temp;
-            }
-            else {
-                params.add_num_photons = (long)temp;
-            }
+        if (num_photons > 0) {
+            params.num_photons = num_photons;
+            params.time_limit = 0;
             params.control_bit = ControlBit::NumPhotons;
         }
         else {
-            std::cout << "Nonpositive number of photons." << std::endl;
+            std::cerr << "Nonpositive number of photons." << std::endl;
             return false;
         }
     }
+    else if (extracted.size() == 2) {
+        int hours = std::get<int>(extracted[0]);
+        int minutes = std::get<int>(extracted[1]);
+
+        if ((hours * 3600 + minutes * 60) > 0) {
+            params.num_photons = 0;
+            params.time_limit = hours * 3600 + minutes * 60;
+            params.control_bit = ControlBit::TimeLimit;
+        }
+        else {
+            std::cerr << "Nonpositive time limit." << std::endl;
+            return false;
+        }
+
+        params.control_bit = ControlBit::TimeLimit;
+    }
+    else if (extracted.size() == 3) {
+        int num_photons = std::get<int>(extracted[0]);
+        int hours = std::get<int>(extracted[1]);
+        int minutes = std::get<int>(extracted[2]);
+
+        if (num_photons > 0 && (hours * 3600 + minutes * 60) > 0) {
+            if (type == 0) {
+                params.num_photons = num_photons;
+                params.time_limit = hours * 3600 + minutes * 60;
+            }
+            else {
+                params.add_num_photons = num_photons;
+                params.add_limit = hours * 3600 + minutes * 60;
+            }
+
+            params.time_limit = hours * 3600 + minutes * 60;
+        }
+        else {
+            std::cerr << "Nonpositive number of photons or time limit." << std::endl;
+            return false;
+        }
+
+        params.control_bit = ControlBit::Both;
+    }
     else {
-        std::cout << "Invalid number of photons or time limit." << std::endl;
+        std::cerr << "Invalid number of photons or time limit." << std::endl;
         return false;
     }
 
@@ -860,26 +1001,21 @@ bool ReadNumPhotonsQ(std::istream& input, RunParams& params, char type)
  ****/
 bool ReadSourceTypeQ(std::fstream& file, RunParams& params)
 {
-    std::string b_type;
     std::string buf = FindDataLine(file);
-    std::istringstream iss(buf);
+    auto extracted = ParseLine(buf, "Error reading photon source type.");
+    if (extracted.empty()) {
+        return false;
+    }
 
-    if (iss >> b_type) {
-        if (b_type == "pencil"sv) {
-            params.source = BeamType::Pencil;
-            return true;
-        }
-        else if (b_type == "isotropic"sv) {
-            params.source = BeamType::Isotropic;
-            return true;
-        }
-        else {
-            std::cout << "Unknow photon source type. " << std::endl;
-            return false;
-        }
+    std::string source_type = std::get<std::string>(extracted[0]);
+    if (to_upper(source_type) == "PENCIL"sv) {
+        params.source = BeamType::Pencil;
+    }
+    else if (to_upper(source_type) == "ISOTROPIC"sv) {
+        params.source = BeamType::Isotropic;
     }
     else {
-        std::cout << "Reading photon source type. " << std::endl;
+        std::cerr << "Unknow photon source type. " << std::endl;
         return false;
     }
 
@@ -899,11 +1035,11 @@ bool ZToLayerQ(double z, short& index, RunParams& params)
     std::size_t num_layers = params.layers.size();
 
     if (z < 0.0) {
-        std::cout << "Nonpositive z coordinate." << std::endl;
+        std::cerr << "Nonpositive z coordinate." << std::endl;
         return false;
     }
     else if (z > params.layers[num_layers].bot_z) {
-        std::cout << "Source is outside of the last layer. " << std::endl;
+        std::cerr << "Source is outside of the last layer. " << std::endl;
         return false;
     }
     else {
@@ -919,47 +1055,50 @@ bool ZToLayerQ(double z, short& index, RunParams& params)
 bool ReadStartPQ(std::istream& input, RunParams& params)
 {
     std::string buf = FindDataLine(input);
-    std::istringstream iss(buf);
-
-    short slayer;
-    double source_z;
-    std::string medium_name;
-
-    // z and name.
-    if (iss >> source_z >> medium_name && medium_name[0] != '#' && medium_name[0] != '\n') {
-        if (!ZToLayerQ(source_z, slayer, params)) {
-            return false;
-        }
-
-        if (params.layers[slayer].name == medium_name) {
-            if ((std::abs(source_z - params.layers[slayer].bot_z) < DBL_EPSILON) && (params.layers[slayer + 1].name == medium_name)) {
-                slayer++;
-                if (slayer > params.layers.size()) {
-                    puts("Source is outside of the last layer.");
-                    return false;
-                }
-
-            }
-            else {
-                std::cout << "Medium name and z coordinate do not match." << std::endl;
-                return false;
-            }
-        }
-    }
-    // z only.
-    else if (iss >> source_z) {
-        if (!ZToLayerQ(source_z, params.source_layer, params)) {
-            return false;
-        }
-        medium_name = "";
-    }
-    else {
-        std::cout << "Invalid starting position of photon source." << std::endl;
+    auto extracted = ParseLine(buf, "Invalid starting position of photon source.", 1);
+    if (extracted.empty()) {
         return false;
     }
 
-    if ((params.source == BeamType::Isotropic) && (source_z == 0.0)) {
-        std::cout << "Can not put isotropic source in upper ambient medium." << std::endl;
+    double source_z = 0.0;
+    std::string medium_name = "";
+
+    if (extracted.size() == 1) {
+        source_z = std::get<double>(extracted[0]);
+
+        if (!ZToLayerQ(source_z, params.source_layer, params)) {
+            return false;
+        }
+    }
+    else if (extracted.size() == 2) {
+        std::string medium_name = std::get<std::string>(extracted[1]);
+
+        if (medium_name[0] != '#' && medium_name[0] != '\n') {
+            short source_layer;
+            if (!ZToLayerQ(source_z, source_layer, params)) {
+                return false;
+            }
+
+            if (params.layers[source_layer].name == medium_name) {
+                if ((std::abs(source_z - params.layers[source_layer].bot_z) < DBL_EPSILON) && (params.layers[source_layer + 1].name == medium_name)) {
+                    source_layer++;
+                    if (source_layer > params.layers.size()) {
+                        puts("Source is outside of the last layer.");
+                        return false;
+                    }
+
+                }
+                else {
+                    std::cerr << "Medium name and z coordinate do not match." << std::endl;
+                    return false;
+                }
+            }
+
+        }
+    }
+
+    if (params.source == BeamType::Isotropic && source_z == 0.0) {
+        std::cerr << "Can not put isotropic source in upper ambient medium." << std::endl;
         return false;
     }
 
@@ -1044,80 +1183,55 @@ void ReadRunParam(std::fstream& file, RunParams& params)
  ****/
 void InterReadMediumList(RunParams& params)
 {
-    std::string medium;
-    int num_media = 0;
+    OptSpecValue input;
 
+    int num_media = 0;
     std::cout << "Specify medium list. Total number of mediums: ";
 
-    std::string string;
-    std::getline(std::cin, string);
-    std::istringstream iss(string);
+    do {
+        input = ParseInput("Invalid medium number. Input again: ");
+    } while (!input.has_value() && GetIntValue(input, num_media) < 1);
 
-    while (!(iss >> num_media) || num_media < 1) {
-        std::cout << "Invalid medium number. Input again: ";
-        std::getline(std::cin, string);
-    }
 
     // Allocate space for the current_layer parameters.
     params.mediums.resize(num_media);
 
-    iss = std::istringstream(string);
     for (short i = 0; i < params.mediums.size(); i++) {
+        std::string name;
+        bool exists = true;
         std::cout << "Specify medium " << i+1 << ": " << std::endl << "  Medium name : ";
-        std::getline(std::cin, string);
 
-        bool name_taken = 0;
         do {
-            if (iss >> medium) {
-                // TODO: 
-                for (short j = 0; j < i; j++) {
-                    if (params.mediums[j].name == medium) {
-                        name_taken = 1;
-                        std::cout << "  Duplicate medium. Input again: ";
-                        std::getline(std::cin, string);
-                        break;
-                    }
-                }
-            }
-        } while (name_taken);
+            input = ParseInput("Invalid medium name or duplicate. Input again: ");
+            name = GetStringValue(input, name);
+            exists = std::ranges::any_of(params.mediums, [&](const Layer& l) { 
+                return l.name == name;
+            });
+        } while (!input.has_value() && exists);
 
-        params.mediums[i].name = medium;
+        params.mediums[i].name = name;
 
         std::cout << "  Refractive index n (>= 1.0): ";
-        std::getline(std::cin, string);
-        iss = std::istringstream(string);
-
-        while (!(iss >> params.mediums[i].eta) || params.mediums[i].eta < 1.0) {
-            std::cout << "  Invalid refractive index. Input again (>= 1.0): ";
-            std::getline(std::cin, string);
-        }
+        do {
+            input = ParseInput("  Invalid refractive index. Input again (>= 1.0): ");
+        } while (!input.has_value() && GetDoubleValue(input, params.mediums[i].eta) < 1.0);
 
         std::cout << "  Absorption coefficient mua (>= 0.0 /cm): ";
-        std::getline(std::cin, string);
-        iss = std::istringstream(string);
-
-        while (!(iss >> params.mediums[i].mua) || params.mediums[i].mua < 0.0) {
-            std::cout << "  Invalid absorption coefficient. Input again (>= 0.0): ";
-            std::getline(std::cin, string);
-        }
+        do {
+            input = ParseInput("  Invalid absorption coefficient. Input again (>= 0.0): ");
+        } while (!input.has_value() && GetDoubleValue(input, params.mediums[i].mua) < 0.0);
 
         std::cout << "  Scattering coefficient mus (>= 0.0 /cm): ";
-        std::getline(std::cin, string);
-        iss = std::istringstream(string);
-
-        while (!(iss >> params.mediums[i].mus) || params.mediums[i].mus < 0.0) {
-            std::cout << "  Invalid scattering coefficient. Input again (>= 0.0): ";
-            std::getline(std::cin, string);
-        }
+        do {
+            input = ParseInput("  Invalid scattering coefficient. Input again (>= 0.0): ");
+        } while (!input.has_value() && GetDoubleValue(input, params.mediums[i].mus) < 0.0);
 
         std::cout << "  Anisotropy factor g (0.0 - 1.0): ";
-        std::getline(std::cin, string);
-        iss = std::istringstream(string);
+        do {
+            input = ParseInput("  Invalid anisotropy factor. Input again (0.0 - 1.0): ");
+            params.mediums[i].aniso = GetDoubleValue(input, params.mediums[i].aniso);
+        } while (!input.has_value() && params.mediums[i].aniso < 0.0 && params.mediums[i].aniso > 1.0);
 
-        while (!(iss >> params.mediums[i].aniso) || params.mediums[i].aniso < 0.0 || params.mediums[i].aniso > 1.0) {
-            std::cout << "  Invalid anisotropy factor. Input again (0.0 - 1.0): ";
-            std::getline(std::cin, string);
-        }
         std::cout << std::endl;
     }
 }
@@ -1152,7 +1266,7 @@ void InterReadFnameFormat(RunParams& params)
      params.output_filename = fname;
 
     // Only support 'A' format.
-    params.output_file_format = FileFormat::ASCII;
+    params.output_file_format = FileFormat::Ascii;
 
     std::cout << std::endl;
 }
@@ -1180,7 +1294,7 @@ void InterReadNzNrNtNa(RunParams& params)
         std::cout << "(all > 0, e.g., 100 100 100 100): ";
     } while (!ReadNzNrNtNaQ(std::cin, params));
 
-    params.grid_alpha = 0.5 * PI / params.num_alpha;
+    params.grid_alpha = 0.5 * std::numbers::pi / params.num_alpha;
     std::cout << std::endl;
 }
 
@@ -1244,7 +1358,7 @@ void InterReadLayerSpecs(RunParams& params)
     std::string name;
     int num_layers;
 
-    // z coordinate of the current current_layer.
+    // Z coordinate of the current layer.
     double z = 0.0;
 
     int index;
@@ -1254,16 +1368,15 @@ void InterReadLayerSpecs(RunParams& params)
     std::cout << "\nTotal number of layers: ";
 
     std::string string;
-    std::getline(std::cin, string);
-    std::istringstream iss(string);
+    std::cin >> num_layers;
 
-    while (!(iss >> num_layers) || num_layers < 1) {
+    while (num_layers < 1) {
         std::cout << "Invalid layer number. Input again: ";
-        std::getline(std::cin, string);
+        std::cin >> num_layers;
     }
 
-    // Allocate an array for the current_layer parameters.
-    // current_layer 0 and current_layer Num_Layers + 1 are for ambient.
+    // Allocate an array for the layer parameters.
+    // Layer 0 and layer num_layers + 1 are for ambient.
     params.layers.resize(num_layers + 2);
 
     for (short i = 0; i <= num_layers + 1; i++) {
@@ -1272,21 +1385,15 @@ void InterReadLayerSpecs(RunParams& params)
             error = 0;
             if (i == 0) {
                 std::cout << std::endl << "  Name of upper ambient medium: ";
-                std::getline(std::cin, string);
-                iss = std::istringstream(string);
-                iss >> name;
+                std::cin >> name;
             }
             else if (i == params.layers.size() + 1) {
                 std::cout << std::endl << "  Name of lower ambient medium: ";
-                std::getline(std::cin, string);
-                iss = std::istringstream(string);
-                iss >> name;
+                std::cin >> name;
             }
             else {
                 std::cout << std::endl << "  Medium name of layer " << i << ": ";
-                std::getline(std::cin, string);
-                iss = std::istringstream(string);
-                iss >> name;
+                std::cin >> name;
             }
 
             if (!ValidMediumNameQ(name, index, params)) {
@@ -1306,10 +1413,11 @@ void InterReadLayerSpecs(RunParams& params)
             std::getline(std::cin, string);
 
             double thick = 0.0;
-            iss = std::istringstream(string);
-            while (!(iss >> thick) || thick <= 0) {
+            std::cin >> thick;
+
+            while (thick <= 0) {
                 std::cout << "  Invalid thickness. Input again (thickness > 0.0 cm): ";
-                std::getline(std::cin, string);
+                std::cin >> thick;
             }
             params.layers[i].top_z = z;
             z = z + thick;
@@ -1566,10 +1674,10 @@ void PutNumPhotonsToFile(std::ostream& output, RunParams& params, int& Line)
         output << std::format("%ld  \t\t\t\t\t# no. of photons | time\n", params.num_photons);
     }
     else if (params.control_bit == ControlBit::TimeLimit) {
-        output << std::format("%ld:%ld\t\t\t\t\t# no. of photons | time\n", params.time_limit_seconds / 3600, params.time_limit_seconds % 3600 / 60);
+        output << std::format("%ld:%ld\t\t\t\t\t# no. of photons | time\n", params.time_limit / 3600, params.time_limit % 3600 / 60);
     }
     else {
-        output << std::format("%ld  \t%ld:%ld\t\t\t\t# no. of photons | time\n", params.num_photons, params.time_limit_seconds / 3600, params.time_limit_seconds % 3600 / 60);
+        output << std::format("%ld  \t%ld:%ld\t\t\t\t# no. of photons | time\n", params.num_photons, params.time_limit / 3600, params.time_limit % 3600 / 60);
     }
 
     Line++;
@@ -1731,7 +1839,7 @@ bool CheckInputConsis(RunParams& params)
                 params.source_layer++;
             }
             else {
-                std::cout << "Medium name and z coordinate do not match." << std::endl;
+                std::cerr << "Medium name and z coordinate do not match." << std::endl;
                 return false;
             }
         }
@@ -2295,7 +2403,7 @@ void ScaleRdTd(RunParams& params, Tracer& tracer, char Mode)
         }
     }
 
-    scale1 = 2.0 * PI * dr * dr * params.num_photons;
+    scale1 = 2.0 * std::numbers::pi * dr * dr * params.num_photons;
     // area is 2*PI*[(ir+0.5)*grid_r]*grid_r.  ir + 0.5 to be added.
 
     if (params.record.Rd_r) {
@@ -2359,7 +2467,7 @@ void ScaleRdTd(RunParams& params, Tracer& tracer, char Mode)
         }
     }
 
-    scale1 = PI * da * params.num_photons;
+    scale1 = std::numbers::pi * da * params.num_photons;
     // solid angle times cos(a) is PI*sin(2a)*grid_alpha. sin(2a) to be added.
 
     if (params.record.Rd_a) {
@@ -2423,7 +2531,7 @@ void ScaleRdTd(RunParams& params, Tracer& tracer, char Mode)
         }
     }
 
-    scale1 = 2.0 * PI * dr * dr * PI * da * params.num_photons;
+    scale1 = 2.0 * std::numbers::pi * dr * dr * std::numbers::pi * da * params.num_photons;
     if (params.record.Rd_ra) {
         for (short ir = 0; ir < nr; ir++) {
             for (short ia = 0; ia < na; ia++) {
@@ -2591,7 +2699,7 @@ void ScaleA(RunParams& params, Tracer& tracer, char Mode)
         }
     }
 
-    scale1 = 2.0 * PI * dr * dr * dz * params.num_photons;
+    scale1 = 2.0 * std::numbers::pi * dr * dr * dz * params.num_photons;
     if (params.record.A_rz) {
         for (short ir = 0; ir < nr; ir++) {
             for (short iz = 0; iz < nz; iz++) {
@@ -3495,7 +3603,7 @@ void IOTd_t(std::fstream& file, short Nt, Tracer& tracer, char Mode)
 void IOResult(std::fstream& file, RunParams& params, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
-        if (params.output_file_format == FileFormat::ASCII) {
+        if (params.output_file_format == FileFormat::Ascii) {
             WriteVersion(file, "mcmloA2.0");
         }
         else {

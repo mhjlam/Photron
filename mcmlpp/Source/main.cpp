@@ -81,7 +81,7 @@ long long PunchTime(char F, std::string& msg, RunParams& params)
     auto real_time_secs = duration_cast<seconds>(now - rt0);
 
     if (F == 1) {
-        real_time_secs += seconds(params.add_limit_seconds);
+        real_time_secs += seconds(params.add_limit);
         msg = std::format("This took {:%H:%M:%S}.", elapsed);
     }
 
@@ -105,8 +105,8 @@ void PredictDoneTime(long P1, RunParams& params)
         auto done_time = now + (seconds(PunchTime(2, msg, params)) / seconds(P1) * seconds(params.num_photons - P1));
 
         if (params.control_bit == ControlBit::Both) {
-            if (!(done_time < (now + seconds(params.time_limit_seconds) - seconds(PunchTime(2, msg, params))))) {
-                done_time = (now + seconds(params.time_limit_seconds) - seconds(PunchTime(2, msg, params)));
+            if (!(done_time < (now + seconds(params.time_limit) - seconds(PunchTime(2, msg, params))))) {
+                done_time = (now + seconds(params.time_limit) - seconds(PunchTime(2, msg, params)));
             }
         }
 
@@ -123,7 +123,7 @@ std::string FormDateString(RunParams& params)
     std::string msg;
 
     auto now = system_clock::now();
-    auto time_limit = seconds(params.time_limit_seconds);
+    auto time_limit = seconds(params.time_limit);
     auto punch_time = seconds(PunchTime(2, msg, params));
     
     auto done_time = now + time_limit - punch_time;
@@ -256,16 +256,16 @@ void DoOneRun(short NumRunsLeft, RunParams& params, Tracer& tracer, char Type)
             exit_switch = (i_photon > params.num_photons);
         }
         else if (params.control_bit == ControlBit::Both) {
-            exit_switch = (PunchTime(2, msg, params) >= params.time_limit_seconds);
+            exit_switch = (PunchTime(2, msg, params) >= params.time_limit);
         }
         else {
-            exit_switch = (i_photon > params.num_photons) || (PunchTime(2, msg, params) >= params.time_limit_seconds);
+            exit_switch = (i_photon > params.num_photons) || (PunchTime(2, msg, params) >= params.time_limit);
         }
     }
     while (!exit_switch);
 
     params.num_photons = params.add_num_photons + i_photon - 1;
-    params.time_limit_seconds = params.add_limit_seconds + (long)PunchTime(2, msg, params);
+    params.time_limit = params.add_limit + (long)PunchTime(2, msg, params);
     params.control_bit = ControlBit::Both;
 
     ReportResult(params, tracer);
@@ -276,7 +276,7 @@ void DoOneRun(short NumRunsLeft, RunParams& params, Tracer& tracer, char Type)
  ****/
 void add_num_photons(RunParams& params)
 {
-    std::cout << std::endl << params.num_photons << (" photons have been traced in the previous simulation.");
+    std::cout << std::endl << params.num_photons << " photons have been traced in the previous simulation.";
     std::cout << std::endl << "Specify additional photons or compution time in hh:mm format,";
     std::cout << std::endl << "or both in one line (e.g. 10000 5:30): ";
 
@@ -355,7 +355,7 @@ void ContinueSimu(RunParams& params, Tracer& tracer)
     ScaleResult(params, tracer, 1);
 
     std::swap(params.num_photons, params.add_num_photons);
-    std::swap(params.time_limit_seconds, params.add_limit_seconds);
+    std::swap(params.time_limit, params.add_limit);
     DoOneRun(0, params, tracer, 1);
     exit(0);
 }

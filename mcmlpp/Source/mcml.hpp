@@ -88,7 +88,6 @@
 #include <cstdint>
 
 
-constexpr double    PI = 3.1415926;
 constexpr double    CHANCE = 0.1;		        //  Chance of roulette survival. 
 constexpr double    C_LIGHT = 0.0299792458;     //  Speed of light in vacuum [cm/ps]. 
 constexpr double    ONE_OVER_C = 33.35640952;   //  1/C [ps/cm]. 
@@ -110,7 +109,7 @@ enum class ControlBit
 
 enum class FileFormat
 {
-    ASCII, Binary
+    Ascii, Binary
 };
 
 
@@ -218,8 +217,8 @@ struct RunParams
 
     long                num_photons;	    // Number of photons to be traced.
     long                add_num_photons;	// Additional photon number. 
-    long                time_limit_seconds;	// Computation time limit. 
-    long                add_limit_seconds;	// Additional computation time. 
+    long                time_limit;	        // Computation time limit [sec].
+    long                add_limit;	        // Additional computation time. 
     ControlBit          control_bit;        // Control of simulation termination. 
     double              min_weight;		    // Play roulette if photon weight < min_weight. 
 
