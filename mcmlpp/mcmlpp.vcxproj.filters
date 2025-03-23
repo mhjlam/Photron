@@ -30,20 +30,22 @@
     <CopyFileToFolders Include="Resources\sample1.mci">
       <Filter>Resources</Filter>
     </CopyFileToFolders>
-    <CopyFileToFolders Include="Resources\sample1a.mco">
-      <Filter>Resources</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="Resources\sample1b.mco">
-      <Filter>Resources</Filter>
-    </CopyFileToFolders>
     <CopyFileToFolders Include="Resources\sample2.mci">
-      <Filter>Resources</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="Resources\sample2.mco">
       <Filter>Resources</Filter>
     </CopyFileToFolders>
     <CopyFileToFolders Include="Resources\template.mci">
       <Filter>Resources</Filter>
     </CopyFileToFolders>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\sample1a.mco">
+      <Filter>Resources</Filter>
+    </None>
+    <None Include="Resources\sample1b.mco">
+      <Filter>Resources</Filter>
+    </None>
+    <None Include="Resources\sample2.mco">
+      <Filter>Resources</Filter>
+    </None>
   </ItemGroup>
 </Project>
