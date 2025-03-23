@@ -10,17 +10,6 @@
 #include <numbers>
 
 
- // 1=split photon, 0=statistical reflection.
-constexpr int PARTIAL_REFLECTION = 0;
-
-// If 1-cos(theta) <= ONE_MINUS_COS_ZERO, fabs(theta) <= 1e-6 rad.
-// If 1+cos(theta) <= ONE_MINUS_COS_ZERO, fabs(PI-theta) <= 1e-6 rad.
-constexpr double ONE_MINUS_COS_ZERO = 1.0E-12;
-
-// If cos(theta) <= COS90D, theta >= PI/2 - 1e-6 rad.
-constexpr double COS_90_DEGREES = 1.0E-6;
-
-
 /**************************************************************************
  *	Compute the specular reflectance.
  *
@@ -57,14 +46,14 @@ void Spin(double g, Photon& photon)
     double uz = photon.uz;
 
     // sample theta.
-    double temp = (1 - g * g) / (1 - g + 2 * g * RandomNumber());
-    double cost = (g == 0.0) ? 2 * RandomNumber() - 1 : (1 + g * g - temp * temp) / (2 * g);
+    double temp = (1 - g * g) / (1 - g + 2 * g * unitNumber());
+    double cost = (g == 0.0) ? 2 * unitNumber() - 1 : (1 + g * g - temp * temp) / (2 * g);
 
     // sqrt is faster than sin.
     double sint = std::sqrt(1.0 - cost * cost);
 
     // sample psi.
-    double psi = 2.0 * std::numbers::pi * RandomNumber();
+    double psi = 2.0 * std::numbers::pi * unitNumber();
     double cosp = std::cos(psi);
 
     // sqrt is faster than sin.
@@ -76,9 +65,7 @@ void Spin(double g, Photon& photon)
     if (1 - std::abs(uz) <= ONE_MINUS_COS_ZERO) {
         photon.ux = sint * cosp;
         photon.uy = sint * sinp;
-
-        // SIGN() is faster than division.
-        photon.uz = cost * sign(uz);
+        photon.uz = cost * std::copysign(1.0, uz);
     }
     else {
         double temp = std::sqrt(1.0 - uz * uz);
@@ -113,7 +100,7 @@ void LaunchPhoton(double Rsp, RunParams& params, Tracer& tracer, Photon& photon)
     photon.uy = 0.0;
     photon.uz = 1.0;
 
-    tracer.A.i = 0.0;
+    tracer.A.ai = 0.0;
     tracer.T.bi = 0.0;
     tracer.T.di = 0.0;
     tracer.R.bi = 0.0;
@@ -146,7 +133,7 @@ void Hop(Photon& photon, double S, double n)
     photon.x += S * photon.ux;
     photon.y += S * photon.uy;
     photon.z += S * photon.uz;
-    photon.flight_time += S * n * ONE_OVER_C;
+    photon.flight_time += S * n * SPEED_OF_LIGHT_INV;
 }
 
 /**************************************************************************
@@ -161,7 +148,7 @@ void SetStepSize(Photon& photon)
     if (photon.step_size == 0.0) {
         // avoid zero.
         double rnd;
-        while ((rnd = RandomNumber()) <= 0.0);
+        while ((rnd = unitNumber()) <= 0.0);
         photon.step_size = -std::log(rnd);
     }
 }
@@ -217,7 +204,7 @@ void Drop(RunParams& params, Photon& photon, Tracer& tracer)
     photon.min_weight -= dwa;
 
     // Compute array indices.
-    short iz, ir, it;
+    std::size_t iz, ir, it;
 
     if (record.A_rzt || record.A_zt || record.A_z || record.A_rz) {
         if (photon.z >= params.max_z) {
@@ -278,7 +265,7 @@ void Drop(RunParams& params, Photon& photon, Tracer& tracer)
     if (record.A_t) {
         tracer.A.t[it] += dwa;
     }
-    tracer.A.i += dwa;
+    tracer.A.ai += dwa;
 }
 
 /**************************************************************************
@@ -293,8 +280,8 @@ void Roulette(Photon& photon)
     }
 
     // survived the roulette.
-    else if (RandomNumber() < CHANCE) {
-        photon.min_weight /= CHANCE;
+    else if (unitNumber() < ROULETTE_SURVIVAL) {
+        photon.min_weight /= ROULETTE_SURVIVAL;
     }
     else {
         photon.alive = 0;
@@ -378,7 +365,7 @@ void RecordR(double Refl, RunParams& params, Photon& photon, Tracer& tracer) // 
     double y = photon.y;
     Record record = params.record;
 
-    short ir, ia, it;	// index to r & angle.
+    std::size_t ir, ia, it;	// index to r & angle.
     if (record.Rd_rat || record.Rd_at || record.Rd_rt || record.Rd_t) {
         if (photon.flight_time >= params.max_time) {
             it = params.num_time - 1;
@@ -454,7 +441,7 @@ void RecordT(double Refl, RunParams& params, Photon& photon, Tracer& tracer)
     Record record = params.record;
 
     // Index to r & angle.
-    short ir, ia, it;
+    std::size_t ir, ia, it;
     if (record.Td_rat || record.Td_at || record.Td_rt || record.Td_t) {
         if (photon.flight_time >= params.max_time) {
             it = params.num_time - 1;
@@ -518,15 +505,13 @@ void RecordT(double Refl, RunParams& params, Photon& photon, Tracer& tracer)
 }
 
 /**************************************************************************
- *	Decide whether the photon will be transmitted or
- *	reflected on the upper boundary (uz<0) of the current
- *	current_layer.
+ *	Decide whether the photon will be transmitted or reflected on the upper
+ *  boundary (uz<0) of the current current_layer.
  *
  *	If "current_layer" is the first current_layer, the photon packet will
  *	be partially transmitted and partially reflected if
- *	PARTIAL_REFLECTION is set to 1,
- *	or the photon packet will be either transmitted or
- *	reflected determined statistically if PARTIAL_REFLECTION
+ *	PARTIAL_REFLECTION is set to 1, or the photon packet will be either 
+ *  transmitted or reflected determined statistically if PARTIAL_REFLECTION
  *	is set to 0.
  *
  *	Record the transmitted photon min_weight as reflection.
@@ -551,40 +536,45 @@ void CrossUpOrNot(RunParams& params, Photon& photon, Tracer& tracer)
     // Get reflectance. If 1.0, then total internal reflection.
     double r = (-uz <= params.layers[layer].cos_crit0) ? 1.0 : RFresnel(ni, nt, -uz, uz1);
 
-#if PARTIAL_REFLECTION
-    if (layer == 1 && r < 1.0) {	// partially transmitted.
-        photon.uz = -uz1;	// escaped photon.
-        RecordR(r, params, Photon_Ptr, Out_Ptr);
-        photon.uz = -uz;	// reflected photon.
-    }
-    else if (RandomNum > r) {	// transmitted to current_layer-1.
-        photon.layer--;
-        photon.ux *= ni / nt;
-        photon.uy *= ni / nt;
-        photon.uz = -uz1;
-    }
-    else			// reflected.
-        photon.uz = -uz;
-#else
-    // transmitted to current_layer-1.
-    if (RandomNumber() > r) {
-        if (layer == 1) {
-            photon.uz = -uz1;
-            RecordR(0.0, params, photon, tracer);
-            photon.alive = 0;	// escaped.
+    if (PARTIAL_REFLECTION) {
+        // partially transmitted.
+        if (layer == 1 && r < 1.0) {
+            photon.uz = -uz1; // escaped photon.
+            RecordR(r, params, photon, tracer);
+            photon.uz = -uz; // reflected photon.
         }
-        else {
+        // transmitted to current_layer-1.
+        else if (unitNumber() > r) {
             photon.current_layer--;
             photon.ux *= ni / nt;
             photon.uy *= ni / nt;
             photon.uz = -uz1;
         }
+        // reflected.
+        else {
+            photon.uz = -uz;
+        }
     }
-    // reflected.
     else {
-        photon.uz = -uz;
+        // transmitted to current_layer-1.
+        if (unitNumber() > r) {
+            if (layer == 1) {
+                photon.uz = -uz1;
+                RecordR(0.0, params, photon, tracer);
+                photon.alive = 0;	// escaped.
+            }
+            else {
+                photon.current_layer--;
+                photon.ux *= ni / nt;
+                photon.uy *= ni / nt;
+                photon.uz = -uz1;
+            }
+        }
+        // reflected.
+        else {
+            photon.uz = -uz;
+        }
     }
-#endif
 }
 
 /**************************************************************************
@@ -614,42 +604,49 @@ void CrossDnOrNot(RunParams& params, Photon& photon, Tracer& tracer)
     // Get reflectance. If 1.0, then total internal reflection.
     double r = (uz <= params.layers[layer].cos_crit1) ? 1.0 : RFresnel(ni, nt, uz, uz1);
 
-#if PARTIAL_REFLECTION
-    if (layer == params.layers.size() && r < 1.0) {
-        photon.uz = uz1;
-        RecordT(r, params, Photon_Ptr, Out_Ptr);
-        photon.uz = -uz;
-    }
-    else if (RandomNum > r) {	// transmitted to current_layer+1.
-        photon.layer++;
-        photon.ux *= ni / nt;
-        photon.uy *= ni / nt;
-        photon.uz = uz1;
-    }
-    else			// reflected.
-        photon.uz = -uz;
-#else
-    // transmitted to current_layer+1.
-    if (RandomNumber() > r) {
-        if (layer == params.layers.size()) {
+    if (PARTIAL_REFLECTION)
+    {
+        if (layer == params.num_layers && r < 1.0) {
             photon.uz = uz1;
-            RecordT(0.0, params, photon, tracer);
-
-            // escaped.
-            photon.alive = 0;
+            RecordT(r, params, photon, tracer);
+            photon.uz = -uz;
         }
-        else {
+        // transmitted to current_layer+1.
+        else if (unitNumber() > r) {
             photon.current_layer++;
             photon.ux *= ni / nt;
             photon.uy *= ni / nt;
             photon.uz = uz1;
         }
+        // reflected.
+        else
+        {
+            photon.uz = -uz;
+        }
     }
-    // reflected.
-    else {
-        photon.uz = -uz;
+    else 
+    {
+        // transmitted to current_layer+1.
+        if (unitNumber() > r) {
+            if (layer == params.num_layers) {
+                photon.uz = uz1;
+                RecordT(0.0, params, photon, tracer);
+
+                // escaped.
+                photon.alive = 0;
+            }
+            else {
+                photon.current_layer++;
+                photon.ux *= ni / nt;
+                photon.uy *= ni / nt;
+                photon.uz = uz1;
+            }
+        }
+        // reflected.
+        else {
+            photon.uz = -uz;
+        }
     }
-#endif
 }
 
 /**************************************************************************
@@ -714,16 +711,16 @@ void TracePhoton(RunParams& params, Photon& photon, Tracer& tracer)
         }
     } while (photon.alive);
 
-    tracer.A.a += tracer.A.i;
-    tracer.A.e += tracer.A.i * tracer.A.i;
+    tracer.A.ab += tracer.A.ai;
+    tracer.A.ae += tracer.A.ai * tracer.A.ai;
 
-    tracer.T.b += tracer.T.bi;
+    tracer.T.br += tracer.T.bi;
     tracer.T.be += tracer.T.bi * tracer.T.bi;
-    tracer.T.d += tracer.T.di;
+    tracer.T.dr += tracer.T.di;
     tracer.T.de += tracer.T.di * tracer.T.di;
 
-    tracer.R.b += tracer.R.bi;
+    tracer.R.br += tracer.R.bi;
     tracer.R.be += tracer.R.bi * tracer.R.bi;
-    tracer.R.d += tracer.R.di;
+    tracer.R.dr += tracer.R.di;
     tracer.R.de += tracer.R.di * tracer.R.di;
 }

@@ -86,13 +86,29 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <functional>
+#include <unordered_set>
 
 
-constexpr double    CHANCE = 0.1;		        //  Chance of roulette survival. 
-constexpr double    C_LIGHT = 0.0299792458;     //  Speed of light in vacuum [cm/ps]. 
-constexpr double    ONE_OVER_C = 33.35640952;   //  1/C [ps/cm]. 
+template <typename T> using List = std::vector<T>;
+template <typename T> using Uset = std::unordered_set<T>;
+using Text = std::string;
 
-template <typename T> constexpr int sign(T x) { return (x >= 0) ? 1 : -1; }
+constexpr double ROULETTE_SURVIVAL  = 0.1;		    // Roulette survival chance
+
+constexpr double SPEED_OF_LIGHT     = 0.0299792458; // Speed of light in vacuum [cm/ps]
+constexpr double SPEED_OF_LIGHT_INV = 33.35640952;  // 1/C [ps/cm]
+
+// Split photon if true, otherwise statistical reflection.
+constexpr bool PARTIAL_REFLECTION   = false;
+
+// If 1-cos(theta) <= ONE_MINUS_COS_ZERO, fabs(theta) <= 1e-6 rad.
+// If 1+cos(theta) <= ONE_MINUS_COS_ZERO, fabs(PI-theta) <= 1e-6 rad.
+constexpr double ONE_MINUS_COS_ZERO = 1.0E-12;  
+
+// If cos(theta) <= COS90D, theta >= PI/2 - 1e-6 rad.
+constexpr double COS_90_DEGREES     = 1.0E-6;
+
 
 
 /********************************* Stuctures **********************************/
@@ -118,15 +134,17 @@ enum class FileFormat
  ****/
 struct Photon
 {
-    double  x, y, z;		//  Cartesian coordinates.[cm] 
-    double  ux, uy, uz;	    //  Directional cosines of a photon. 
-    double  min_weight;		//  Min weight. 
-    bool    alive;		    //  Photon alive/terminated. 
-    short   current_layer;	//  Index to current_layer where photon is.
-    double  step_size;		//  Current step size. [cm]. 
-    double  step_size_left;	//  Step size left. dimensionless [-]. 
-    long    num_scatters;	//  Number of scatterings. 
-    double  flight_time;	//  Flight time [picosec]. 
+    bool alive{};		                //  Photon alive/terminated. 
+
+    long num_scatters{};	            //  Number of scatterings. 
+    short current_layer{};	            //  Index to current_layer where photon is.
+
+    double  x{}, y{}, z{};		        //  Cartesian coordinates.[cm] 
+    double  ux{}, uy{}, uz{};	        //  Directional cosines of a photon. 
+    double  min_weight{};		        //  Min weight. 
+    double  step_size{};		        //  Current step size. [cm]. 
+    double  step_size_left{};	        //  Step size left. dimensionless [-]. 
+    double  flight_time{};	            //  Flight time [picosec]. 
 };
 
 /****
@@ -140,27 +158,27 @@ struct Photon
 struct Record
 {
     //  use bit field to save space.
-    int Rd_rat : 1;
-    int Rd_ra : 1;
-    int Rd_rt : 1;
-    int Rd_at : 1;
-    int Rd_r : 1;
-    int Rd_a : 1;
-    int Rd_t : 1;
+    bool Rd_rat{false};
+    bool Rd_ra{false};
+    bool Rd_rt{false};
+    bool Rd_at{false};
+    bool Rd_r{false};
+    bool Rd_a{false};
+    bool Rd_t{false};
 
-    int Td_rat : 1;
-    int Td_ra : 1;
-    int Td_rt : 1;
-    int Td_at : 1;
-    int Td_r : 1;
-    int Td_a : 1;
-    int Td_t : 1;
+    bool Td_rat{false};
+    bool Td_ra{false};
+    bool Td_rt{false};
+    bool Td_at{false};
+    bool Td_r{false};
+    bool Td_a{false};
+    bool Td_t{false};
 
-    int A_rzt : 1;
-    int A_rz : 1;
-    int A_zt : 1;
-    int A_z : 1;
-    int A_t : 1;
+    bool A_rzt{false};
+    bool A_rz{false};
+    bool A_zt{false};
+    bool A_z{false};
+    bool A_t{false};
 };
 
 /****
@@ -178,15 +196,18 @@ struct Record
  ****/
 struct Layer
 {
-    std::string name    = "";  // Name of the current_layer
-    double top_z        = 0.0;  // Top z coordinate  [cm] 
-    double bot_z        = 0.0;  // Bottom z coordinate [cm]
-    double eta          = 0.0;	// Refractive index of a current_layer
-    double mua          = 0.0;	// Absorption coefficient. [1/cm] 
-    double mus          = 0.0;	// Scattering coefficient. [1/cm] 
-    double aniso        = 0.0;	// Anisotropy
-    double cos_crit0    = 0.0;
-    double cos_crit1    = 0.0;
+    Text name{};                        // Name of the current_layer
+
+    double top_z{};                     // Top z coordinate  [cm] 
+    double bot_z{};                     // Bottom z coordinate [cm]
+
+    double eta{};	                    // Refractive index of a current_layer
+    double mua{};	                    // Absorption coefficient. [1/cm] 
+    double mus{};	                    // Scattering coefficient. [1/cm] 
+    double aniso{};	                    // Anisotropy
+
+    double cos_crit0{}; 
+    double cos_crit1{}; 
 };
 
 /****
@@ -212,107 +233,109 @@ struct Layer
  ****/
 struct RunParams
 {
-    std::string         output_filename;    // Output file name. 
-    FileFormat          output_file_format; // Output file format. 
+    Text        output_filename{};      // Output file name. 
+    FileFormat  output_file_format{};   // Output file format. 
+    ControlBit  control_bit{};          // Control of simulation termination. 
 
-    long                num_photons;	    // Number of photons to be traced.
-    long                add_num_photons;	// Additional photon number. 
-    long                time_limit;	        // Computation time limit [sec].
-    long                add_limit;	        // Additional computation time. 
-    ControlBit          control_bit;        // Control of simulation termination. 
-    double              min_weight;		    // Play roulette if photon weight < min_weight. 
+    long        num_photons{};	        // Number of photons to be traced.
+    long        add_num_photons{};	    // Additional photon number. 
+    long        time_limit{};	        // Computation time limit [sec].
+    long        add_limit{};	        // Additional computation time. 
 
-    BeamType            source;	            // Beam type. 
-    double              source_z;		    // Z coordinate of source. 
-    short               source_layer;		// Put source in source_layer. 
-    std::string         source_medium_name; // Medium name of source_layer. 
+    short       seed{};		            // Random number seed (unused).
+    short       num_runs{};		        // Number of runs.
+    double      min_weight{};		    // Play roulette if photon weight < min_weight. 
 
-    double              grid_z;		        // Z grid separation.[cm] 
-    double              grid_r;		        // R grid separation.[cm] 
-    double              grid_alpha;		    // Alpha grid separation. [rad] 
-    double              grid_time;		    // Time grid separation.[ps] 
+    BeamType    source{};	            // Beam type. 
+    double      source_z{};		        // Z coordinate of source. 
+    short       source_layer{};		    // Put source in source_layer. 
+    Text        source_medium_name{};   // Medium name of source_layer. 
 
-    short               num_z;		        // Array range 0..num_z-1. 
-    short               num_r;		        // Array range 0..num_r-1. 
-    short               num_alpha;		    // Array range 0..num_alpha-1. 
-    short               num_time;		    // Array range 0..num_time-1. 
+    double      grid_z{};		        // Z grid separation.[cm] 
+    double      grid_r{};		        // R grid separation.[cm] 
+    double      grid_alpha{};		    // Alpha grid separation. [rad] 
+    double      grid_time{};		    // Time grid separation.[ps] 
 
-    double              max_z;		        // Maximum z [cm] 
-    double              max_r;		        // Maximum r [cm] 
-    double              max_alpha;		    // Maximum alpha [rad]
-    double              max_time;		    // Maximum time [ps] 
+    std::size_t num_z{};		        // Array range 0..num_z-1. 
+    std::size_t num_r{};		        // Array range 0..num_r-1. 
+    std::size_t num_alpha{};		    // Array range 0..num_alpha-1. 
+    std::size_t num_time{};		        // Array range 0..num_time-1. 
 
-    std::vector<Layer>  layers;             // Layer parameters
-    std::vector<Layer>  mediums;            // Medium parameters
-    Record              record;		        // Recorded quantities
+    double      max_z{};		        // Maximum z [cm] 
+    double      max_r{};		        // Maximum r [cm] 
+    double      max_alpha{};		    // Maximum alpha [rad]
+    double      max_time{};		        // Maximum time [ps] 
 
-    short               num_runs;		    // Number of runs
+    Record      record;		            // Recorded quantities
+    List<Layer> layers;                 // Layer parameters
+    List<Layer> mediums;                // Medium parameters
+
+    std::size_t num_layers{};           // Number of intermediate layers
+
+    Uset<Text>  unique_outputs;         // Unique output file names
 };
 
 
 struct Reflectance
 {
-    // Diffuse reflectance. [1/(cm2 sr ps)] 
-    std::vector<std::vector<std::vector<double>>> rat;
+    List<List<List<double>>> rat;       // Diffuse reflectance. [1/(cm2 sr ps)] 
 
-    std::vector<std::vector<double>> ra;    // [1/(cm2 sr)]
-    std::vector<std::vector<double>> rt;    // [1/sr ps]
-    std::vector<std::vector<double>> at;    // [1/cm2 ps]
+    List<List<double>> ra;              // [1/(cm2 sr)]
+    List<List<double>> rt;              // [1/sr ps]
+    List<List<double>> at;              // [1/cm2 ps]
 
-    std::vector<double> r;                  // [1/cm2]
-    std::vector<double> a;                  // [1/sr]
-    std::vector<double> t;                  // [1/ps]
+    List<double> r;                     // [1/cm2]
+    List<double> a;                     // [1/sr]
+    List<double> t;                     // [1/ps]
 
-    double d;	                            // Total diffuse reflectance.
-    double de;	                            // Standard error for diffuse reflectance.
-    double di;	                            // Diffuse reflectance of the i-th photon.
+    double dr{};	                    // Total diffuse reflectance.
+    double de{};	                    // Standard error for diffuse reflectance.
+    double di{};	                    // Diffuse reflectance of the i-th photon.
 
-    double b;	                            // Ballistic reflectance.
-    double be;	                            // Standard error for ballistic reflectance.
-    double bi;	                            // Ballistic reflectance of the i-th photon.
+    double br{};	                    // Ballistic reflectance.
+    double be{};	                    // Standard error for ballistic reflectance.
+    double bi{};	                    // Ballistic reflectance of the i-th photon.
 
-    double sp;	                            // Specular reflectance.
+    double sp{};	                    // Specular reflectance.
 };
 
 struct Transmittance
 {
-    // Diffuse transmittance. [1/(cm2 sr ps)] 
-    std::vector<std::vector<std::vector<double>>> rat;
+    List<List<List<double>>> rat;       // Diffuse transmittance. [1/(cm2 sr ps)] 
 
-    std::vector<std::vector<double>> ra;    // [1/(cm2 sr)]
-    std::vector<std::vector<double>> rt;    // [1/sr ps]
-    std::vector<std::vector<double>> at;    // [1/cm2 ps]
+    List<List<double>> ra;              // [1/(cm2 sr)]
+    List<List<double>> rt;              // [1/sr ps]
+    List<List<double>> at;              // [1/cm2 ps]
 
-    std::vector<double> r;	                // [1/cm2] 
-    std::vector<double> a;	                // [1/sr] 
-    std::vector<double> t;	                // [1/ps] 
+    List<double> r;	                    // [1/cm2] 
+    List<double> a;	                    // [1/sr] 
+    List<double> t;	                    // [1/ps] 
 
-    double d;	                            // Total diffuse transmittance.
-    double de;	                            // Standard error for Td.
-    double di;	                            // Td of the i-th photon.
+    double dr{};	                    // Total diffuse transmittance.
+    double de{};	                    // Standard error for Td.
+    double di{};	                    // Td of the i-th photon.
 
-    double b;	                            // Ballistic transmittance.
-    double be;	                            // Standard error for Tb.
-    double bi;	                            // Tb of the i-th photon.
+    double br{};	                    // Ballistic transmittance.
+    double be{};	                    // Standard error for Tb.
+    double bi{};	                    // Tb of the i-th photon.
 };
 
 struct Absorption
 {
-    // Absorption. [1/(cm3 psabsorption]
-    std::vector<std::vector<std::vector<double>>> rzt;
+    List<List<List<double>>> rzt;       // Absorption. [1/(cm3 ps]
 
-    std::vector<std::vector<double>> rz;	    // [1/cm3] 
-    std::vector<std::vector<double>> zt;	    // [1/(cm ps)] 
+    List<List<double>> rz;	            // [1/cm3] 
+    List<List<double>> zt;	            // [1/(cm ps)] 
 
-    std::vector<double> z;	                    // [1/cm] 
-    std::vector<double> t;	                    // [1/ps] 
+    List<double> z;	                    // [1/cm] 
+    List<double> t;	                    // [1/ps] 
 
-    std::vector<std::vector<double>> bzt;	    // Ballistic absorption. [1/(cm ps)] 
-    std::vector<double> bz;	                    // [1/cm] 
+    List<List<double>> bzt;	            // Ballistic absorption. [1/(cm ps)] 
+    List<double> bz;	                // [1/cm] 
 
-    double a;		                            // Total absorption.
-    double e;		                            // Standard error for A.
-    double i;		                            // A of the i-th photon.
+    double ab{};		                // Total absorption.
+    double ae{};		                // Standard error for A.
+    double ai{};		                // A of the i-th photon.
 };
 
 /****
@@ -337,7 +360,4 @@ struct Tracer
 extern std::mt19937 RandomEngine;
 extern std::uniform_real_distribution<double> Distribution;
 
-static double RandomNumber()
-{
-    return Distribution(RandomEngine);
-}
+extern double unitNumber();

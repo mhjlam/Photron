@@ -24,22 +24,9 @@
 
 using namespace std::literals;
 
-
-/**************************************************************************
- *	Structure used to check against duplicated input names.
- ****/
-struct NameList
-{
-    std::string name;
-    NameList* next;
-};
-
-typedef struct NameList NameNode;
-typedef NameNode* NameLink;
-
-
-using SpecValue = std::variant<int, double, std::string>;
+using SpecValue = std::variant<double, std::string>;
 using OptSpecValue = std::optional<SpecValue>;
+
 
 std::vector<SpecValue> ParseLine(std::string& input, std::string err, std::size_t min_expected = 1)
 {
@@ -48,20 +35,6 @@ std::vector<SpecValue> ParseLine(std::string& input, std::string err, std::size_
 
     std::string token;
     while (stream >> token) {
-        // Attempt to parse as integer
-        try {
-            std::size_t pos;
-            int val = std::stoi(token, &pos);
-            if (pos == token.length()) {
-                values.emplace_back(val);
-                continue;
-            }
-        }
-        catch (std::exception& e) {
-            std::cerr << e.what() << std::endl;
-            return {};
-        }
-
         // Attempt to parse as double
         try {
             std::size_t pos;
@@ -71,17 +44,12 @@ std::vector<SpecValue> ParseLine(std::string& input, std::string err, std::size_
                 continue;
             }
         }
-        catch (std::exception& e) {
-            std::cerr << e.what() << std::endl;
-            return {};
-        }
+        catch (...) {}
 
         // Treat as a string instead
         if (!token.empty()) {
             values.emplace_back(token);
         }
-
-        std::cerr << err << std::endl;
     }
 
     if (values.empty() || values.size() < min_expected) {
@@ -97,19 +65,6 @@ OptSpecValue ParseInput(std::string err)
     std::string input;
     std::getline(std::cin, input);
 
-    // Attempt to parse as integer
-    try {
-        std::size_t pos;
-        int val = std::stoi(input, &pos);
-        if (pos == input.length()) {
-            return val;
-        }
-    }
-    catch (std::exception& e) {
-        std::cerr << e.what() << std::endl;
-        return {};
-    }
-
     // Attempt to parse as double
     try {
         std::size_t pos;
@@ -118,10 +73,7 @@ OptSpecValue ParseInput(std::string err)
             return val;
         }
     }
-    catch (std::exception& e) {
-        std::cerr << e.what() << std::endl;
-        return {};
-    }
+    catch (...) {}
 
     // Treat as a string instead
     if (!input.empty()) {
@@ -132,17 +84,27 @@ OptSpecValue ParseInput(std::string err)
     return {};
 }
 
-int GetIntValue(std::optional<std::variant<int, double, std::string>>& opt_int, int& target_int)
+bool IsString(SpecValue& val)
 {
-    if (std::holds_alternative<int>(opt_int.value())) {
-        int val = std::get<int>(opt_int.value());
+    return std::holds_alternative<std::string>(val);
+}
+
+bool IsNumber(SpecValue& val)
+{
+    return std::holds_alternative<double>(val);
+}
+
+int GetIntValue(OptSpecValue& opt_int, int& target_int)
+{
+    if (std::holds_alternative<double>(opt_int.value())) {
+        int val = static_cast<int>(std::get<double>(opt_int.value()));
         target_int = val;
         return val;
     }
     return 0;
 }
 
-double GetDoubleValue(std::optional<std::variant<int, double, std::string>>& opt_double, double& target_double)
+double GetDoubleValue(OptSpecValue& opt_double, double& target_double)
 {
     if (std::holds_alternative<double>(opt_double.value())) {
         double val = std::get<double>(opt_double.value());
@@ -152,7 +114,7 @@ double GetDoubleValue(std::optional<std::variant<int, double, std::string>>& opt
     return 0.0;
 }
 
-std::string GetStringValue(std::optional<std::variant<int, double, std::string>>& opt_string, std::string& target_string)
+std::string GetStringValue(OptSpecValue& opt_string, std::string& target_string)
 {
     if (std::holds_alternative<std::string>(opt_string.value())) {
         std::string val = std::get<std::string>(opt_string.value());
@@ -164,7 +126,7 @@ std::string GetStringValue(std::optional<std::variant<int, double, std::string>>
 
 std::string& to_upper(std::string& str)
 {
-    std::ranges::transform(str, str.begin(), [](unsigned char c) { 
+    std::ranges::transform(str, str.begin(), [](unsigned char c) {
         return std::toupper(c);
     });
     return str;
@@ -255,7 +217,9 @@ bool CheckCharQ(std::string& Str)
  ****/
 bool CommentLineQ(std::string& buf)
 {
-    auto it = std::ranges::find_if(buf, [](char c) { return !std::isspace(c); });
+    auto it = std::ranges::find_if(buf, [](char c) {
+        return !std::isspace(c);
+    });
     return (it == buf.end() || *it == '#');
 }
 
@@ -267,7 +231,7 @@ std::string FindDataLine(std::fstream& file)
     std::string line;
     while (std::getline(file, line)) {
         // Find first non-whitespace character
-        auto it = std::ranges::find_if(line, [](char c) { 
+        auto it = std::ranges::find_if(line, [](char c) {
             return !std::isspace(c);
         });
 
@@ -315,15 +279,10 @@ bool CheckFileVersionQ(std::fstream& file, const std::string version)
 {
     // Skip comment lines.
     std::string line;
-    do {
-        std::getline(file, line);
-        if (line.empty()) {
-            continue;
-        }
-    } while (CommentLineQ(line));
+    do { std::getline(file, line); } while (line.empty() || CommentLineQ(line));
 
-    if (line.empty() || line.find(version) == std::string::npos) {
-        std::cerr << "Wrong file version.";
+    if (line.find(version) == std::string::npos) {
+        std::cerr << "Invalid file version.";
         return false;
     }
     return true;
@@ -370,7 +329,7 @@ bool GetFile(std::string& fname, const std::string version, std::fstream& file)
 }
 
 /*******************************************************************************
- *  Find number of mediums in the list. 
+ *  Find number of mediums in the list.
  *  At the same time, check the optical parameters.
  ****/
 int FindNumMediaQ(std::fstream& file)
@@ -444,6 +403,7 @@ bool ReadMediumListQ(std::fstream& file, RunParams& params)
 
     int num_media = FindNumMediaQ(file);
     if (num_media < 1) {
+        file.seekg(file_pos, std::ios::beg);
         return false;
     }
 
@@ -473,7 +433,7 @@ bool ReadFnameFormatQ(std::fstream& file, RunParams& params)
         return false;
     }
 
-    std::string output_file_format = std::get<std::string>(extracted[0]);
+    params.output_filename = std::get<std::string>(extracted[0]);
 
     //if (output_file_format == "B") {
     //    params.output_file_format = FileFormat::Binary;
@@ -530,14 +490,14 @@ bool ReadNzNrNtNaQ(std::istream& input, RunParams& params)
 {
     std::string buf = FindDataLine(input);
     auto extracted = ParseLine(buf, "Reading number of dz, dr, dt, da.", 4);
-    if (extracted.size() != 3) {
+    if (extracted.size() != 4) {
         return false;
     }
 
-    int nz = std::get<int>(extracted[0]);
-    int nr = std::get<int>(extracted[1]);
-    int nt = std::get<int>(extracted[3]);
-    int na = std::get<int>(extracted[4]);
+    int nz = static_cast<int>(std::get<double>(extracted[0]));
+    int nr = static_cast<int>(std::get<double>(extracted[1]));
+    int nt = static_cast<int>(std::get<double>(extracted[2]));
+    int na = static_cast<int>(std::get<double>(extracted[3]));
 
     if (nz <= 0) {
         std::cerr << "Nonpositive number of dz." << std::endl;
@@ -603,103 +563,86 @@ bool ReadRecordQ(std::istream& input, RunParams& params)
         return string;
     };
 
-    std::string string;
-    bool error = false;
-
     std::string buf = FindDataLine(input);
     if (buf.empty()) {
         std::cout << "Read scored quantities." << std::endl;
-        error = true;
+        return false;
     }
 
-    std::string index = buf;
+    std::string string;
+    std::stringstream iss(buf);
 
-    while (!error && !index.empty() && index[0] != '\n' && index[0] != '#') {
-        // use '\' to continue to next line.
-        if (index[0] == '\\') {
-            buf = FindDataLine(input);
-            if (buf.empty()) {
-                break;
-            }
-            index = buf;
-        }
+    do {
+        iss >> string;
 
-        std::istringstream ss(index);
-        ss >> string;
+        // Trim and uppercase
+        string = std::format("{:}", string);
+        string = to_upper(string);
 
-        // Move the index pointer past the string
-        index = index.substr(string.length());
-
-        // Trim leading spaces and tabs
-        index.erase(0, index.find_first_not_of(" \t"));
-
-        // Process string
-        auto string_upper = to_upper(string);
-
-        if (string_upper == "RD_R"sv) {
-            params.record.Rd_r = 1;
+        if (string == "RD_R"sv) {
+            params.record.Rd_r = true;
         }
-        else if (string_upper == "RD_A"sv) {
-            params.record.Rd_a = 1;
+        else if (string == "RD_A"sv) {
+            params.record.Rd_a = true;
         }
-        else if (string_upper == "RD_RA"sv) {
-            params.record.Rd_ra = 1;
+        else if (string == "RD_RA"sv) {
+            params.record.Rd_ra = true;
         }
-        else if (string_upper == "RD_T"sv) {
-            params.record.Rd_t = 1;
+        else if (string == "RD_T"sv) {
+            params.record.Rd_t = true;
         }
-        else if (string_upper == "RD_RT"sv) {
-            params.record.Rd_rt = 1;
+        else if (string == "RD_RT"sv) {
+            params.record.Rd_rt = true;
         }
-        else if (string_upper == "RD_AT"sv) {
-            params.record.Rd_at = 1;
+        else if (string == "RD_AT"sv) {
+            params.record.Rd_at = true;
         }
-        else if (string_upper == "RD_RAT"sv) {
-            params.record.Rd_rat = 1;
+        else if (string == "RD_RAT"sv) {
+            params.record.Rd_rat = true;
         }
-        else if (string_upper == "TD_R"sv) {
-            params.record.Td_r = 1;
+        else if (string == "TD_R"sv) {
+            params.record.Td_r = true;
         }
-        else if (string_upper == "TD_A"sv) {
-            params.record.Td_a = 1;
+        else if (string == "TD_A"sv) {
+            params.record.Td_a = true;
         }
-        else if (string_upper == "TD_RA"sv) {
-            params.record.Td_ra = 1;
+        else if (string == "TD_RA"sv) {
+            params.record.Td_ra = true;
         }
-        else if (string_upper == "TD_T"sv) {
-            params.record.Td_t = 1;
+        else if (string == "TD_T"sv) {
+            params.record.Td_t = true;
         }
-        else if (string_upper == "TD_RT"sv) {
-            params.record.Td_rt = 1;
+        else if (string == "TD_RT"sv) {
+            params.record.Td_rt = true;
         }
-        else if (string_upper == "TD_AT"sv) {
-            params.record.Td_at = 1;
+        else if (string == "TD_AT"sv) {
+            params.record.Td_at = true;
         }
-        else if (string_upper == "TD_RAT"sv) {
-            params.record.Td_rat = 1;
+        else if (string == "TD_RAT"sv) {
+            params.record.Td_rat = true;
         }
-        else if (string_upper == "A_Z"sv) {
-            params.record.A_z = 1;
+        else if (string == "A_Z"sv) {
+            params.record.A_z = true;
         }
-        else if (string_upper == "A_RZ"sv) {
-            params.record.A_rz = 1;
+        else if (string == "A_RZ"sv) {
+            params.record.A_rz = true;
         }
-        else if (string_upper == "A_T"sv) {
-            params.record.A_t = 1;
+        else if (string == "A_T"sv) {
+            params.record.A_t = true;
         }
-        else if (string_upper == "A_ZT"sv) {
-            params.record.A_zt = 1;
+        else if (string == "A_ZT"sv) {
+            params.record.A_zt = true;
         }
-        else if (string_upper == "A_RZT"sv) {
-            params.record.A_rzt = 1;
+        else if (string == "A_RZT"sv) {
+            params.record.A_rzt = true;
         }
         else {
             std::cout << "Unknown quantity: " << string << std::endl;
-            error = true;
+            return false;
         }
-    }
+    } while (!iss.fail() && !string.empty());
 
-    return !error;
+    return true;
 }
 
 /**************************************************************************
@@ -796,15 +739,37 @@ bool ReadWthQ(std::fstream& file, RunParams& params)
 }
 
 /**************************************************************************
+ *  Read the seed for random number generator (unused).
+ ****/
+bool ReadSeed(std::fstream& file, RunParams& params)
+{
+    std::string buf = FindDataLine(file);
+    auto extracted = ParseLine(buf, "Error reading seed value.");
+    if (extracted.empty()) {
+        return false;
+    }
+
+    int seed = static_cast<int>(std::get<double>(extracted[0]));
+
+    if (seed < 0) {
+        std::cerr << "Negative seed value." << std::endl;
+        return false;
+    }
+
+    params.seed = seed;
+    return true;
+}
+
+/**************************************************************************
  *  Find number of layers.
  ****/
 int FindNumLayersQ(std::fstream& file)
 {
     std::string buf;
-    short num_layers = 0;
+    short num_layers = -1;
 
     // While "end" has not been found
-    while (buf.find("end") == std::string::npos) {
+    do {
         buf = FindDataLine(file);
 
         if (buf.empty()) {
@@ -818,7 +783,7 @@ int FindNumLayersQ(std::fstream& file)
                 num_layers++;
             }
         }
-    }
+    } while (buf.find("end") == std::string::npos);
 
     return num_layers - 2;
 }
@@ -845,21 +810,23 @@ bool ReadLayerSpecsQ(std::fstream& file, RunParams& params)
     std::string name;
     double thickness = 0.0;
 
+    // z coordinate of the current layer.
+    double z = 0.0;
+
     // Save current output position
     std::streampos file_pos = file.tellg();
 
     int num_layers = FindNumLayersQ(file);
     if (num_layers < 1) {
+        file.seekg(file_pos, std::ios::beg);
         return false;
     }
 
     // Seek to previous output position 
     file.seekg(file_pos, std::ios::beg);
 
-
-    // Allocate an array for the current_layer parameters.
     // current_layer 0 and current_layer Num_Layers + 1 are for ambient.
-    params.layers.resize(num_layers + 2);
+    params.num_layers = num_layers;
 
     for (short i = 0; i <= num_layers + 1; i++) {
         std::string buf = FindDataLine(file);
@@ -895,15 +862,12 @@ bool ReadLayerSpecsQ(std::fstream& file, RunParams& params)
             return false;
         }
 
-        params.layers[i].name = name;
-
-        params.layers[i].eta = params.mediums[index].eta;
-        params.layers[i].mua = params.mediums[index].mua;
-        params.layers[i].mus = params.mediums[index].mus;
-        params.layers[i].aniso = params.mediums[index].aniso;
-
-        // z coordinate of the current current_layer.
-        double z = 0.0;
+        params.layers.push_back(Layer{
+            .name = params.mediums[index].name,
+            .eta = params.mediums[index].eta,
+            .mua = params.mediums[index].mua,
+            .mus = params.mediums[index].mus,
+            .aniso = params.mediums[index].aniso });
 
         // Intermediate layers
         if (i != 0 && i != (num_layers + 1)) {
@@ -935,8 +899,8 @@ bool ReadNumPhotonsQ(std::istream& input, RunParams& params, char type)
         return false;
     }
 
-    if (extracted.size() == 1) {
-        int num_photons = std::get<int>(extracted[0]);
+    if (extracted.size() == 1 && IsNumber(extracted[0])) {
+        int num_photons = static_cast<int>(std::get<double>(extracted[0]));
 
         if (num_photons > 0) {
             params.num_photons = num_photons;
@@ -948,9 +912,20 @@ bool ReadNumPhotonsQ(std::istream& input, RunParams& params, char type)
             return false;
         }
     }
-    else if (extracted.size() == 2) {
-        int hours = std::get<int>(extracted[0]);
-        int minutes = std::get<int>(extracted[1]);
+    else if (extracted.size() == 1 && IsString(extracted[0])) {
+        std::string time = std::get<std::string>(extracted[0]);
+
+        int hours = 0;
+        int minutes = 0;
+        char separator;
+
+        std::istringstream iss(time);
+        iss >> hours >> separator >> minutes;
+
+        if (!iss || separator != ':') {
+            std::cerr << "Invalid time limit format." << std::endl;
+            return false;
+        }
 
         if ((hours * 3600 + minutes * 60) > 0) {
             params.num_photons = 0;
@@ -964,10 +939,21 @@ bool ReadNumPhotonsQ(std::istream& input, RunParams& params, char type)
 
         params.control_bit = ControlBit::TimeLimit;
     }
-    else if (extracted.size() == 3) {
-        int num_photons = std::get<int>(extracted[0]);
-        int hours = std::get<int>(extracted[1]);
-        int minutes = std::get<int>(extracted[2]);
+    else if (extracted.size() == 2 && IsNumber(extracted[0]) && IsString(extracted[1])) {
+        int num_photons = static_cast<int>(std::get<double>(extracted[0]));
+        std::string time = std::get<std::string>(extracted[1]);
+
+        int hours = 0;
+        int minutes = 0;
+        char separator;
+
+        std::istringstream iss(time);
+        iss >> hours >> separator >> minutes;
+
+        if (!iss || separator != ':') {
+            std::cerr << "Invalid time limit format." << std::endl;
+            return false;
+        }
 
         if (num_photons > 0 && (hours * 3600 + minutes * 60) > 0) {
             if (type == 0) {
@@ -1032,13 +1018,13 @@ bool ZToLayerQ(double z, short& index, RunParams& params)
 {
     // index to current_layer.
     short i = 0;
-    std::size_t num_layers = params.layers.size();
+    std::size_t num_layers = params.num_layers;
 
     if (z < 0.0) {
         std::cerr << "Nonpositive z coordinate." << std::endl;
         return false;
     }
-    else if (z > params.layers[num_layers].bot_z) {
+    else if (z > params.layers[num_layers - 1].bot_z) {
         std::cerr << "Source is outside of the last layer. " << std::endl;
         return false;
     }
@@ -1082,7 +1068,7 @@ bool ReadStartPQ(std::istream& input, RunParams& params)
             if (params.layers[source_layer].name == medium_name) {
                 if ((std::abs(source_z - params.layers[source_layer].bot_z) < DBL_EPSILON) && (params.layers[source_layer + 1].name == medium_name)) {
                     source_layer++;
-                    if (source_layer > params.layers.size()) {
+                    if (source_layer > params.num_layers) {
                         puts("Source is outside of the last layer.");
                         return false;
                     }
@@ -1108,20 +1094,20 @@ bool ReadStartPQ(std::istream& input, RunParams& params)
 }
 
 /*************************************************************************
- *	Compute the critical angles for total internal
- *	reflection according to the relative refractive index
- *	of the current_layer.
+ *	Compute the critical angles for total internal reflection according to
+ *  the relative refractive index of the current_layer.
  *	All layers are processed.
  ****/
 void CriticalAngle(std::vector<Layer>& layers)
 {
-    for (short i = 1; i <= layers.size(); i++) {
+    for (short i = 1; i <= layers.size() - 2; i++) {
         double n1 = layers[i].eta;
         double n2 = layers[i - 1].eta;
-        layers[i].cos_crit0 = n1 > n2 ? sqrt(1.0 - n2 * n2 / (n1 * n1)) : 0.0;
+
+        layers[i].cos_crit0 = n1 > n2 ? std::sqrt(1.0 - n2 * n2 / (n1 * n1)) : 0.0;
 
         n2 = layers[i + 1].eta;
-        layers[i].cos_crit1 = n1 > n2 ? sqrt(1.0 - n2 * n2 / (n1 * n1)) : 0.0;
+        layers[i].cos_crit1 = n1 > n2 ? std::sqrt(1.0 - n2 * n2 / (n1 * n1)) : 0.0;
     }
 }
 
@@ -1174,6 +1160,9 @@ void ReadRunParam(std::fstream& file, RunParams& params)
     if (!ReadWthQ(file, params)) {
         exit(1);
     }
+    if (!ReadSeed(file, params)) {
+        exit(1);
+    }
 
     CriticalAngle(params.layers);
 }
@@ -1199,12 +1188,12 @@ void InterReadMediumList(RunParams& params)
     for (short i = 0; i < params.mediums.size(); i++) {
         std::string name;
         bool exists = true;
-        std::cout << "Specify medium " << i+1 << ": " << std::endl << "  Medium name : ";
+        std::cout << "Specify medium " << i + 1 << ": " << std::endl << "  Medium name : ";
 
         do {
             input = ParseInput("Invalid medium name or duplicate. Input again: ");
             name = GetStringValue(input, name);
-            exists = std::ranges::any_of(params.mediums, [&](const Layer& l) { 
+            exists = std::ranges::any_of(params.mediums, [&](const Layer& l) {
                 return l.name == name;
             });
         } while (!input.has_value() && exists);
@@ -1263,7 +1252,7 @@ void InterReadFnameFormat(RunParams& params)
         }
     } while (fmode[0] != 'w');
 
-     params.output_filename = fname;
+    params.output_filename = fname;
 
     // Only support 'A' format.
     params.output_file_format = FileFormat::Ascii;
@@ -1324,6 +1313,8 @@ void InterReadWth(RunParams& params)
     std::getline(std::cin, string);
     std::istringstream iss(string);
 
+    // TODO: use ParseInput
+
     while (!(iss >> params.min_weight) || params.min_weight < 0 || params.min_weight >= 1) {
         std::cout << "Invalid wth. Input again (0 <= wth < 1.0): ";
         std::getline(std::cin, string);
@@ -1365,8 +1356,10 @@ void InterReadLayerSpecs(RunParams& params)
 
     std::cout << "\nSpecify layer list. ";
     PrintMediumNames(params);
+
     std::cout << "\nTotal number of layers: ";
 
+    // TODO: use ParseInput
     std::string string;
     std::cin >> num_layers;
 
@@ -1375,11 +1368,10 @@ void InterReadLayerSpecs(RunParams& params)
         std::cin >> num_layers;
     }
 
-    // Allocate an array for the layer parameters.
-    // Layer 0 and layer num_layers + 1 are for ambient.
-    params.layers.resize(num_layers + 2);
+    params.num_layers = num_layers;
 
-    for (short i = 0; i <= num_layers + 1; i++) {
+    // Layer 0 and layer num_layers + 1 are for ambient.
+    for (short i = 0; i <= params.num_layers + 1; i++) {
         bool error = 1;
         while (error) {
             error = 0;
@@ -1387,7 +1379,7 @@ void InterReadLayerSpecs(RunParams& params)
                 std::cout << std::endl << "  Name of upper ambient medium: ";
                 std::cin >> name;
             }
-            else if (i == params.layers.size() + 1) {
+            else if (i == params.num_layers + 1) {
                 std::cout << std::endl << "  Name of lower ambient medium: ";
                 std::cin >> name;
             }
@@ -1402,13 +1394,15 @@ void InterReadLayerSpecs(RunParams& params)
             }
         }
 
-        params.layers[i].name = name;
-        params.layers[i].eta = params.mediums[index].eta;
-        params.layers[i].mua = params.mediums[index].mua;
-        params.layers[i].mus = params.mediums[index].mus;
-        params.layers[i].aniso = params.mediums[index].aniso;
+        params.layers.push_back(Layer{
+            .name = params.mediums[index].name,
+            .eta = params.mediums[index].eta,
+            .mua = params.mediums[index].mua,
+            .mus = params.mediums[index].mus,
+            .aniso = params.mediums[index].aniso });
 
-        if ((i != 0) && (i != params.layers.size() + 1)) {
+
+        if ((i != 0) && (i != num_layers + 1)) {
             std::cout << "  Input the thickness of layer " << i << " (thickness > 0.0 cm) : ";
             std::getline(std::cin, string);
 
@@ -1419,6 +1413,7 @@ void InterReadLayerSpecs(RunParams& params)
                 std::cout << "  Invalid thickness. Input again (thickness > 0.0 cm): ";
                 std::cin >> thick;
             }
+
             params.layers[i].top_z = z;
             z = z + thick;
             params.layers[i].bot_z = z;
@@ -1427,7 +1422,7 @@ void InterReadLayerSpecs(RunParams& params)
             params.layers[i].top_z = 0.0;
             params.layers[i].bot_z = 0.0;
         }
-        else if (i == params.layers.size() + 1) {
+        else if (i == params.num_layers + 1) {
             params.layers[i].top_z = z;
             params.layers[i].bot_z = z;
         }
@@ -1480,7 +1475,7 @@ void InterReadSourceType(RunParams& params)
 void InterReadStartP(RunParams& params)
 {
     do {
-        std::cout << "Input the z coordinate of source (0.0 - " << params.layers[params.layers.size() - 1].bot_z << " cm) and the medium" << std::endl;
+        std::cout << "Input the z coordinate of source (0.0 - " << params.layers[params.num_layers].bot_z << " cm) and the medium" << std::endl;
         std::cout << "where the source is if the z is on an interface (e.g. 1.0 [air]):";
     } while (!ReadStartPQ(std::cin, params));
 
@@ -1642,12 +1637,12 @@ void PutLayerSpecsToFile(std::ostream& output, RunParams& params, int& Line)
     output << std::format("# \tmedium \t\tthickness\n");
     Line++;
 
-    for (int i = 0; i <= params.layers.size() + 1; i++) {
+    for (int i = 0; i <= params.num_layers + 1; i++) {
         Layer s;
         More(output, Line);
 
         s = params.layers[i];
-        if (i != 0 && i != params.layers.size() + 1) {
+        if (i != 0 && i != params.num_layers + 1) {
             if (s.name.size() + 1 > 8) {
                 output << std::format("\t%s \t%G\n", s.name, s.bot_z - s.top_z);
             }
@@ -1811,7 +1806,7 @@ void InterReadParam(RunParams& params)
  ****/
 bool CheckInputConsis(RunParams& params)
 {
-    for (int i = 0; i <= params.layers.size() + 1; i++) {
+    for (int i = 0; i <= params.num_layers + 1; i++) {
         int index;
         if (!ValidMediumNameQ(params.layers[i].name, index, params)) {
             std::cout << "Invalid medium name of layer " << i << "." << std::endl;
@@ -1878,7 +1873,7 @@ char QuitOrContinue()
 
     do {
         std::cout << "Do you want to change them? (Y/N): ";
-        do { 
+        do {
             std::getline(std::cin, string);
         } while (!string.empty());
     } while (toupper(string[0]) != 'Y' && toupper(string[0]) != 'N');
@@ -2131,147 +2126,60 @@ bool RunChangedInput(RunParams& params)
     return true;
 }
 
-/**************************************************************************
- *	Return 1, if the name in the name list.
- *	Return 0, otherwise.
- ****/
-bool NameInList(std::string& Name, NameLink List)
-{
-    while (List != NULL) {
-        if (Name == List->name) {
-            return true;
-        }
-        List = List->next;
-    };
-    return false;
-}
-
-/**************************************************************************
- *	Add the name to the name list.
- ****/
-void AddNameToList(std::string Name, NameLink* List_Ptr)
-{
-    //NameLink list = *List_Ptr;
-
-    // first node.
-    if (*List_Ptr == NULL) {
-        // Allocate if list is null
-        NameLink list = (NameLink)calloc(1, sizeof(NameNode));
-
-        *List_Ptr = list;
-        list->name, Name;
-        list->next = NULL;
-    }
-
-    // subsequent nodes.
-    else {
-        NameLink list = *List_Ptr;
-
-        // Move to the last node.
-        while (list->next != NULL) {
-            list = list->next;
-        }
-
-        // Append a node to the list.
-        list->next = (NameLink)malloc(sizeof(NameNode));
-        list = list->next;
-        if (list != NULL) {
-            list->name = Name;
-            list->next = NULL;
-        }
-    }
-}
-
-/**************************************************************************
- *	Check against duplicated input names.
- *
- *	A linked list is set up to store the input names used
- *	in this input data input.
- ****/
-bool FnameTaken(std::string& fname, NameLink* List_Ptr)
-{
-    if (NameInList(fname, *List_Ptr)) {
-        return true;
-    }
-    else {
-        AddNameToList(fname, List_Ptr);
-        return false;
-    }
-}
-
-/**************************************************************************
- *	Free each node in the input name list.
- ****/
-void FreeFnameList(NameLink List)
-{
-    NameLink next;
-    while (List != NULL) {
-        next = List->next;
-        free(List);
-        List = next;
-    }
-}
-
 /*******************************************************************************
  *  Check the whether the flag end is met.
- *  The input position is restored to the current position
- *  at the end of the inquery.
+ *  The input position is restored to the current position at the end of the inquery.
  ****/
 bool EndOfRunsQ(std::istream& input)
 {
     // found end of runs.
-    bool found = 1;
+    bool end_found = false;
 
     // record input position.
     std::streampos file_pos = input.tellg();
 
     std::string buf = FindDataLine(input);
     if (buf.empty()) {
-        found = false;
+        end_found = true;
         std::cout << "Missing end." << std::endl;
     }
     else if (buf.find("end") != std::string::npos) {
-        found = false;
+        end_found = true;
     }
 
     // restore postion.
     input.seekg(file_pos, std::ios::beg);
-    return found;
+    return end_found;
 }
 
 /**************************************************************************
  *  Check the input parameters for all runs.
- *  This function will count number of runs and assign it to
- *  params.num_runs.
+ *  This function will count number of runs and assign it to params.num_runs.
  ****/
 void CheckParamFromFile(std::fstream& input, RunParams& params)
 {
-    short i_run = 0;
-    NameLink head = NULL;
-
     if (!ReadMediumListQ(input, params)) {
         exit(1);
     }
 
+    // Save current position in input file.
     std::streampos file_pos = input.tellg();
 
+    short run_index = 0;
     do {
-        std::cout << "Checking input data for run " << ++i_run << std::endl;
+        std::cout << "Checking input data for run " << ++run_index << std::endl;
         ReadRunParam(input, params);
 
-        // output files share the same input name.
-        bool name_taken = FnameTaken(params.output_filename, &head);
-        if (name_taken) {
-            std::cout << "file name " << params.output_filename << " duplicated." << std::endl;
+        // Attempt insert and detect duplicates
+        if (!params.unique_outputs.insert(params.output_filename).second) {
+            std::cout << "File name " << params.output_filename << " duplicated." << std::endl;
             exit(1);
         }
-
-        // TODO:?
-        //params.layers.clear();
     } while (!EndOfRunsQ(input));
 
-    params.num_runs = i_run;
-    FreeFnameList(head);
+    params.num_runs = run_index;
+
+    // Restore file position
     input.seekg(file_pos, std::ios::beg);
 }
 
@@ -2285,42 +2193,59 @@ void CheckParamFromFile(std::fstream& input, RunParams& params)
  ****/
 void InitOutputData(RunParams& params, Tracer& tracer)
 {
+    std::size_t nz = params.num_z;
+    std::size_t nr = params.num_r;
+    std::size_t na = params.num_alpha;
+    std::size_t nt = params.num_time;
+
     tracer.R.sp = 0.0;
-    tracer.R.b = 0.0;
-    tracer.R.d = 0.0;
-    tracer.T.d = 0.0;
-    tracer.T.b = 0.0;
-    tracer.A.a = 0.0;
+    tracer.R.br = 0.0;
+    tracer.R.dr = 0.0;
+    tracer.T.dr = 0.0;
+    tracer.T.br = 0.0;
+    tracer.A.ab = 0.0;
 
     tracer.R.be = 0.0;
     tracer.R.de = 0.0;
     tracer.T.de = 0.0;
     tracer.T.be = 0.0;
-    tracer.A.e = 0.0;
+    tracer.A.ae = 0.0;
 
-    tracer.R.rat.clear();
-    tracer.R.ra.clear();
-    tracer.R.rt.clear();
-    tracer.R.at.clear();
-    tracer.R.r.clear();
-    tracer.R.a.clear();
-    tracer.R.t.clear();
+    auto alloc3 = [](std::size_t x, std::size_t y, std::size_t z) {
+        return List<List<List<double>>>(x, List<List<double>>(y, List<double>(z, 0.0)));
+    };
 
-    tracer.T.rat.clear();
-    tracer.T.ra.clear();
-    tracer.T.rt.clear();
-    tracer.T.at.clear();
-    tracer.T.r.clear();
-    tracer.T.a.clear();
-    tracer.T.t.clear();
+    auto alloc2 = [](std::size_t x, std::size_t y) {
+        return List<List<double>>(x, List<double>(y, 0.0));
+    };
 
-    tracer.A.rzt.clear();
-    tracer.A.zt.clear();
-    tracer.A.rz.clear();
-    tracer.A.z.clear();
-    tracer.A.zt.clear();
-    tracer.A.z.clear();
-    tracer.A.t.clear();
+    auto alloc1 = [](std::size_t x) {
+        return List<double>(x, 0.0);
+    };
+
+    if (params.record.Rd_rat) { tracer.R.rat = alloc3(nr, na, nt); }
+    if (params.record.Rd_ra) { tracer.R.ra = alloc2(nr, na); }
+    if (params.record.Rd_rt) { tracer.R.rt = alloc2(nr, nt); }
+    if (params.record.Rd_at) { tracer.R.at = alloc2(na, nt); }
+    if (params.record.Rd_r) { tracer.R.r = alloc1(nr); }
+    if (params.record.Rd_a) { tracer.R.a = alloc1(na); }
+    if (params.record.Rd_t) { tracer.R.t = alloc1(nt); }
+
+    if (params.record.Td_rat) { tracer.T.rat = alloc3(nr, na, nt); }
+    if (params.record.Td_ra) { tracer.T.ra = alloc2(nr, na); }
+    if (params.record.Td_rt) { tracer.T.rt = alloc2(nr, nt); }
+    if (params.record.Td_at) { tracer.T.at = alloc2(na, nt); }
+    if (params.record.Td_r) { tracer.T.r = alloc1(nr); }
+    if (params.record.Td_a) { tracer.T.a = alloc1(na); }
+    if (params.record.Td_t) { tracer.T.t = alloc1(nt); }
+
+    if (params.record.A_rzt) { tracer.A.rzt = alloc3(nr, nz, nt); }
+    if (params.record.A_rzt) { tracer.A.zt = alloc2(nz, nt); }
+    if (params.record.A_rz) { tracer.A.rz = alloc2(nr, nz); }
+    if (params.record.A_rz) { tracer.A.z = alloc1(nz); }
+    if (params.record.A_zt) { tracer.A.zt = alloc2(nz, nt); }
+    if (params.record.A_z) { tracer.A.z = alloc1(nz); }
+    if (params.record.A_t) { tracer.A.t = alloc1(nt); }
 }
 
 /**************************************************************************
@@ -2345,35 +2270,35 @@ void InitOutputData(RunParams& params, Tracer& tracer)
  ****/
 void ScaleRdTd(RunParams& params, Tracer& tracer, char Mode)
 {
-    short nr = params.num_r;
-    short na = params.num_alpha;
-    short nt = params.num_time;
+    std::size_t nr = params.num_r;
+    std::size_t na = params.num_alpha;
+    std::size_t nt = params.num_time;
     double dr = params.grid_r;
     double da = params.grid_alpha;
     double dt = params.grid_time;
 
     double scale1 = (double)params.num_photons;
     if (Mode == 0) {
-        tracer.R.de = 1 / scale1 * sqrt(tracer.R.de - tracer.R.d * tracer.R.d / scale1);
-        tracer.T.de = 1 / scale1 * sqrt(tracer.T.de - tracer.T.d * tracer.T.d / scale1);
-        tracer.R.be = 1 / scale1 * sqrt(tracer.R.be - tracer.R.b * tracer.R.b / scale1);
-        tracer.T.be = 1 / scale1 * sqrt(tracer.T.be - tracer.T.b * tracer.T.b / scale1);
+        tracer.R.de = 1 / scale1 * sqrt(tracer.R.de - tracer.R.dr * tracer.R.dr / scale1);
+        tracer.T.de = 1 / scale1 * sqrt(tracer.T.de - tracer.T.dr * tracer.T.dr / scale1);
+        tracer.R.be = 1 / scale1 * sqrt(tracer.R.be - tracer.R.br * tracer.R.br / scale1);
+        tracer.T.be = 1 / scale1 * sqrt(tracer.T.be - tracer.T.br * tracer.T.br / scale1);
 
-        tracer.R.d /= scale1;
-        tracer.T.d /= scale1;
-        tracer.R.b = tracer.R.b / scale1 + tracer.R.sp;
-        tracer.T.b /= scale1;
+        tracer.R.dr /= scale1;
+        tracer.T.dr /= scale1;
+        tracer.R.br = tracer.R.br / scale1 + tracer.R.sp;
+        tracer.T.br /= scale1;
     }
     else {
-        tracer.R.d *= scale1;
-        tracer.T.d *= scale1;
-        tracer.R.b = (tracer.R.b - tracer.R.sp) * scale1;
-        tracer.T.b *= scale1;
+        tracer.R.dr *= scale1;
+        tracer.T.dr *= scale1;
+        tracer.R.br = (tracer.R.br - tracer.R.sp) * scale1;
+        tracer.T.br *= scale1;
 
-        tracer.R.de = (scale1 * tracer.R.de) * (scale1 * tracer.R.de) + 1 / scale1 * tracer.R.d * tracer.R.d;
-        tracer.T.de = (scale1 * tracer.T.de) * (scale1 * tracer.T.de) + 1 / scale1 * tracer.T.d * tracer.T.d;
-        tracer.R.be = (scale1 * tracer.R.be) * (scale1 * tracer.R.be) + 1 / scale1 * tracer.R.b * tracer.R.b;
-        tracer.T.be = (scale1 * tracer.T.be) * (scale1 * tracer.T.be) + 1 / scale1 * tracer.T.b * tracer.T.b;
+        tracer.R.de = (scale1 * tracer.R.de) * (scale1 * tracer.R.de) + 1 / scale1 * tracer.R.dr * tracer.R.dr;
+        tracer.T.de = (scale1 * tracer.T.de) * (scale1 * tracer.T.de) + 1 / scale1 * tracer.T.dr * tracer.T.dr;
+        tracer.R.be = (scale1 * tracer.R.be) * (scale1 * tracer.R.be) + 1 / scale1 * tracer.R.br * tracer.R.br;
+        tracer.T.be = (scale1 * tracer.T.be) * (scale1 * tracer.T.be) + 1 / scale1 * tracer.T.br * tracer.T.br;
     }
 
     scale1 = dt * params.num_photons;
@@ -2608,9 +2533,9 @@ void ScaleRdTd(RunParams& params, Tracer& tracer, char Mode)
  ****/
 void ScaleA(RunParams& params, Tracer& tracer, char Mode)
 {
-    short nz = params.num_z;
-    short nr = params.num_r;
-    short nt = params.num_time;
+    std::size_t nz = params.num_z;
+    std::size_t nr = params.num_r;
+    std::size_t nt = params.num_time;
     double dz = params.grid_z;
     double dr = params.grid_r;
     double dt = params.grid_time;
@@ -2618,13 +2543,13 @@ void ScaleA(RunParams& params, Tracer& tracer, char Mode)
 
     // scale A.
     if (Mode == 0) {
-        tracer.A.e = 1 / scale1 * sqrt(tracer.A.e - tracer.A.a * tracer.A.a / scale1);
-        tracer.A.a /= scale1;
+        tracer.A.ae = 1 / scale1 * sqrt(tracer.A.ae - tracer.A.ab * tracer.A.ab / scale1);
+        tracer.A.ab /= scale1;
     }
     // unscale A.
     else {
-        tracer.A.a *= scale1;
-        tracer.A.e = (scale1 * tracer.A.e) * (scale1 * tracer.A.e) + 1 / scale1 * tracer.A.a * tracer.A.a;
+        tracer.A.ab *= scale1;
+        tracer.A.ae = (scale1 * tracer.A.ae) * (scale1 * tracer.A.ae) + 1 / scale1 * tracer.A.ab * tracer.A.ab;
     }
 
     double scale2 = scale1 * dt;
@@ -2792,11 +2717,11 @@ void WriteRAT(std::fstream& file, Tracer& tracer)
     file << std::format("RAT #Reflectance, Absorption, Transmittance.\n");
     file << std::format("# Average \tStandard Err \tRel Err\n");
     file << std::format("%-14.6G \t\t\t\t#Rsp: Specular reflectance.\n", tracer.R.sp);
-    file << std::format("%-14.6G \t%-14.6G %6.2f%%\t#Rb: Ballistic reflectance.\n", tracer.R.b, tracer.R.be, (tracer.R.b) ? tracer.R.be / tracer.R.b * 100 : 0);
-    file << std::format("%-14.6G \t%-14.6G %6.2f%%\t#Rd: Diffuse reflectance.\n", tracer.R.d, tracer.R.de, (tracer.R.d) ? tracer.R.de / tracer.R.d * 100 : 0);
-    file << std::format("%-14.6G \t%-14.6G %6.2f%%\t#A:  Absorbed fraction.\n", tracer.A.a, tracer.A.e, (tracer.A.a) ? tracer.A.e / tracer.A.a * 100 : 0);
-    file << std::format("%-14.6G \t%-14.6G %6.2f%%\t#Tb: Ballistic transmittance.\n", tracer.T.b, tracer.T.be, (tracer.T.b) ? tracer.T.be / tracer.T.b * 100 : 0);
-    file << std::format("%-14.6G \t%-14.6G %6.2f%%\t#Td: Diffuse transmittance.\n", tracer.T.d, tracer.T.de, (tracer.T.d) ? tracer.T.de / tracer.T.d * 100 : 0);
+    file << std::format("%-14.6G \t%-14.6G %6.2f%%\t#Rb: Ballistic reflectance.\n", tracer.R.br, tracer.R.be, (tracer.R.br) ? tracer.R.be / tracer.R.br * 100 : 0);
+    file << std::format("%-14.6G \t%-14.6G %6.2f%%\t#Rd: Diffuse reflectance.\n", tracer.R.dr, tracer.R.de, (tracer.R.dr) ? tracer.R.de / tracer.R.dr * 100 : 0);
+    file << std::format("%-14.6G \t%-14.6G %6.2f%%\t#A:  Absorbed fraction.\n", tracer.A.ab, tracer.A.ae, (tracer.A.ab) ? tracer.A.ae / tracer.A.ab * 100 : 0);
+    file << std::format("%-14.6G \t%-14.6G %6.2f%%\t#Tb: Ballistic transmittance.\n", tracer.T.br, tracer.T.be, (tracer.T.br) ? tracer.T.be / tracer.T.br * 100 : 0);
+    file << std::format("%-14.6G \t%-14.6G %6.2f%%\t#Td: Diffuse transmittance.\n", tracer.T.dr, tracer.T.de, (tracer.T.dr) ? tracer.T.de / tracer.T.dr * 100 : 0);
     file << std::format("\n");
 }
 
@@ -2814,30 +2739,30 @@ void ReadRAT(std::fstream& file, Tracer& tracer)
 
     buf = FindDataLine(file);
     iss = std::istringstream(buf);
-    iss >> tracer.R.b >> tracer.R.be;
+    iss >> tracer.R.br >> tracer.R.be;
 
     buf = FindDataLine(file);
     iss = std::istringstream(buf);
-    iss >> tracer.R.d >> tracer.R.de;
+    iss >> tracer.R.dr >> tracer.R.de;
 
     buf = FindDataLine(file);
     iss = std::istringstream(buf);
-    iss >> tracer.A.a >> tracer.A.e;
+    iss >> tracer.A.ab >> tracer.A.ae;
 
     buf = FindDataLine(file);
     iss = std::istringstream(buf);
-    iss >> tracer.T.b >> tracer.T.be;
+    iss >> tracer.T.br >> tracer.T.be;
 
     buf = FindDataLine(file);
     iss = std::istringstream(buf);
-    iss >> tracer.T.d >> tracer.T.de;
+    iss >> tracer.T.dr >> tracer.T.de;
 }
 
 /**************************************************************************
  *  5 numbers each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IOAb_zt(std::fstream& file, short Nz, short Nt, Tracer& tracer, char Mode)
+void IOAb_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         // flag.
@@ -2854,9 +2779,9 @@ void IOAb_zt(std::fstream& file, short Nz, short Nt, Tracer& tracer, char Mode)
         FindDataLine(file);
     }
 
-    short i = 0;
-    for (short iz = 0; iz < Nz; iz++) {
-        for (short it = 0; it < Nt; it++) {
+    std::size_t i = 0;
+    for (std::size_t iz = 0; iz < Nz; iz++) {
+        for (std::size_t it = 0; it < Nt; it++) {
             if (Mode == 1) {
                 file << std::format("%12.4E ", tracer.A.zt[iz][it]);
                 if (++i % 5 == 0) {
@@ -2879,7 +2804,7 @@ void IOAb_zt(std::fstream& file, short Nz, short Nt, Tracer& tracer, char Mode)
  *  5 numbers each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IOA_rzt(std::fstream& file, short Nr, short Nz, short Nt, Tracer& tracer, char Mode)
+void IOA_rzt(std::fstream& file, std::size_t Nr, std::size_t Nz, std::size_t Nt, Tracer& tracer, char Mode)
 {
     IOAb_zt(file, Nz, Nt, tracer, Mode);
 
@@ -2897,10 +2822,10 @@ void IOA_rzt(std::fstream& file, short Nr, short Nz, short Nt, Tracer& tracer, c
         FindDataLine(file);
     }
 
-    short i = 0;
-    for (short ir = 0; ir < Nr; ir++) {
-        for (short iz = 0; iz < Nz; iz++) {
-            for (short it = 0; it < Nt; it++) {
+    std::size_t i = 0;
+    for (std::size_t ir = 0; ir < Nr; ir++) {
+        for (std::size_t iz = 0; iz < Nz; iz++) {
+            for (std::size_t it = 0; it < Nt; it++) {
                 if (Mode == 1) {
                     file << std::format("%12.4E ", tracer.A.rzt[ir][iz][it]);
                     if (++i % 5 == 0) {
@@ -2924,7 +2849,7 @@ void IOA_rzt(std::fstream& file, short Nr, short Nz, short Nt, Tracer& tracer, c
  *  1 number each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IOAb_z(std::fstream& file, short Nz, Tracer& tracer, char Mode)
+void IOAb_z(std::fstream& file, std::size_t Nz, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         file << std::format("Ab_z #Ab[0], [1],..Ab[nz-1]. [1/cm]\n");	// flag.
@@ -2933,7 +2858,7 @@ void IOAb_z(std::fstream& file, short Nz, Tracer& tracer, char Mode)
         FindDataLine(file);
     }
 
-    for (short iz = 0; iz < Nz; iz++) {
+    for (std::size_t iz = 0; iz < Nz; iz++) {
         if (Mode == 1) {
             file << std::format("%12.4E\n", tracer.A.z[iz]);
         }
@@ -2952,7 +2877,7 @@ void IOAb_z(std::fstream& file, short Nz, Tracer& tracer, char Mode)
  *  5 numbers each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IOA_rz(std::fstream& file, short Nr, short Nz, Tracer& tracer, char Mode)
+void IOA_rz(std::fstream& file, std::size_t Nr, std::size_t Nz, Tracer& tracer, char Mode)
 {
     IOAb_z(file, Nz, tracer, Mode);
 
@@ -2970,9 +2895,9 @@ void IOA_rz(std::fstream& file, short Nr, short Nz, Tracer& tracer, char Mode)
         FindDataLine(file);
     }
 
-    short i = 0;
-    for (short ir = 0; ir < Nr; ir++) {
-        for (short iz = 0; iz < Nz; iz++) {
+    std::size_t i = 0;
+    for (std::size_t ir = 0; ir < Nr; ir++) {
+        for (std::size_t iz = 0; iz < Nz; iz++) {
             if (Mode == 1) {
                 file << std::format("%12.4E ", tracer.A.rz[ir][iz]);
                 if (++i % 5 == 0) {
@@ -2995,7 +2920,7 @@ void IOA_rz(std::fstream& file, short Nr, short Nz, Tracer& tracer, char Mode)
  *  5 numbers each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IOA_zt(std::fstream& file, short Nz, short Nt, Tracer& tracer, char Mode)
+void IOA_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         // flag.
@@ -3012,9 +2937,9 @@ void IOA_zt(std::fstream& file, short Nz, short Nt, Tracer& tracer, char Mode)
         FindDataLine(file);
     }
 
-    short i = 0;
-    for (short iz = 0; iz < Nz; iz++) {
-        for (short it = 0; it < Nt; it++) {
+    std::size_t i = 0;
+    for (std::size_t iz = 0; iz < Nz; iz++) {
+        for (std::size_t it = 0; it < Nt; it++) {
             if (Mode == 1) {
                 file << std::format("%12.4E ", tracer.A.zt[iz][it]);
                 if (++i % 5 == 0) {
@@ -3037,7 +2962,7 @@ void IOA_zt(std::fstream& file, short Nz, short Nt, Tracer& tracer, char Mode)
  *  1 number each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IOA_z(std::fstream& file, short Nz, Tracer& tracer, char Mode)
+void IOA_z(std::fstream& file, std::size_t Nz, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         // flag.
@@ -3048,7 +2973,7 @@ void IOA_z(std::fstream& file, short Nz, Tracer& tracer, char Mode)
         FindDataLine(file);
     }
 
-    for (short iz = 0; iz < Nz; iz++) {
+    for (std::size_t iz = 0; iz < Nz; iz++) {
         if (Mode == 1) {
             file << std::format("%12.4E\n", tracer.A.z[iz]);
         }
@@ -3067,7 +2992,7 @@ void IOA_z(std::fstream& file, short Nz, Tracer& tracer, char Mode)
  *  1 number each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IOA_t(std::fstream& file, short Nt, Tracer& tracer, char Mode)
+void IOA_t(std::fstream& file, std::size_t Nt, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         // flag.
@@ -3077,7 +3002,7 @@ void IOA_t(std::fstream& file, short Nt, Tracer& tracer, char Mode)
         FindDataLine(file);
     }
 
-    for (short it = 0; it < Nt; it++) {
+    for (std::size_t it = 0; it < Nt; it++) {
         if (Mode == 1) {
             file << std::format("%12.4E\n", tracer.A.t[it]);
         }
@@ -3096,7 +3021,7 @@ void IOA_t(std::fstream& file, short Nt, Tracer& tracer, char Mode)
  *  5 numbers each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IORd_rat(std::fstream& file, short Nr, short Na, short Nt, Tracer& tracer, char Mode)
+void IORd_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::size_t Nt, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         // flag.
@@ -3112,10 +3037,10 @@ void IORd_rat(std::fstream& file, short Nr, short Na, short Nt, Tracer& tracer, 
         FindDataLine(file);
     }
 
-    short i = 0;
-    for (short ir = 0; ir < Nr; ir++) {
-        for (short ia = 0; ia < Na; ia++) {
-            for (short it = 0; it < Nt; it++) {
+    std::size_t i = 0;
+    for (std::size_t ir = 0; ir < Nr; ir++) {
+        for (std::size_t ia = 0; ia < Na; ia++) {
+            for (std::size_t it = 0; it < Nt; it++) {
                 if (Mode == 1) {
                     file << std::format("%12.4E ", tracer.R.rat[ir][ia][it]);
                     if (++i % 5 == 0) {
@@ -3139,7 +3064,7 @@ void IORd_rat(std::fstream& file, short Nr, short Na, short Nt, Tracer& tracer, 
  *  5 numbers each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IORd_ra(std::fstream& file, short Nr, short Na, Tracer& tracer, char Mode)
+void IORd_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         // flag.
@@ -3155,8 +3080,8 @@ void IORd_ra(std::fstream& file, short Nr, short Na, Tracer& tracer, char Mode)
         FindDataLine(file);
     }
 
-    for (short ir = 0; ir < Nr; ir++) {
-        for (short ia = 0; ia < Na; ia++) {
+    for (std::size_t ir = 0; ir < Nr; ir++) {
+        for (std::size_t ia = 0; ia < Na; ia++) {
             if (Mode == 1) {
                 file << std::format("%12.4E ", tracer.R.ra[ir][ia]);
                 if ((ir * Na + ia + 1) % 5 == 0) {
@@ -3179,7 +3104,7 @@ void IORd_ra(std::fstream& file, short Nr, short Na, Tracer& tracer, char Mode)
  *  5 numbers each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IORd_rt(std::fstream& file, short Nr, short Nt, Tracer& tracer, char Mode)
+void IORd_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         // flag.
@@ -3195,9 +3120,9 @@ void IORd_rt(std::fstream& file, short Nr, short Nt, Tracer& tracer, char Mode)
         FindDataLine(file);
     }
 
-    short i = 0;
-    for (short ir = 0; ir < Nr; ir++) {
-        for (short it = 0; it < Nt; it++) {
+    std::size_t i = 0;
+    for (std::size_t ir = 0; ir < Nr; ir++) {
+        for (std::size_t it = 0; it < Nt; it++) {
             if (Mode == 1) {
                 file << std::format("%12.4E ", tracer.R.rt[ir][it]);
                 if (++i % 5 == 0) {
@@ -3220,7 +3145,7 @@ void IORd_rt(std::fstream& file, short Nr, short Nt, Tracer& tracer, char Mode)
  *  5 numbers each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IORd_at(std::fstream& file, short Na, short Nt, Tracer& tracer, char Mode)
+void IORd_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         // flag.
@@ -3236,9 +3161,9 @@ void IORd_at(std::fstream& file, short Na, short Nt, Tracer& tracer, char Mode)
         FindDataLine(file);
     }
 
-    short i = 0;
-    for (short ia = 0; ia < Na; ia++) {
-        for (short it = 0; it < Nt; it++) {
+    std::size_t i = 0;
+    for (std::size_t ia = 0; ia < Na; ia++) {
+        for (std::size_t it = 0; it < Nt; it++) {
             if (Mode == 1) {
                 file << std::format("%12.4E ", tracer.R.at[ia][it]);
                 if (++i % 5 == 0) {
@@ -3261,7 +3186,7 @@ void IORd_at(std::fstream& file, short Na, short Nt, Tracer& tracer, char Mode)
  *  1 number each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IORd_r(std::fstream& file, short Nr, Tracer& tracer, char Mode)
+void IORd_r(std::fstream& file, std::size_t Nr, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         // flag.
@@ -3271,7 +3196,7 @@ void IORd_r(std::fstream& file, short Nr, Tracer& tracer, char Mode)
         FindDataLine(file);
     }
 
-    for (short ir = 0; ir < Nr; ir++) {
+    for (std::size_t ir = 0; ir < Nr; ir++) {
         if (Mode == 1) {
             file << std::format("%12.4E\n", tracer.R.r[ir]);
         }
@@ -3290,7 +3215,7 @@ void IORd_r(std::fstream& file, short Nr, Tracer& tracer, char Mode)
  *  1 number each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IORd_a(std::fstream& file, short Na, Tracer& tracer, char Mode)
+void IORd_a(std::fstream& file, std::size_t Na, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         // flag.
@@ -3300,7 +3225,7 @@ void IORd_a(std::fstream& file, short Na, Tracer& tracer, char Mode)
         FindDataLine(file);
     }
 
-    for (short ia = 0; ia < Na; ia++) {
+    for (std::size_t ia = 0; ia < Na; ia++) {
         if (Mode == 1) {
             file << std::format("%12.4E\n", tracer.R.a[ia]);
         }
@@ -3319,7 +3244,7 @@ void IORd_a(std::fstream& file, short Na, Tracer& tracer, char Mode)
  *  1 number each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IORd_t(std::fstream& file, short Nt, Tracer& tracer, char Mode)
+void IORd_t(std::fstream& file, std::size_t Nt, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         // flag.
@@ -3329,7 +3254,7 @@ void IORd_t(std::fstream& file, short Nt, Tracer& tracer, char Mode)
         FindDataLine(file);
     }
 
-    for (short it = 0; it < Nt; it++) {
+    for (std::size_t it = 0; it < Nt; it++) {
         if (Mode == 1) {
             file << std::format("%12.4E\n", tracer.R.t[it]);
         }
@@ -3348,7 +3273,7 @@ void IORd_t(std::fstream& file, short Nt, Tracer& tracer, char Mode)
  *  5 numbers each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IOTd_rat(std::fstream& file, short Nr, short Na, short Nt, Tracer& tracer, char Mode)
+void IOTd_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::size_t Nt, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         // flag.
@@ -3364,10 +3289,10 @@ void IOTd_rat(std::fstream& file, short Nr, short Na, short Nt, Tracer& tracer, 
         FindDataLine(file);
     }
 
-    short i = 0;
-    for (short ir = 0; ir < Nr; ir++) {
-        for (short ia = 0; ia < Na; ia++) {
-            for (short it = 0; it < Nt; it++) {
+    std::size_t i = 0;
+    for (std::size_t ir = 0; ir < Nr; ir++) {
+        for (std::size_t ia = 0; ia < Na; ia++) {
+            for (std::size_t it = 0; it < Nt; it++) {
                 if (Mode == 1) {
                     file << std::format("%12.4E ", tracer.T.rat[ir][ia][it]);
                     if (++i % 5 == 0) {
@@ -3391,7 +3316,7 @@ void IOTd_rat(std::fstream& file, short Nr, short Na, short Nt, Tracer& tracer, 
  *  5 numbers each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IOTd_ra(std::fstream& file, short Nr, short Na, Tracer& tracer, char Mode)
+void IOTd_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         // flag.
@@ -3407,8 +3332,8 @@ void IOTd_ra(std::fstream& file, short Nr, short Na, Tracer& tracer, char Mode)
         FindDataLine(file);
     }
 
-    for (short ir = 0; ir < Nr; ir++) {
-        for (short ia = 0; ia < Na; ia++) {
+    for (std::size_t ir = 0; ir < Nr; ir++) {
+        for (std::size_t ia = 0; ia < Na; ia++) {
             if (Mode == 1) {
                 file << std::format("%12.4E ", tracer.T.ra[ir][ia]);
                 if ((ir * Na + ia + 1) % 5 == 0) {
@@ -3431,7 +3356,7 @@ void IOTd_ra(std::fstream& file, short Nr, short Na, Tracer& tracer, char Mode)
  *  5 numbers each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IOTd_rt(std::fstream& file, short Nr, short Nt, Tracer& tracer, char Mode)
+void IOTd_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         // flag.
@@ -3447,9 +3372,9 @@ void IOTd_rt(std::fstream& file, short Nr, short Nt, Tracer& tracer, char Mode)
         FindDataLine(file);
     }
 
-    short i = 0;
-    for (short ir = 0; ir < Nr; ir++) {
-        for (short it = 0; it < Nt; it++) {
+    std::size_t i = 0;
+    for (std::size_t ir = 0; ir < Nr; ir++) {
+        for (std::size_t it = 0; it < Nt; it++) {
             if (Mode == 1) {
                 file << std::format("%12.4E ", tracer.T.rt[ir][it]);
                 if (++i % 5 == 0) {
@@ -3472,7 +3397,7 @@ void IOTd_rt(std::fstream& file, short Nr, short Nt, Tracer& tracer, char Mode)
  *  5 numbers each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IOTd_at(std::fstream& file, short Na, short Nt, Tracer& tracer, char Mode)
+void IOTd_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         // flag.
@@ -3488,9 +3413,9 @@ void IOTd_at(std::fstream& file, short Na, short Nt, Tracer& tracer, char Mode)
         FindDataLine(file);
     }
 
-    short i = 0;
-    for (short ia = 0; ia < Na; ia++) {
-        for (short it = 0; it < Nt; it++) {
+    std::size_t i = 0;
+    for (std::size_t ia = 0; ia < Na; ia++) {
+        for (std::size_t it = 0; it < Nt; it++) {
             if (Mode == 1) {
                 file << std::format("%12.4E ", tracer.T.at[ia][it]);
                 if (++i % 5 == 0) {
@@ -3513,7 +3438,7 @@ void IOTd_at(std::fstream& file, short Na, short Nt, Tracer& tracer, char Mode)
  *  1 number each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IOTd_r(std::fstream& file, short Nr, Tracer& tracer, char Mode)
+void IOTd_r(std::fstream& file, std::size_t Nr, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         // flag.
@@ -3523,7 +3448,7 @@ void IOTd_r(std::fstream& file, short Nr, Tracer& tracer, char Mode)
         FindDataLine(file);
     }
 
-    for (short ir = 0; ir < Nr; ir++) {
+    for (std::size_t ir = 0; ir < Nr; ir++) {
         if (Mode == 1) {
             file << std::format("%12.4E\n", tracer.T.r[ir]);
         }
@@ -3542,7 +3467,7 @@ void IOTd_r(std::fstream& file, short Nr, Tracer& tracer, char Mode)
  *  1 number each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IOTd_a(std::fstream& file, short Na, Tracer& tracer, char Mode)
+void IOTd_a(std::fstream& file, std::size_t Na, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         // flag.
@@ -3552,7 +3477,7 @@ void IOTd_a(std::fstream& file, short Na, Tracer& tracer, char Mode)
         FindDataLine(file);
     }
 
-    for (short ia = 0; ia < Na; ia++) {
+    for (std::size_t ia = 0; ia < Na; ia++) {
         if (Mode == 1) {
             file << std::format("%12.4E\n", tracer.T.a[ia]);
         }
@@ -3571,7 +3496,7 @@ void IOTd_a(std::fstream& file, short Na, Tracer& tracer, char Mode)
  *  1 number each line.
  *  Mode = 0, read; Mode = 1, write.
  ****/
-void IOTd_t(std::fstream& file, short Nt, Tracer& tracer, char Mode)
+void IOTd_t(std::fstream& file, std::size_t Nt, Tracer& tracer, char Mode)
 {
     if (Mode == 1) {
         // flag.
@@ -3581,7 +3506,7 @@ void IOTd_t(std::fstream& file, short Nt, Tracer& tracer, char Mode)
         FindDataLine(file);
     }
 
-    for (short it = 0; it < Nt; it++) {
+    for (std::size_t it = 0; it < Nt; it++) {
         if (Mode == 1) {
             file << std::format("%12.4E\n", tracer.T.t[it]);
         }

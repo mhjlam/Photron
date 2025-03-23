@@ -40,6 +40,11 @@ bool CheckFileVersionQ(std::fstream&, const std::string);
 std::mt19937 RandomEngine;
 std::uniform_real_distribution<double> Distribution;
 
+double unitNumber()
+{
+    return Distribution(RandomEngine);
+};
+
 
 /**************************************************************************
  *  If F = 0, reset the clock and return 0.
@@ -174,13 +179,13 @@ void ReportControlInfo(short NumRunsLeft, RunParams& params)
 void ReportStatus(long photons_traced, RunParams& params)
 {
     if (params.control_bit == ControlBit::TimeLimit) {
-        std::cout << std::format("%11ld(%6.2f%%)\t", photons_traced, (float)photons_traced * 100 / params.num_photons);
+        std::cout << std::format("{:>11} ({:6.2f}%)\t", photons_traced, (float)photons_traced * 100 / params.num_photons);
     }
     else if (params.control_bit == ControlBit::Both) {
-        std::cout << std::format("\t%12ld\t", photons_traced);
+        std::cout << std::format("\t{:>12}\t", photons_traced);
     }
     else {
-        std::cout << std::format("%11ld(%6.2f%%)\t", photons_traced, (float)photons_traced * 100 / params.num_photons);
+        std::cout << std::format("{:>11} ({:6.2f}%)\t", photons_traced, (float)photons_traced * 100 / params.num_photons);
     }
 
     PredictDoneTime(photons_traced, params);
@@ -224,7 +229,7 @@ void DoOneRun(short NumRunsLeft, RunParams& params, Tracer& tracer, char Type)
 {
     int tens = 10;
 
-    // start a new simulation.
+    // Start a new simulation.
     if (Type == 0) {
         if (params.source_layer == 0) {
             tracer.R.sp = Rspecular(params.layers);
@@ -252,10 +257,10 @@ void DoOneRun(short NumRunsLeft, RunParams& params, Tracer& tracer, char Type)
             ReportStatus(i_photon, params);
         }
         i_photon++;
-        if (params.control_bit == ControlBit::TimeLimit) {
+        if (params.control_bit == ControlBit::NumPhotons) {
             exit_switch = (i_photon > params.num_photons);
         }
-        else if (params.control_bit == ControlBit::Both) {
+        else if (params.control_bit == ControlBit::TimeLimit) {
             exit_switch = (PunchTime(2, msg, params) >= params.time_limit);
         }
         else {
