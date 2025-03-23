@@ -92,7 +92,6 @@
 
 template <typename T> using List = std::vector<T>;
 template <typename T> using Uset = std::unordered_set<T>;
-using Text = std::string;
 
 constexpr double ROULETTE_SURVIVAL  = 0.1;		    // Roulette survival chance
 
@@ -196,7 +195,7 @@ struct Record
  ****/
 struct Layer
 {
-    Text name{};                        // Name of the current_layer
+    std::string name{};                 // Name of the current_layer
 
     double top_z{};                     // Top z coordinate  [cm] 
     double bot_z{};                     // Bottom z coordinate [cm]
@@ -233,7 +232,7 @@ struct Layer
  ****/
 struct RunParams
 {
-    Text        output_filename{};      // Output file name. 
+    std::string output_filename{};      // Output file name. 
     FileFormat  output_file_format{};   // Output file format. 
     ControlBit  control_bit{};          // Control of simulation termination. 
 
@@ -249,7 +248,7 @@ struct RunParams
     BeamType    source{};	            // Beam type. 
     double      source_z{};		        // Z coordinate of source. 
     short       source_layer{};		    // Put source in source_layer. 
-    Text        source_medium_name{};   // Medium name of source_layer. 
+    std::string source_medium_name{};   // Medium name of source_layer. 
 
     double      grid_z{};		        // Z grid separation.[cm] 
     double      grid_r{};		        // R grid separation.[cm] 
@@ -272,13 +271,13 @@ struct RunParams
 
     std::size_t num_layers{};           // Number of intermediate layers
 
-    Uset<Text>  unique_outputs;         // Unique output file names
+    Uset<std::string> unique_outputs;   // Unique output file names
 };
 
 
 struct Reflectance
 {
-    List<List<List<double>>> rat;       // Diffuse reflectance. [1/(cm2 sr ps)] 
+    List<List<List<double>>> rat;       // Diffuse reflectance. [1/(cm2 sr ps)]
 
     List<List<double>> ra;              // [1/(cm2 sr)]
     List<List<double>> rt;              // [1/sr ps]

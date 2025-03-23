@@ -202,7 +202,7 @@ void ReportResult(RunParams& params, Tracer& tracer)
 
     ScaleResult(params, tracer, 0);
 
-    std::fstream file(params.output_filename, std::ios::in | std::ios::out);
+    std::fstream file(params.output_filename, std::ios::out);
 
     if (!file.is_open()) {
         std::cout << "Can not open output file to write." << std::endl;

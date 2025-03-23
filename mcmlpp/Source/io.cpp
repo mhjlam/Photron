@@ -1241,7 +1241,7 @@ void InterReadFnameFormat(RunParams& params)
         // input exists.
         std::ifstream file(fname, std::ios::in);
         if (!file.is_open()) {
-            std::cout << "File %s exists, %s", fname, "w=overwrite, n=new filename: ";
+            std::cout << "File " << fname << " exists, w=overwrite, n=new filename: ";
 
             // avoid null line.
             do {
@@ -1519,10 +1519,10 @@ void PutMediumListToFile(std::ostream& output, RunParams& params, int& Line)
         More(output, Line);
         Layer s = params.mediums[i];
         if (s.name.size() + 1 > 8) {
-            output << std::format("\t%s \t%G\t%G\t%G\t%G\n", s.name, s.eta, s.mua, s.mus, s.aniso);
+            output << std::format("\t{} \t{:G}\t{:G}\t{:G}\t{:G}\n", s.name, s.eta, s.mua, s.mus, s.aniso);
         }
         else {
-            output << std::format("\t%s \t\t%G\t%G\t%G\t%G\n", s.name, s.eta, s.mua, s.mus, s.aniso);
+            output << std::format("\t{} \t\t{:G}\t{:G}\t{:G}\t{:G}\n", s.name, s.eta, s.mua, s.mus, s.aniso);
         }
         Line++;
     }
@@ -1533,21 +1533,21 @@ void PutMediumListToFile(std::ostream& output, RunParams& params, int& Line)
 void PutFnameFormatToFile(std::ostream& output, RunParams& params, int& Line)
 {
     More(output, Line);
-    output << std::format("%s \t%c\t\t\t# output file name, format.\n", params.output_filename, 'A');
+    output << std::format("{} \t{}\t\t\t# output file name, format.\n", params.output_filename, 'A');
     Line++;
 }
 
 void PutDzDrDtToFile(std::ostream& output, RunParams& params, int& Line)
 {
     More(output, Line);
-    output << std::format("%G\t%G\t%G\t\t\t# dz, dr, dt.\n", params.grid_z, params.grid_r, params.grid_time);
+    output << std::format("{:G}\t{:G}\t{:G}\t\t\t# dz, dr, dt.\n", params.grid_z, params.grid_r, params.grid_time);
     Line++;
 }
 
 void PutNzNrNtNaToFile(std::ostream& output, RunParams& params, int& Line)
 {
     More(output, Line);
-    output << std::format("%d\t%d\t%d\t%d\t\t# nz, nr, nt, na.\n", params.num_z, params.num_r, params.num_time, params.num_alpha);
+    output << std::format("{:d}\t{:d}\t{:d}\t{:d}\t\t# nz, nr, nt, na.\n", params.num_z, params.num_r, params.num_time, params.num_alpha);
     Line++;
 }
 
@@ -1625,7 +1625,14 @@ void PutScoredToFile(std::ostream& output, RunParams& params, int& Line)
 void PutWthToFile(std::ostream& output, RunParams& params, int& Line)
 {
     More(output, Line);
-    output << std::format("%G\t\t\t\t\t# threshold weight.\n", params.min_weight);
+    output << std::format("{:G}\t\t\t\t\t# threshold weight.\n", params.min_weight);
+    Line++;
+}
+
+void PutSeedToFile(std::ostream& output, RunParams& params, int& Line)
+{
+    More(output, Line);
+    output << std::format("{}\t\t\t\t\t# random number seed.\n", params.seed);
     Line++;
 }
 
@@ -1644,14 +1651,14 @@ void PutLayerSpecsToFile(std::ostream& output, RunParams& params, int& Line)
         s = params.layers[i];
         if (i != 0 && i != params.num_layers + 1) {
             if (s.name.size() + 1 > 8) {
-                output << std::format("\t%s \t%G\n", s.name, s.bot_z - s.top_z);
+                output << std::format("\t{} \t{:G}\n", s.name, s.bot_z - s.top_z);
             }
             else {
-                output << std::format("\t%s \t\t%G\n", s.name, s.bot_z - s.top_z);
+                output << std::format("\t{} \t\t{:G}\n", s.name, s.bot_z - s.top_z);
             }
         }
         else {
-            output << std::format("\t%s\n", s.name);
+            output << std::format("\t{}\n", s.name);
         }
         Line++;
     }
@@ -1666,13 +1673,13 @@ void PutNumPhotonsToFile(std::ostream& output, RunParams& params, int& Line)
     More(output, Line);
 
     if (params.control_bit == ControlBit::NumPhotons) {
-        output << std::format("%ld  \t\t\t\t\t# no. of photons | time\n", params.num_photons);
+        output << std::format("{}  \t\t\t\t\t# no. of photons | time\n", params.num_photons);
     }
     else if (params.control_bit == ControlBit::TimeLimit) {
-        output << std::format("%ld:%ld\t\t\t\t\t# no. of photons | time\n", params.time_limit / 3600, params.time_limit % 3600 / 60);
+        output << std::format("{}:{}\t\t\t\t\t# no. of photons | time\n", params.time_limit / 3600, params.time_limit % 3600 / 60);
     }
     else {
-        output << std::format("%ld  \t%ld:%ld\t\t\t\t# no. of photons | time\n", params.num_photons, params.time_limit / 3600, params.time_limit % 3600 / 60);
+        output << std::format("{}  \t{}:{}\t\t\t\t# no. of photons | time\n", params.num_photons, params.time_limit / 3600, params.time_limit % 3600 / 60);
     }
 
     Line++;
@@ -1697,13 +1704,13 @@ void PutStartPToFile(std::ostream& output, RunParams& params, int& Line)
     More(output, Line);
 
     if (params.source_medium_name.empty()) {
-        output << std::format("%G\t\t\t\t\t# starting position of source.\n", params.source_z);
+        output << std::format("{:G}\t\t\t\t\t# starting position of source.\n", params.source_z);
     }
     else if (params.source_medium_name.size() + 1 > 8) {
-        output << std::format("%G\t%s \t\t\t# starting position of source.\n", params.source_z, params.source_medium_name);
+        output << std::format("{:G}\t{} \t\t\t# starting position of source.\n", params.source_z, params.source_medium_name);
     }
     else {
-        output << std::format("%G\t%s \t\t\t\t# starting position of source.\n", params.source_z, params.source_medium_name);
+        output << std::format("{:G}\t{} \t\t\t\t# starting position of source.\n", params.source_z, params.source_medium_name);
     }
 
     Line++;
@@ -1759,6 +1766,7 @@ void PutInputToFile(std::ostream& output, RunParams& params)
 
     PutNumPhotonsToFile(output, params, line);
     PutWthToFile(output, params, line);
+    PutSeedToFile(output, params, line);
 
     More(output, line);
     output << std::format("end #of runs\n\n");
@@ -2691,8 +2699,9 @@ void WriteVersion(std::fstream& file, const std::string& version)
  ****/
 void SaveRandomStatus(std::fstream& file)
 {
-    file << std::format("# status of the random number generator:");
-    file << RandomEngine;
+    file << std::format("# status of the random number generator:") << std::endl;
+    file << RandomEngine << std::endl;
+    file << std::endl;
 }
 
 /***************************************************************************
@@ -2716,12 +2725,12 @@ void WriteRAT(std::fstream& file, Tracer& tracer)
 {
     file << std::format("RAT #Reflectance, Absorption, Transmittance.\n");
     file << std::format("# Average \tStandard Err \tRel Err\n");
-    file << std::format("%-14.6G \t\t\t\t#Rsp: Specular reflectance.\n", tracer.R.sp);
-    file << std::format("%-14.6G \t%-14.6G %6.2f%%\t#Rb: Ballistic reflectance.\n", tracer.R.br, tracer.R.be, (tracer.R.br) ? tracer.R.be / tracer.R.br * 100 : 0);
-    file << std::format("%-14.6G \t%-14.6G %6.2f%%\t#Rd: Diffuse reflectance.\n", tracer.R.dr, tracer.R.de, (tracer.R.dr) ? tracer.R.de / tracer.R.dr * 100 : 0);
-    file << std::format("%-14.6G \t%-14.6G %6.2f%%\t#A:  Absorbed fraction.\n", tracer.A.ab, tracer.A.ae, (tracer.A.ab) ? tracer.A.ae / tracer.A.ab * 100 : 0);
-    file << std::format("%-14.6G \t%-14.6G %6.2f%%\t#Tb: Ballistic transmittance.\n", tracer.T.br, tracer.T.be, (tracer.T.br) ? tracer.T.be / tracer.T.br * 100 : 0);
-    file << std::format("%-14.6G \t%-14.6G %6.2f%%\t#Td: Diffuse transmittance.\n", tracer.T.dr, tracer.T.de, (tracer.T.dr) ? tracer.T.de / tracer.T.dr * 100 : 0);
+    file << std::format("{:<14.6G} \t\t\t\t#Rsp: Specular reflectance.\n", tracer.R.sp);
+    file << std::format("{:<14.6G} \t{:<14.6G} {:6.2f}%\t#Rb: Ballistic reflectance.\n", tracer.R.br, tracer.R.be, (tracer.R.br) ? tracer.R.be / tracer.R.br * 100 : 0);
+    file << std::format("{:<14.6G} \t{:<14.6G} {:6.2f}%\t#Rd: Diffuse reflectance.\n", tracer.R.dr, tracer.R.de, (tracer.R.dr) ? tracer.R.de / tracer.R.dr * 100 : 0);
+    file << std::format("{:<14.6G} \t{:<14.6G} {:6.2f}%\t#A:  Absorbed fraction.\n", tracer.A.ab, tracer.A.ae, (tracer.A.ab) ? tracer.A.ae / tracer.A.ab * 100 : 0);
+    file << std::format("{:<14.6G} \t{:<14.6G} {:6.2f}%\t#Tb: Ballistic transmittance.\n", tracer.T.br, tracer.T.be, (tracer.T.br) ? tracer.T.be / tracer.T.br * 100 : 0);
+    file << std::format("{:<14.6G} \t{:<14.6G} {:6.2f}%\t#Td: Diffuse transmittance.\n", tracer.T.dr, tracer.T.de, (tracer.T.dr) ? tracer.T.de / tracer.T.dr * 100 : 0);
     file << std::format("\n");
 }
 
@@ -2766,7 +2775,7 @@ void IOAb_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& tracer,
 {
     if (Mode == 1) {
         // flag.
-        file << std::format("%s\n%s\n%s\n%s\n%s\n%s\n",
+        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# Ab[z][t]. [1/(cm ps)]",
                             "# Ab[0][0], [0][1],..[0][nt-1]",
                             "# Ab[1][0], [1][1],..[1][nt-1]",
@@ -2783,7 +2792,7 @@ void IOAb_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& tracer,
     for (std::size_t iz = 0; iz < Nz; iz++) {
         for (std::size_t it = 0; it < Nt; it++) {
             if (Mode == 1) {
-                file << std::format("%12.4E ", tracer.A.zt[iz][it]);
+                file << std::format("{:12.4E} ", tracer.A.zt[iz][it]);
                 if (++i % 5 == 0) {
                     file << std::format("\n");
                 }
@@ -2810,7 +2819,7 @@ void IOA_rzt(std::fstream& file, std::size_t Nr, std::size_t Nz, std::size_t Nt,
 
     if (Mode == 1) {
         // flag.
-        file << std::format("%s\n%s\n%s\n%s\n%s\n%s\n",
+        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# A[r][z][t]. [1/(cm3 ps)]",
                             "# A[0][0][0], [0][0][1],..[0][0][nt-1]",
                             "# A[0][1][0], [0][1][1],..[0][1][nt-1]",
@@ -2827,7 +2836,7 @@ void IOA_rzt(std::fstream& file, std::size_t Nr, std::size_t Nz, std::size_t Nt,
         for (std::size_t iz = 0; iz < Nz; iz++) {
             for (std::size_t it = 0; it < Nt; it++) {
                 if (Mode == 1) {
-                    file << std::format("%12.4E ", tracer.A.rzt[ir][iz][it]);
+                    file << std::format("{:12.4E} ", tracer.A.rzt[ir][iz][it]);
                     if (++i % 5 == 0) {
                         file << std::format("\n");
                     }
@@ -2860,7 +2869,7 @@ void IOAb_z(std::fstream& file, std::size_t Nz, Tracer& tracer, char Mode)
 
     for (std::size_t iz = 0; iz < Nz; iz++) {
         if (Mode == 1) {
-            file << std::format("%12.4E\n", tracer.A.z[iz]);
+            file << std::format("{:12.4E}\n", tracer.A.z[iz]);
         }
         else {
             file >> tracer.A.z[iz];
@@ -2883,7 +2892,7 @@ void IOA_rz(std::fstream& file, std::size_t Nr, std::size_t Nz, Tracer& tracer, 
 
     if (Mode == 1) {
         // flag.
-        file << std::format("%s\n%s\n%s\n%s\n%s\n",
+        file << std::format("{}\n{}\n{}\n{}\n{}\n",
                             "# A[r][z]. [1/cm3]",
                             "# A[0][0], [0][1],..[0][nz-1]",
                             "# ...",
@@ -2899,7 +2908,7 @@ void IOA_rz(std::fstream& file, std::size_t Nr, std::size_t Nz, Tracer& tracer, 
     for (std::size_t ir = 0; ir < Nr; ir++) {
         for (std::size_t iz = 0; iz < Nz; iz++) {
             if (Mode == 1) {
-                file << std::format("%12.4E ", tracer.A.rz[ir][iz]);
+                file << std::format("{:12.4E} ", tracer.A.rz[ir][iz]);
                 if (++i % 5 == 0) {
                     file << std::format("\n");
                 }
@@ -2924,7 +2933,7 @@ void IOA_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& tracer, 
 {
     if (Mode == 1) {
         // flag.
-        file << std::format("%s\n%s\n%s\n%s\n%s\n%s\n",
+        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# A[z][t]. [1/(cm ps)]",
                             "# A[0][0], [0][1],..[0][nt-1]",
                             "# A[1][0], [1][1],..[1][nt-1]",
@@ -2941,7 +2950,7 @@ void IOA_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& tracer, 
     for (std::size_t iz = 0; iz < Nz; iz++) {
         for (std::size_t it = 0; it < Nt; it++) {
             if (Mode == 1) {
-                file << std::format("%12.4E ", tracer.A.zt[iz][it]);
+                file << std::format("{:12.4E} ", tracer.A.zt[iz][it]);
                 if (++i % 5 == 0) {
                     file << std::format("\n");
                 }
@@ -2975,7 +2984,7 @@ void IOA_z(std::fstream& file, std::size_t Nz, Tracer& tracer, char Mode)
 
     for (std::size_t iz = 0; iz < Nz; iz++) {
         if (Mode == 1) {
-            file << std::format("%12.4E\n", tracer.A.z[iz]);
+            file << std::format("{:12.4E}\n", tracer.A.z[iz]);
         }
         else {
             file >> tracer.A.z[iz];
@@ -3004,7 +3013,7 @@ void IOA_t(std::fstream& file, std::size_t Nt, Tracer& tracer, char Mode)
 
     for (std::size_t it = 0; it < Nt; it++) {
         if (Mode == 1) {
-            file << std::format("%12.4E\n", tracer.A.t[it]);
+            file << std::format("{:12.4E}\n", tracer.A.t[it]);
         }
         else {
             file >> tracer.A.t[it];
@@ -3025,7 +3034,7 @@ void IORd_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::size_t Nt
 {
     if (Mode == 1) {
         // flag.
-        file << std::format("%s\n%s\n%s\n%s\n%s\n%s\n",
+        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# Rd[r][a][t]. [1/(cm2 sr ps)]",
                             "# Rd[0][0][0], [0][0][1],..[0][0][nt-1]",
                             "# Rd[0][1][0], [0][1][1],..[0][1][nt-1]",
@@ -3042,7 +3051,7 @@ void IORd_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::size_t Nt
         for (std::size_t ia = 0; ia < Na; ia++) {
             for (std::size_t it = 0; it < Nt; it++) {
                 if (Mode == 1) {
-                    file << std::format("%12.4E ", tracer.R.rat[ir][ia][it]);
+                    file << std::format("{:12.4E} ", tracer.R.rat[ir][ia][it]);
                     if (++i % 5 == 0) {
                         file << std::format("\n");
                     }
@@ -3068,7 +3077,7 @@ void IORd_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& tracer,
 {
     if (Mode == 1) {
         // flag.
-        file << std::format("%s\n%s\n%s\n%s\n%s\n%s\n",
+        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# Rd[r][angle]. [1/(cm2 sr)].",
                             "# Rd[0][0], [0][1],..[0][na-1]",
                             "# Rd[1][0], [1][1],..[1][na-1]",
@@ -3083,7 +3092,7 @@ void IORd_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& tracer,
     for (std::size_t ir = 0; ir < Nr; ir++) {
         for (std::size_t ia = 0; ia < Na; ia++) {
             if (Mode == 1) {
-                file << std::format("%12.4E ", tracer.R.ra[ir][ia]);
+                file << std::format("{:12.4E} ", tracer.R.ra[ir][ia]);
                 if ((ir * Na + ia + 1) % 5 == 0) {
                     file << std::format("\n");
                 }
@@ -3108,7 +3117,7 @@ void IORd_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& tracer,
 {
     if (Mode == 1) {
         // flag.
-        file << std::format("%s\n%s\n%s\n%s\n%s\n%s\n",
+        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# Rd[r][t]. [1/(cm2 ps)]",
                             "# Rd[0][0], [0][1],..[0][nt-1]",
                             "# Rd[0][0], [0][1],..[0][nt-1]",
@@ -3124,7 +3133,7 @@ void IORd_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& tracer,
     for (std::size_t ir = 0; ir < Nr; ir++) {
         for (std::size_t it = 0; it < Nt; it++) {
             if (Mode == 1) {
-                file << std::format("%12.4E ", tracer.R.rt[ir][it]);
+                file << std::format("{:12.4E} ", tracer.R.rt[ir][it]);
                 if (++i % 5 == 0) {
                     file << std::format("\n");
                 }
@@ -3149,7 +3158,7 @@ void IORd_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& tracer,
 {
     if (Mode == 1) {
         // flag.
-        file << std::format("%s\n%s\n%s\n%s\n%s\n%s\n",
+        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# Rd[a][t]. [1/(sr ps)]",
                             "# Rd[0][0], [0][1],..[0][nt-1]",
                             "# Rd[1][0], [1][1],..[1][nt-1]",
@@ -3165,7 +3174,7 @@ void IORd_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& tracer,
     for (std::size_t ia = 0; ia < Na; ia++) {
         for (std::size_t it = 0; it < Nt; it++) {
             if (Mode == 1) {
-                file << std::format("%12.4E ", tracer.R.at[ia][it]);
+                file << std::format("{:12.4E} ", tracer.R.at[ia][it]);
                 if (++i % 5 == 0) {
                     file << std::format("\n");
                 }
@@ -3198,7 +3207,7 @@ void IORd_r(std::fstream& file, std::size_t Nr, Tracer& tracer, char Mode)
 
     for (std::size_t ir = 0; ir < Nr; ir++) {
         if (Mode == 1) {
-            file << std::format("%12.4E\n", tracer.R.r[ir]);
+            file << std::format("{:12.4E}\n", tracer.R.r[ir]);
         }
         else {
             file >> tracer.R.r[ir];
@@ -3227,7 +3236,7 @@ void IORd_a(std::fstream& file, std::size_t Na, Tracer& tracer, char Mode)
 
     for (std::size_t ia = 0; ia < Na; ia++) {
         if (Mode == 1) {
-            file << std::format("%12.4E\n", tracer.R.a[ia]);
+            file << std::format("{:12.4E}\n", tracer.R.a[ia]);
         }
         else {
             file >> tracer.R.a[ia];
@@ -3256,7 +3265,7 @@ void IORd_t(std::fstream& file, std::size_t Nt, Tracer& tracer, char Mode)
 
     for (std::size_t it = 0; it < Nt; it++) {
         if (Mode == 1) {
-            file << std::format("%12.4E\n", tracer.R.t[it]);
+            file << std::format("{:12.4E}\n", tracer.R.t[it]);
         }
         else {
             file >> tracer.R.t[it];
@@ -3277,7 +3286,7 @@ void IOTd_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::size_t Nt
 {
     if (Mode == 1) {
         // flag.
-        file << std::format("%s\n%s\n%s\n%s\n%s\n%s\n",
+        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# Td[r][a][t]. [1/(cm2 sr ps)]",
                             "# Td[0][0][0], [0][0][1],..[0][0][nt-1]",
                             "# Td[0][1][0], [0][1][1],..[0][1][nt-1]",
@@ -3294,7 +3303,7 @@ void IOTd_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::size_t Nt
         for (std::size_t ia = 0; ia < Na; ia++) {
             for (std::size_t it = 0; it < Nt; it++) {
                 if (Mode == 1) {
-                    file << std::format("%12.4E ", tracer.T.rat[ir][ia][it]);
+                    file << std::format("{:12.4E} ", tracer.T.rat[ir][ia][it]);
                     if (++i % 5 == 0) {
                         file << std::format("\n");
                     }
@@ -3320,7 +3329,7 @@ void IOTd_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& tracer,
 {
     if (Mode == 1) {
         // flag.
-        file << std::format("%s\n%s\n%s\n%s\n%s\n%s\n",
+        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# Td[r][angle]. [1/(cm2 sr)].",
                             "# Td[0][0], [0][1],..[0][na-1]",
                             "# Td[1][0], [1][1],..[1][na-1]",
@@ -3335,7 +3344,7 @@ void IOTd_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& tracer,
     for (std::size_t ir = 0; ir < Nr; ir++) {
         for (std::size_t ia = 0; ia < Na; ia++) {
             if (Mode == 1) {
-                file << std::format("%12.4E ", tracer.T.ra[ir][ia]);
+                file << std::format("{:12.4E} ", tracer.T.ra[ir][ia]);
                 if ((ir * Na + ia + 1) % 5 == 0) {
                     file << std::format("\n");
                 }
@@ -3360,7 +3369,7 @@ void IOTd_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& tracer,
 {
     if (Mode == 1) {
         // flag.
-        file << std::format("%s\n%s\n%s\n%s\n%s\n%s\n",
+        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# Td[r][t]. [1/(cm2 ps)]",
                             "# Td[0][0], [0][1],..[0][nt-1]",
                             "# Td[0][0], [0][1],..[0][nt-1]",
@@ -3376,7 +3385,7 @@ void IOTd_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& tracer,
     for (std::size_t ir = 0; ir < Nr; ir++) {
         for (std::size_t it = 0; it < Nt; it++) {
             if (Mode == 1) {
-                file << std::format("%12.4E ", tracer.T.rt[ir][it]);
+                file << std::format("{:12.4E} ", tracer.T.rt[ir][it]);
                 if (++i % 5 == 0) {
                     file << std::format("\n");
                 }
@@ -3401,7 +3410,7 @@ void IOTd_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& tracer,
 {
     if (Mode == 1) {
         // flag.
-        file << std::format("%s\n%s\n%s\n%s\n%s\n%s\n",
+        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# Td[a][t]. [1/(sr ps)]",
                             "# Td[0][0], [0][1],..[0][nt-1]",
                             "# Td[1][0], [1][1],..[1][nt-1]",
@@ -3417,7 +3426,7 @@ void IOTd_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& tracer,
     for (std::size_t ia = 0; ia < Na; ia++) {
         for (std::size_t it = 0; it < Nt; it++) {
             if (Mode == 1) {
-                file << std::format("%12.4E ", tracer.T.at[ia][it]);
+                file << std::format("{:12.4E} ", tracer.T.at[ia][it]);
                 if (++i % 5 == 0) {
                     file << std::format("\n");
                 }
@@ -3450,7 +3459,7 @@ void IOTd_r(std::fstream& file, std::size_t Nr, Tracer& tracer, char Mode)
 
     for (std::size_t ir = 0; ir < Nr; ir++) {
         if (Mode == 1) {
-            file << std::format("%12.4E\n", tracer.T.r[ir]);
+            file << std::format("{:12.4E}\n", tracer.T.r[ir]);
         }
         else {
             file >> tracer.T.r[ir];
@@ -3479,7 +3488,7 @@ void IOTd_a(std::fstream& file, std::size_t Na, Tracer& tracer, char Mode)
 
     for (std::size_t ia = 0; ia < Na; ia++) {
         if (Mode == 1) {
-            file << std::format("%12.4E\n", tracer.T.a[ia]);
+            file << std::format("{:12.4E}\n", tracer.T.a[ia]);
         }
         else {
             file >> tracer.T.a[ia];
@@ -3508,7 +3517,7 @@ void IOTd_t(std::fstream& file, std::size_t Nt, Tracer& tracer, char Mode)
 
     for (std::size_t it = 0; it < Nt; it++) {
         if (Mode == 1) {
-            file << std::format("%12.4E\n", tracer.T.t[it]);
+            file << std::format("{:12.4E}\n", tracer.T.t[it]);
         }
         else {
             file >> tracer.T.t[it];
