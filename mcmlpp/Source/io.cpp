@@ -2309,29 +2309,36 @@ void InitOutputData(RunParams& params, Tracer& tracer)
         return List<double>(x, 0.0);
     };
 
-    if (params.record.Rd_rat) { tracer.R.rat = alloc3(nr, na, nt); }
-    if (params.record.Rd_ra) { tracer.R.ra = alloc2(nr, na); }
-    if (params.record.Rd_rt) { tracer.R.rt = alloc2(nr, nt); }
-    if (params.record.Rd_at) { tracer.R.at = alloc2(na, nt); }
-    if (params.record.Rd_r) { tracer.R.r = alloc1(nr); }
-    if (params.record.Rd_a) { tracer.R.a = alloc1(na); }
-    if (params.record.Rd_t) { tracer.R.t = alloc1(nt); }
+    // Reflectance
+    if (params.record.Rd_rat)   { tracer.R.rat = alloc3(nr, na, nt); }
+    if (params.record.Rd_ra)    { tracer.R.ra = alloc2(nr, na); }
+    if (params.record.Rd_rt)    { tracer.R.rt = alloc2(nr, nt); }
+    if (params.record.Rd_at)    { tracer.R.at = alloc2(na, nt); }
+    if (params.record.Rd_r)     { tracer.R.r = alloc1(nr); }
+    if (params.record.Rd_a)     { tracer.R.a = alloc1(na); }
+    if (params.record.Rd_t)     { tracer.R.t = alloc1(nt); }
 
-    if (params.record.Td_rat) { tracer.T.rat = alloc3(nr, na, nt); }
-    if (params.record.Td_ra) { tracer.T.ra = alloc2(nr, na); }
-    if (params.record.Td_rt) { tracer.T.rt = alloc2(nr, nt); }
-    if (params.record.Td_at) { tracer.T.at = alloc2(na, nt); }
-    if (params.record.Td_r) { tracer.T.r = alloc1(nr); }
-    if (params.record.Td_a) { tracer.T.a = alloc1(na); }
-    if (params.record.Td_t) { tracer.T.t = alloc1(nt); }
+    // Transmittance
+    if (params.record.Td_rat)   { tracer.T.rat = alloc3(nr, na, nt); }
+    if (params.record.Td_ra)    { tracer.T.ra = alloc2(nr, na); }
+    if (params.record.Td_rt)    { tracer.T.rt = alloc2(nr, nt); }
+    if (params.record.Td_at)    { tracer.T.at = alloc2(na, nt); }
+    if (params.record.Td_r)     { tracer.T.r = alloc1(nr); }
+    if (params.record.Td_a)     { tracer.T.a = alloc1(na); }
+    if (params.record.Td_t)     { tracer.T.t = alloc1(nt); }
 
-    if (params.record.A_rzt) { tracer.A.rzt = alloc3(nr, nz, nt); }
-    if (params.record.A_rzt) { tracer.A.zt = alloc2(nz, nt); }
-    if (params.record.A_rz) { tracer.A.rz = alloc2(nr, nz); }
-    if (params.record.A_rz) { tracer.A.z = alloc1(nz); }
-    if (params.record.A_zt) { tracer.A.zt = alloc2(nz, nt); }
-    if (params.record.A_z) { tracer.A.z = alloc1(nz); }
-    if (params.record.A_t) { tracer.A.t = alloc1(nt); }
+    // Absorption
+    if (params.record.A_rzt) { 
+        tracer.A.rzt = alloc3(nr, nz, nt);
+        tracer.A.bzt = alloc2(nz, nt);
+    }
+    if (params.record.A_rz) { 
+        tracer.A.rz = alloc2(nr, nz);
+        tracer.A.bz = alloc1(nz);
+    }
+    if (params.record.A_zt)     { tracer.A.zt = alloc2(nz, nt); }
+    if (params.record.A_z)      { tracer.A.z = alloc1(nz); }
+    if (params.record.A_t)      { tracer.A.t = alloc1(nt); }
 }
 
 void FreeData(RunParams& params, Tracer& tracer)
@@ -2352,10 +2359,14 @@ void FreeData(RunParams& params, Tracer& tracer)
     if (params.record.Td_a)     { tracer.T.a.clear(); }
     if (params.record.Td_t)     { tracer.T.t.clear(); }
 
-    if (params.record.A_rzt)    { tracer.A.rzt.clear(); }
-    if (params.record.A_rzt)    { tracer.A.zt.clear(); }
-    if (params.record.A_rz)     { tracer.A.rz.clear(); }
-    if (params.record.A_rz)     { tracer.A.z.clear(); }
+    if (params.record.A_rzt) { 
+        tracer.A.rzt.clear();
+        tracer.A.bzt.clear();
+    }
+    if (params.record.A_rz) { 
+        tracer.A.rz.clear();
+        tracer.A.bz.clear();
+    }
     if (params.record.A_zt)     { tracer.A.zt.clear(); }
     if (params.record.A_z)      { tracer.A.z.clear(); }
     if (params.record.A_t)      { tracer.A.t.clear(); }
@@ -2715,11 +2726,11 @@ void ScaleA(RunParams& params, Tracer& tracer, char Mode)
         for (short iz = 0; iz < nz; iz++) {
             // scale Ab_z.
             if (Mode == 0) {
-                tracer.A.z[iz] /= scale1;
+                tracer.A.bz[iz] /= scale1;
             }
             // unscale Ab_z.
             else {
-                tracer.A.z[iz] *= scale1;
+                tracer.A.bz[iz] *= scale1;
             }
         }
     }
@@ -2729,11 +2740,11 @@ void ScaleA(RunParams& params, Tracer& tracer, char Mode)
             for (short it = 0; it < nt; it++) {
                 // scale Ab_zt.
                 if (Mode == 0) {
-                    tracer.A.zt[iz][it] /= scale2;
+                    tracer.A.bzt[iz][it] /= scale2;
                 }
                 // unscale Ab_zt.
                 else {
-                    tracer.A.zt[iz][it] *= scale2;
+                    tracer.A.bzt[iz][it] *= scale2;
                 }
             }
         }
@@ -3003,11 +3014,11 @@ void IOAb_z(std::fstream& file, std::size_t Nz, Tracer& tracer, char Mode)
 
     for (std::size_t iz = 0; iz < Nz; iz++) {
         if (Mode == 1) {
-            file << std::format("{:12.4E}\n", tracer.A.z[iz]);
+            file << std::format("{:12.4E}\n", tracer.A.bz[iz]);
         }
         else {
-            file >> tracer.A.z[iz];
-            //fscanf_s(file, "%lf", &(tracer.A.z[iz]));
+            file >> tracer.A.bz[iz];
+            //fscanf_s(file, "%lf", &(tracer.A.bz[iz]));
         }
     }
 
@@ -3122,7 +3133,7 @@ void IOA_z(std::fstream& file, std::size_t Nz, Tracer& tracer, char Mode)
         }
         else {
             file >> tracer.A.z[iz];
-            //fscanf_s(file, "%lf", &(tracer.A.z[iz]));
+            //fscanf_s(file, "%lf", &(1tracer.A.z[iz]));
         }
     }
 
