@@ -33,17 +33,18 @@ bool ReadMediumListQ(std::fstream&, RunParams&);
 void TracePhoton(RunParams&, Photon&, Tracer&);
 bool RunChangedInput(RunParams&);
 bool GetFile(std::string&, const std::string, std::fstream&);
+void FreeData(RunParams&, Tracer&);
 bool ReadNumPhotonsQ(std::istream&, RunParams&, char);
 bool CheckFileVersionQ(std::fstream&, const std::string);
 
 
-std::mt19937 RandomEngine;
-std::uniform_real_distribution<double> Distribution;
-
-double unitNumber()
-{
-    return Distribution(RandomEngine);
-};
+//std::mt19937 RandomEngine;
+//std::uniform_real_distribution<double> Distribution;
+//
+//double unitNumber()
+//{
+//    return Distribution(RandomEngine);
+//};
 
 
 /**************************************************************************
@@ -234,6 +235,9 @@ void DoOneRun(short NumRunsLeft, RunParams& params, Tracer& tracer, char Type)
         if (params.source_layer == 0) {
             tracer.R.sp = Rspecular(params.layers);
         }
+
+        // Initialize the generator
+        RandomGen(0, 1, NULL);
     }
     
     std::string msg;
@@ -274,6 +278,7 @@ void DoOneRun(short NumRunsLeft, RunParams& params, Tracer& tracer, char Type)
     params.control_bit = ControlBit::Both;
 
     ReportResult(params, tracer);
+    FreeData(params, tracer);
 }
 
 /**************************************************************************
@@ -467,8 +472,8 @@ int main(int argc, char* argv[])
 {
     std::cout << "MCML Version 2.0, Copyright (c) 1992-1996\n" << std::endl;
 
-    RandomEngine.seed(std::random_device{}());
-    Distribution = std::uniform_real_distribution<double>(0.0, 1.0);
+    //RandomEngine.seed(std::random_device{}());
+    //Distribution = std::uniform_real_distribution<double>(0.0, 1.0);
 
     // non-interactive.
     if (argc >= 2) {

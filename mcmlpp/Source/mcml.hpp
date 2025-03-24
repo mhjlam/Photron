@@ -356,7 +356,9 @@ struct Tracer
 };
 
 
-extern std::mt19937 RandomEngine;
-extern std::uniform_real_distribution<double> Distribution;
+//extern std::mt19937 RandomEngine;
+//extern std::uniform_real_distribution<double> Distribution;
+//
+//extern double unitNumber();
 
-extern double unitNumber();
+double RandomGen(char, long, long*);

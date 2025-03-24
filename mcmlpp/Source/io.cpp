@@ -17,10 +17,10 @@
 #include <algorithm>
 #include <string_view>
 
-#include <ranges>
 #include <numbers>
 #include <variant>
 #include <optional>
+
 
 using namespace std::literals;
 
@@ -124,12 +124,97 @@ std::string GetStringValue(OptSpecValue& opt_string, std::string& target_string)
     return {};
 }
 
-std::string& to_upper(std::string& str)
+std::string& ToUpper(std::string& str)
 {
     std::ranges::transform(str, str.begin(), [](unsigned char c) {
         return std::toupper(c);
     });
     return str;
+}
+
+
+double RandomGen(char Type, long Seed, long* Status)
+{
+#define MBIG    1000000000
+#define MSEED   161803398
+#define MZ      0
+#define FAC     1.0E-9
+
+    // ma[0] is not used
+    static long i1;
+    static long i2;
+    static long ma[56];
+
+    // set seed
+    if (Type == 0) {
+        long mk = 1;
+        long mj = MSEED - (Seed < 0 ? -Seed : Seed) % MBIG;
+
+        ma[55] = mj;
+
+        for (short i = 1; i <= 54; i++) {
+            short ii = (21 * i) % 55;
+            ma[ii] = mk;
+            mk = mj - mk;
+            if (mk < MZ) {
+                mk += MBIG;
+            }
+            mj = ma[ii];
+        }
+        for (short ii = 1; ii <= 4; ii++) {
+            for (short i = 1; i <= 55; i++) {
+                ma[i] -= ma[1 + (i + 30) % 55];
+                if (ma[i] < MZ) {
+                    ma[i] += MBIG;
+                }
+            }
+        }
+        i1 = 0;
+        i2 = 31;
+    }
+    // get a number
+    else if (Type == 1) {
+        if (++i1 == 56) {
+            i1 = 1;
+        }
+
+        if (++i2 == 56) {
+            i2 = 1;
+        }
+
+        long mj = ma[i1] - ma[i2];
+        if (mj < MZ) {
+            mj += MBIG;
+        }
+
+        ma[i1] = mj;
+        return (mj * FAC);
+    }
+    // get status
+    else if (Type == 2) {
+        for (short i = 0; i < 55; i++) {
+            Status[i] = ma[i + 1];
+        }
+        Status[55] = i1;
+        Status[56] = i2;
+    }
+    // restore status
+    else if (Type == 3) {
+        for (short i = 0; i < 55; i++) {
+            ma[i + 1] = Status[i];
+        }
+        i1 = Status[55];
+        i2 = Status[56];
+    }
+    else {
+        puts("Wrong parameter to RandomGen().");
+    }
+    return (0);
+
+#undef MBIG
+#undef MSEED
+#undef MZ
+#undef FAC
 }
 
 
@@ -556,13 +641,6 @@ void InitRecord(RunParams& params)
  ****/
 bool ReadRecordQ(std::istream& input, RunParams& params)
 {
-    auto to_upper = [](std::string& string) {
-        std::transform(string.begin(), string.end(), string.begin(), [](unsigned char c) {
-            return std::toupper(c);
-        });
-        return string;
-    };
-
     std::string buf = FindDataLine(input);
     if (buf.empty()) {
         std::cout << "Read scored quantities." << std::endl;
@@ -577,7 +655,7 @@ bool ReadRecordQ(std::istream& input, RunParams& params)
 
         // Trim and uppercase
         string = std::format("{:}", string);
-        string = to_upper(string);
+        string = ToUpper(string);
 
         if (string == "RD_R"sv) {
             params.record.Rd_r = true;
@@ -827,6 +905,7 @@ bool ReadLayerSpecsQ(std::fstream& file, RunParams& params)
 
     // current_layer 0 and current_layer Num_Layers + 1 are for ambient.
     params.num_layers = num_layers;
+    params.layers.resize(num_layers + 2);
 
     for (short i = 0; i <= num_layers + 1; i++) {
         std::string buf = FindDataLine(file);
@@ -862,12 +941,11 @@ bool ReadLayerSpecsQ(std::fstream& file, RunParams& params)
             return false;
         }
 
-        params.layers.push_back(Layer{
-            .name = params.mediums[index].name,
-            .eta = params.mediums[index].eta,
-            .mua = params.mediums[index].mua,
-            .mus = params.mediums[index].mus,
-            .aniso = params.mediums[index].aniso });
+        params.layers[i].name = params.mediums[index].name;
+        params.layers[i].eta = params.mediums[index].eta;
+        params.layers[i].mua = params.mediums[index].mua;
+        params.layers[i].mus = params.mediums[index].mus;
+        params.layers[i].aniso = params.mediums[index].aniso;
 
         // Intermediate layers
         if (i != 0 && i != (num_layers + 1)) {
@@ -994,10 +1072,10 @@ bool ReadSourceTypeQ(std::fstream& file, RunParams& params)
     }
 
     std::string source_type = std::get<std::string>(extracted[0]);
-    if (to_upper(source_type) == "PENCIL"sv) {
+    if (ToUpper(source_type) == "PENCIL"sv) {
         params.source = BeamType::Pencil;
     }
-    else if (to_upper(source_type) == "ISOTROPIC"sv) {
+    else if (ToUpper(source_type) == "ISOTROPIC"sv) {
         params.source = BeamType::Isotropic;
     }
     else {
@@ -1451,11 +1529,11 @@ void InterReadNumPhotons(RunParams& params)
  ****/
 void InterReadSourceType(RunParams& params)
 {
-    std::cout << "Input source type (p = pencil / i = isotropic): ";
+    std::cout << "Input source type (P = pencil / I = isotropic): ";
 
     char c; std::cin.get(c);
     while (std::toupper(c) != 'P' || std::toupper(c) != 'I') {
-        std::cout << "Invalid type. Input again (p = pencil / i = isotropic): ";
+        std::cout << "Invalid type. Input again (P = pencil / I = isotropic): ";
         std::cin.get(c);
     }
 
@@ -1519,10 +1597,10 @@ void PutMediumListToFile(std::ostream& output, RunParams& params, int& Line)
         More(output, Line);
         Layer s = params.mediums[i];
         if (s.name.size() + 1 > 8) {
-            output << std::format("\t{} \t{:G}\t{:G}\t{:G}\t{:G}\n", s.name, s.eta, s.mua, s.mus, s.aniso);
+            output << std::format("\t{}\t{:G}\t{:G}\t{:G}\t{:G}\n", s.name, s.eta, s.mua, s.mus, s.aniso);
         }
         else {
-            output << std::format("\t{} \t\t{:G}\t{:G}\t{:G}\t{:G}\n", s.name, s.eta, s.mua, s.mus, s.aniso);
+            output << std::format("\t{}\t\t{:G}\t{:G}\t{:G}\t{:G}\n", s.name, s.eta, s.mua, s.mus, s.aniso);
         }
         Line++;
     }
@@ -2256,6 +2334,35 @@ void InitOutputData(RunParams& params, Tracer& tracer)
     if (params.record.A_t) { tracer.A.t = alloc1(nt); }
 }
 
+void FreeData(RunParams& params, Tracer& tracer)
+{
+    if (params.record.Rd_rat)   { tracer.R.rat.clear(); }
+    if (params.record.Rd_ra)    { tracer.R.ra.clear(); }
+    if (params.record.Rd_rt)    { tracer.R.rt.clear(); }
+    if (params.record.Rd_at)    { tracer.R.at.clear(); }
+    if (params.record.Rd_r)     { tracer.R.r.clear(); }
+    if (params.record.Rd_a)     { tracer.R.a.clear(); }
+    if (params.record.Rd_t)     { tracer.R.t.clear(); }
+
+    if (params.record.Td_rat)   { tracer.T.rat.clear(); }
+    if (params.record.Td_ra)    { tracer.T.ra.clear(); }
+    if (params.record.Td_rt)    { tracer.T.rt.clear(); }
+    if (params.record.Td_at)    { tracer.T.at.clear(); }
+    if (params.record.Td_r)     { tracer.T.r.clear(); }
+    if (params.record.Td_a)     { tracer.T.a.clear(); }
+    if (params.record.Td_t)     { tracer.T.t.clear(); }
+
+    if (params.record.A_rzt)    { tracer.A.rzt.clear(); }
+    if (params.record.A_rzt)    { tracer.A.zt.clear(); }
+    if (params.record.A_rz)     { tracer.A.rz.clear(); }
+    if (params.record.A_rz)     { tracer.A.z.clear(); }
+    if (params.record.A_zt)     { tracer.A.zt.clear(); }
+    if (params.record.A_z)      { tracer.A.z.clear(); }
+    if (params.record.A_t)      { tracer.A.t.clear(); }
+
+    params.layers.clear();
+}
+
 /**************************************************************************
  *	Scale Rd and Td properly.
  *	"a" stands for angle alpha.
@@ -2678,19 +2785,16 @@ void ScaleResult(RunParams& params, Tracer& tracer, char Mode)
 }
 
 /**************************************************************************
- *	Write the version number as the first string in the
- *	input.
- *	Use chars only so that they can be read as either
- *	ASCII or binary.
+ *	Write the version number as the first string in the input. 
+ *	Use chars only so that they can be read as either ASCII or binary.
  ****/
 void WriteVersion(std::fstream& file, const std::string& version)
 {
     file << version << " \t# Version number of the file format.\n" << std::endl;
     file << "####\n# Data categories include: " << std::endl;
-    file << "# InParam, RAT, " << std::endl;
     file << "# Rd_r\tRd_a\tRd_ra\tRd_t\tRd_rt\tRd_at\tRd_rat" << std::endl;
     file << "# Td_r\tTd_a\tTd_ra\tTd_t\tTd_rt\tTd_at\tTd_rat" << std::endl;
-    file << "# A_z\tA_rz\tA_t\tA_zt\tA_rzt" << std::endl;
+    file << "# A_z\tA_rz\tA_t\t\tA_zt\tA_rzt" << std::endl;
     file << "####\n" << std::endl;
 }
 
@@ -2699,9 +2803,25 @@ void WriteVersion(std::fstream& file, const std::string& version)
  ****/
 void SaveRandomStatus(std::fstream& file)
 {
+    //file << std::format("# status of the random number generator:") << std::endl;
+    //file << RandomEngine << std::endl;
+    //file << std::endl;
+
+    // Get the status
+    long status[57];
+    RandomGen(2, 0, status);
     file << std::format("# status of the random number generator:") << std::endl;
-    file << RandomEngine << std::endl;
-    file << std::endl;
+
+    for (int i = 0; i < 57; i++) {
+        if (i % 5) {
+            file << std::format("{:14d}", status[i]);
+        }
+        else {
+            file << std::endl << std::format("{:14d}", status[i]);
+        }
+    }
+
+    file << std::endl << std::endl;
 }
 
 /***************************************************************************
@@ -2710,12 +2830,26 @@ void SaveRandomStatus(std::fstream& file)
  ****/
 void RestoreRandomStatus(std::fstream& file)
 {
+    //std::string buf;
+    //do {
+    //    std::getline(file, buf);
+    //} while (buf[0] != '#');
+
+    //file >> RandomEngine;
+
     std::string buf;
+    long status[57];
+
     do {
         std::getline(file, buf);
     } while (buf[0] != '#');
 
-    file >> RandomEngine;
+    for (int i = 0; i < 57; i++) {
+        file >> status[i];
+    }
+
+    // Restore the status
+    RandomGen(3, 0, status);
 }
 
 /**************************************************************************
