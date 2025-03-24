@@ -664,8 +664,9 @@ void CrossDnOrNot(RunParams& params, Photon& photon, Tracer& tracer)
  ****/
 void HopDropSpin(RunParams& params, Photon& photon, Tracer& tracer)
 {
-    Layer layer_struct = params.layers[photon.current_layer];
-    double mut = layer_struct.mua + layer_struct.mus;
+    Layer& layer = params.layers[photon.current_layer];
+    double mut = layer.mua + layer.mus;
+    
     SetStepSize(photon);
 
     // distance between photon and boundary cm.
@@ -674,7 +675,7 @@ void HopDropSpin(RunParams& params, Photon& photon, Tracer& tracer)
     // hit boundary.
     if (path * mut <= photon.step_size) {
         // move to boundary plane.
-        Hop(photon, path, layer_struct.eta);
+        Hop(photon, path, layer.eta);
 
         // update s.
         photon.step_size -= path * mut;
@@ -688,7 +689,7 @@ void HopDropSpin(RunParams& params, Photon& photon, Tracer& tracer)
     }
     // fit in current_layer.
     else {
-        Hop(photon, photon.step_size / mut, layer_struct.eta);
+        Hop(photon, photon.step_size / mut, layer.eta);
 
         // update s.
         photon.step_size = 0;
