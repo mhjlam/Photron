@@ -89,6 +89,8 @@
 #include <functional>
 #include <unordered_set>
 
+#include "random.hpp"
+
 
 template <typename T> using List = std::vector<T>;
 template <typename T> using Uset = std::unordered_set<T>;
@@ -362,3 +364,6 @@ struct Tracer
 //extern double unitNumber();
 
 double RandomGen(char, long, long*);
+
+class Random;
+extern Random Rand;

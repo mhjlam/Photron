@@ -46,14 +46,14 @@ void Spin(double g, Photon& photon)
     double uz = photon.uz;
 
     // sample theta.
-    double temp = (1 - g * g) / (1 - g + 2 * g * (double)RandomGen(1, 0, NULL));
-    double cost = (g == 0.0) ? 2 * (double)RandomGen(1, 0, NULL) - 1 : (1 + g * g - temp * temp) / (2 * g);
+    double temp = (1 - g * g) / (1 - g + 2 * g * Rand.next());
+    double cost = (g == 0.0) ? 2 * Rand.next() - 1 : (1 + g * g - temp * temp) / (2 * g);
 
     // sqrt is faster than sin.
     double sint = std::sqrt(1.0 - cost * cost);
 
     // sample psi.
-    double psi = 2.0 * std::numbers::pi * (double)RandomGen(1, 0, NULL);
+    double psi = 2.0 * std::numbers::pi * Rand.next();
     double cosp = std::cos(psi);
 
     // sqrt is faster than sin.
@@ -148,7 +148,7 @@ void SetStepSize(Photon& photon)
     if (photon.step_size == 0.0) {
         // avoid zero.
         double rnd;
-        while ((rnd = (double)RandomGen(1, 0, NULL)) <= 0.0);
+        while ((rnd = Rand.next()) <= 0.0);
         photon.step_size = -std::log(rnd);
     }
 }
@@ -280,7 +280,7 @@ void Roulette(Photon& photon)
     }
 
     // survived the roulette.
-    else if ((double)RandomGen(1, 0, NULL) < ROULETTE_SURVIVAL) {
+    else if (Rand.next() < ROULETTE_SURVIVAL) {
         photon.min_weight /= ROULETTE_SURVIVAL;
     }
     else {
@@ -544,7 +544,7 @@ void CrossUpOrNot(RunParams& params, Photon& photon, Tracer& tracer)
             photon.uz = -uz; // reflected photon.
         }
         // transmitted to current_layer-1.
-        else if ((double)RandomGen(1, 0, NULL) > r) {
+        else if (Rand.next() > r) {
             photon.current_layer--;
             photon.ux *= ni / nt;
             photon.uy *= ni / nt;
@@ -557,7 +557,7 @@ void CrossUpOrNot(RunParams& params, Photon& photon, Tracer& tracer)
     }
     else {
         // transmitted to current_layer-1.
-        if ((double)RandomGen(1, 0, NULL) > r) {
+        if (Rand.next() > r) {
             if (layer == 1) {
                 photon.uz = -uz1;
                 RecordR(0.0, params, photon, tracer);
@@ -612,7 +612,7 @@ void CrossDnOrNot(RunParams& params, Photon& photon, Tracer& tracer)
             photon.uz = -uz;
         }
         // transmitted to current_layer+1.
-        else if ((double)RandomGen(1, 0, NULL) > r) {
+        else if (Rand.next() > r) {
             photon.current_layer++;
             photon.ux *= ni / nt;
             photon.uy *= ni / nt;
@@ -627,7 +627,7 @@ void CrossDnOrNot(RunParams& params, Photon& photon, Tracer& tracer)
     else 
     {
         // transmitted to current_layer+1.
-        if ((double)RandomGen(1, 0, NULL) > r) {
+        if (Rand.next() > r) {
             if (layer == params.num_layers) {
                 photon.uz = uz1;
                 RecordT(0.0, params, photon, tracer);

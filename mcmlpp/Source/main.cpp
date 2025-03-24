@@ -13,6 +13,8 @@
 #include <fstream>
 #include <iostream>
 
+#include "random.hpp"
+
 
 using namespace std::chrono;
 
@@ -37,14 +39,8 @@ void FreeData(RunParams&, Tracer&);
 bool ReadNumPhotonsQ(std::istream&, RunParams&, char);
 bool CheckFileVersionQ(std::fstream&, const std::string);
 
+Random Rand;
 
-//std::mt19937 RandomEngine;
-//std::uniform_real_distribution<double> Distribution;
-//
-//double unitNumber()
-//{
-//    return Distribution(RandomEngine);
-//};
 
 
 /**************************************************************************
@@ -237,7 +233,7 @@ void DoOneRun(short NumRunsLeft, RunParams& params, Tracer& tracer, char Type)
         }
 
         // Initialize the generator
-        RandomGen(0, 1, NULL);
+        Rand.seed(1);
     }
     
     std::string msg;

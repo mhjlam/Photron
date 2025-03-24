@@ -2814,16 +2814,11 @@ void WriteVersion(std::fstream& file, const std::string& version)
  ****/
 void SaveRandomStatus(std::fstream& file)
 {
-    //file << std::format("# status of the random number generator:") << std::endl;
-    //file << RandomEngine << std::endl;
-    //file << std::endl;
+    auto status = Rand.getState();
 
-    // Get the status
-    long status[57];
-    RandomGen(2, 0, status);
     file << std::format("# status of the random number generator:") << std::endl;
 
-    for (int i = 0; i < 57; i++) {
+    for (int i = 0; i < status.size(); i++) {
         if (i % 5) {
             file << std::format("{:14d}", status[i]);
         }
@@ -2841,26 +2836,20 @@ void SaveRandomStatus(std::fstream& file)
  ****/
 void RestoreRandomStatus(std::fstream& file)
 {
-    //std::string buf;
-    //do {
-    //    std::getline(file, buf);
-    //} while (buf[0] != '#');
-
-    //file >> RandomEngine;
-
     std::string buf;
-    long status[57];
+
+    std::vector<std::mt19937::result_type> status(624);
 
     do {
         std::getline(file, buf);
     } while (buf[0] != '#');
 
-    for (int i = 0; i < 57; i++) {
+    for (int i = 0; i < status.size(); i++) {
         file >> status[i];
     }
 
     // Restore the status
-    RandomGen(3, 0, status);
+    Rand.setState(status);
 }
 
 /**************************************************************************
