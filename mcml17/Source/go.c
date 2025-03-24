@@ -657,7 +657,7 @@ void CrossUpOrNot(InStru* In_Ptr, PhotonStru* Photon_Ptr, OutStru* Out_Ptr)
         RecordR(r, In_Ptr, Photon_Ptr, Out_Ptr);
         Photon_Ptr->uz = -uz;	/* reflected photon. */
     }
-    else if (RandomNum > r) {	/* transmitted to layer-1. */
+    else if ((double)RandomGen(1, 0, NULL) > r) {	/* transmitted to layer-1. */
         Photon_Ptr->layer--;
         Photon_Ptr->ux *= ni / nt;
         Photon_Ptr->uy *= ni / nt;
@@ -720,7 +720,7 @@ void CrossDnOrNot(InStru* In_Ptr, PhotonStru* Photon_Ptr, OutStru* Out_Ptr)
         RecordT(r, In_Ptr, Photon_Ptr, Out_Ptr);
         Photon_Ptr->uz = -uz;
     }
-    else if (RandomNum > r) {	/* transmitted to layer+1. */
+    else if ((double)RandomGen(1, 0, NULL) > r) {	/* transmitted to layer+1. */
         Photon_Ptr->layer++;
         Photon_Ptr->ux *= ni / nt;
         Photon_Ptr->uy *= ni / nt;
