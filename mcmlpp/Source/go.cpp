@@ -1,6 +1,6 @@
 ﻿/*******************************************************************************
  *	Copyright Univ. of Texas M.D. Anderson Cancer Center, 1992-1996.
- *  Copyright Maurits Lam, 2025.
+ *  Copyright M.H.J. Lam, 2025.
  *	Launch, move, and record photon weight.
  ****/
 

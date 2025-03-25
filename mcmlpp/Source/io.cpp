@@ -1,6 +1,6 @@
 /*******************************************************************************
  *	Copyright Univ. of Texas M.D. Anderson Cancer Center, 1992-1996.
- *  Copyright Maurits Lam, 2025.
+ *  Copyright M.H.J. Lam, 2025.
  *	Input/output of data.
  ****/
 
@@ -28,6 +28,9 @@ using SpecValue = std::variant<double, std::string>;
 using OptSpecValue = std::optional<SpecValue>;
 
 
+/*******************************************************************************
+ *	Parse a line of input to extract a list of double and string values.
+ ****/
 std::vector<SpecValue> ParseLine(std::string& input, std::string err, std::size_t min_expected = 1)
 {
     std::istringstream stream(input);
@@ -126,8 +129,8 @@ std::string GetStringValue(OptSpecValue& opt_string, std::string& target_string)
 
 std::string& ToUpper(std::string& string)
 {
-    std::ranges::transform(string, string.begin(), [](unsigned char c) {
-        return std::toupper(c);
+    std::ranges::transform(string, string.begin(), [](unsigned char ch) {
+        return std::toupper(ch);
     });
     return string;
 }
@@ -154,7 +157,7 @@ void AboutMCML()
     std::cout << "Oregon Medical Laser Center, Providence/St. Vincent Hospital" << std::endl;
     std::cout << "Portland, Oregon, USA" << std::endl;
 
-    std::cout << "Maurits H.J. Lam, MSc." << std::endl;
+    std::cout << "M.H.J. Lam, MSc." << std::endl;
     std::cout << "Utrecht University" << std::endl;
     std::cout << "Utrecht, Netherlands" << std::endl;
 
@@ -207,7 +210,7 @@ bool CommentLine(std::string& buf)
 /*******************************************************************************
  *	Skip space or comment lines and return a data line.
  ****/
-std::string FindDataLine(std::fstream& file)
+std::string FindDataLine(std::istream& file)
 {
     std::string line;
     while (std::getline(file, line)) {
@@ -235,28 +238,9 @@ std::string FindDataLine(std::fstream& file)
 }
 
 /*******************************************************************************
- *	Skip space or comment lines and return a data line.
- ****/
-std::string FindDataLine(std::istream& stream)
-{
-    std::string line;
-
-    // skip space or comment lines.
-    do {
-        std::getline(stream, line);
-
-        if (!line.empty()) {
-            CheckChar(line);
-        }
-    } while (CommentLine(line));
-
-    return line;
-}
-
-/*******************************************************************************
  *	Check whether the input version is the same as version.
  ****/
-bool CheckFileVersion(std::fstream& file, const std::string version)
+bool CheckFileVersion(std::fstream& file, const std::string& version)
 {
     // Skip comment lines.
     std::string line;
@@ -273,23 +257,23 @@ bool CheckFileVersion(std::fstream& file, const std::string version)
  *  Get a filename and open it for reading, retry until the input can be opened
  *  with a correct version or when a '.' is typed.
  ****/
-bool GetFile(std::string& fname, const std::string version, std::fstream& file)
+bool GetFile(std::string& filename, const std::string& version, std::fstream& file)
 {
     while (1) {
         std::cout << "Specify filename (or . to quit to main menu):";
 
         // Read input buffer
-        std::getline(std::cin, fname);
+        std::getline(std::cin, filename);
 
-        if (!fname.empty()) {
+        if (!filename.empty()) {
             // Terminate with a period
-            if (fname.size() == 1 && fname[0] == '.') {
+            if (filename.size() == 1 && filename[0] == '.') {
                 // Return if '.' entered
                 return false;
             }
 
             // Open the input & check the version
-            file = std::fstream(fname, std::ios::in);
+            file = std::fstream(filename, std::ios::in);
             if (!file.is_open()) {
                 // Cannot open the input
                 std::cerr << "File does not exist.";
@@ -849,10 +833,9 @@ bool ReadLayers(std::fstream& file, RunParams& params)
 
 /*******************************************************************************
  *  Read the number of photons and computation time limit.
- *  Type 0: read from a .mci input file.
- *  Type 1: read from a .mco output file.
+ *  addMode: Add a number of new photons or seconds to the time limit.
  ****/
-bool ReadEndCriteria(std::istream& input, RunParams& params, char type)
+bool ReadEndCriteria(std::istream& input, RunParams& params, bool addMode = false)
 {
     std::string buf = FindDataLine(input);
     auto extracted = ParseLine(buf, "Error reading number of photons or time limit.");
@@ -873,7 +856,7 @@ bool ReadEndCriteria(std::istream& input, RunParams& params, char type)
             return false;
         }
     }
-    else if (extracted.size() == 1 && IsString(extracted[0])) {
+    else if (extracted.size() == 1 && std::holds_alternative<std::string>(extracted[0])) {
         std::string time = std::get<std::string>(extracted[0]);
 
         int hours = 0;
@@ -900,7 +883,9 @@ bool ReadEndCriteria(std::istream& input, RunParams& params, char type)
 
         params.control_bit = ControlBit::TimeLimit;
     }
-    else if (extracted.size() == 2 && IsNumber(extracted[0]) && IsString(extracted[1])) {
+    else if (extracted.size() == 2 && 
+             std::holds_alternative<double>(extracted[0]) && 
+             std::holds_alternative<std::string>(extracted[1])) {
         int num_photons = static_cast<int>(std::get<double>(extracted[0]));
         std::string time = std::get<std::string>(extracted[1]);
 
@@ -917,13 +902,13 @@ bool ReadEndCriteria(std::istream& input, RunParams& params, char type)
         }
 
         if (num_photons > 0 && (hours * 3600 + minutes * 60) > 0) {
-            if (type == 0) {
-                params.num_photons = num_photons;
-                params.time_limit = hours * 3600 + minutes * 60;
-            }
-            else {
+            if (addMode) {
                 params.add_num_photons = num_photons;
                 params.add_limit = hours * 3600 + minutes * 60;
+            }
+            else {
+                params.num_photons = num_photons;
+                params.time_limit = hours * 3600 + minutes * 60;
             }
 
             params.time_limit = hours * 3600 + minutes * 60;
@@ -1442,10 +1427,10 @@ void InterReadPhotonSource(RunParams& params)
 /*******************************************************************************
  *  If input is stdin, freeze the screen and print a more message on screen every 20 lines. The line is the line index.
  ****/
-void More(std::ostream& output, int& Line)
+void More(std::ostream& output, int& line)
 {
     if (&output == &std::cout) {
-        if (!(Line % 20)) {
+        if (!(line % 20)) {
             std::cout << "--More-- (Press Return to continue)";
             output.flush();
 
@@ -1577,31 +1562,31 @@ void WriteScored(std::ostream& output, RunParams& params, int& line)
     line++;
 }
 
-void WriteWeightTreshold(std::ostream& output, RunParams& params, int& Line)
+void WriteWeightTreshold(std::ostream& output, RunParams& params, int& line)
 {
-    More(output, Line);
+    More(output, line);
     output << std::format("{:G}\t\t\t\t\t# threshold weight.\n", params.weight_treshold);
-    Line++;
+    line++;
 }
 
-void WriteRandomSeed(std::ostream& output, RunParams& params, int& Line)
+void WriteRandomSeed(std::ostream& output, RunParams& params, int& line)
 {
-    More(output, Line);
+    More(output, line);
     output << std::format("{}\t\t\t\t\t# random number seed.\n", params.seed);
-    Line++;
+    line++;
 }
 
-void WriteLayers(std::ostream& output, RunParams& params, int& Line)
+void WriteLayers(std::ostream& output, RunParams& params, int& line)
 {
     std::string format;
 
-    More(output, Line);
+    More(output, line);
     output << std::format("# \tmedium \t\tthickness\n");
-    Line++;
+    line++;
 
     for (int i = 0; i <= params.num_layers + 1; i++) {
         Layer s;
-        More(output, Line);
+        More(output, line);
 
         s = params.layers[i];
         if (i != 0 && i != params.num_layers + 1) {
@@ -1615,17 +1600,17 @@ void WriteLayers(std::ostream& output, RunParams& params, int& Line)
         else {
             output << std::format("\t{}\n", s.name);
         }
-        Line++;
+        line++;
     }
 
-    More(output, Line);
+    More(output, line);
     output << std::format("end #of layers\n");
-    Line++;
+    line++;
 }
 
-void WriteEndCriteria(std::ostream& output, RunParams& params, int& Line)
+void WriteEndCriteria(std::ostream& output, RunParams& params, int& line)
 {
-    More(output, Line);
+    More(output, line);
 
     if (params.control_bit == ControlBit::NumPhotons) {
         output << std::format("{}  \t\t\t\t\t# no. of photons | time\n", params.num_photons);
@@ -1637,12 +1622,12 @@ void WriteEndCriteria(std::ostream& output, RunParams& params, int& Line)
         output << std::format("{}  \t{}:{}\t\t\t\t# no. of photons | time\n", params.num_photons, params.time_limit / 3600, params.time_limit % 3600 / 60);
     }
 
-    Line++;
+    line++;
 }
 
-void WriteSourceType(std::ostream& output, RunParams& params, int& Line)
+void WriteSourceType(std::ostream& output, RunParams& params, int& line)
 {
-    More(output, Line);
+    More(output, line);
 
     if (params.source == BeamType::Pencil) {
         output << std::format("pencil \t\t\t\t\t# src type: pencil/isotropic.\n");
@@ -1651,12 +1636,12 @@ void WriteSourceType(std::ostream& output, RunParams& params, int& Line)
         output << std::format("isotropic \t\t\t\t# src type: pencil/isotropic.\n");
     }
 
-    Line++;
+    line++;
 }
 
-void WritePhotonSource(std::ostream& output, RunParams& params, int& Line)
+void WritePhotonSource(std::ostream& output, RunParams& params, int& line)
 {
-    More(output, Line);
+    More(output, line);
 
     if (params.source_medium_name.empty()) {
         output << std::format("{:G}\t\t\t\t\t# starting position of source.\n", params.source_z);
@@ -1668,7 +1653,7 @@ void WritePhotonSource(std::ostream& output, RunParams& params, int& Line)
         output << std::format("{:G}\t{} \t\t\t\t# starting position of source.\n", params.source_z, params.source_medium_name);
     }
 
-    Line++;
+    line++;
 }
 
 /*******************************************************************************
@@ -1839,7 +1824,7 @@ char QuitOrContinue()
         } while (!string.empty());
     } while (std::toupper(string[0]) != 'Y' && std::toupper(string[0]) != 'N');
 
-    return (std::toupper(string[0]));
+    return std::toupper(string[0]);
 }
 
 void EditMediums(RunParams& params)
@@ -2199,15 +2184,15 @@ void InitTracer(RunParams& params, Tracer& tracer)
     tracer.A.ae = 0.0;
 
     auto alloc3 = [](std::size_t x, std::size_t y, std::size_t z) {
-        return vec<vec<vec<double>>>(x, vec<vec<double>>(y, vec<double>(z, 0.0)));
+        return vec3<double>(x, vec2<double>(y, vec1<double>(z, 0.0)));
     };
 
     auto alloc2 = [](std::size_t x, std::size_t y) {
-        return vec<vec<double>>(x, vec<double>(y, 0.0));
+        return vec2<double>(x, vec1<double>(y, 0.0));
     };
 
     auto alloc1 = [](std::size_t x) {
-        return vec<double>(x, 0.0);
+        return vec1<double>(x, 0.0);
     };
 
     // Reflectance
@@ -2291,11 +2276,8 @@ void ClearRun(RunParams& params, Tracer& tracer)
  ****
  *	Scale Rd(a) and Td(a) by
  *		solid angle * num_photons.
- ****
- *  Mode 0: scale Rd and Td.
- *  Mode 1: unscale Rd and Td.
  ****/
-void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, char mode)
+void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, ScaleMode mode)
 {
     std::size_t nr = params.num_r;
     std::size_t na = params.num_a;
@@ -2306,7 +2288,7 @@ void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, char mode)
     double dt = params.grid_t;
 
     double scale1 = (double)params.num_photons;
-    if (mode == 0) {
+    if (mode == ScaleMode::Scale) {
         tracer.R.de = 1 / scale1 * sqrt(tracer.R.de - tracer.R.dr * tracer.R.dr / scale1);
         tracer.T.de = 1 / scale1 * sqrt(tracer.T.de - tracer.T.dr * tracer.T.dr / scale1);
         tracer.R.be = 1 / scale1 * sqrt(tracer.R.be - tracer.R.br * tracer.R.br / scale1);
@@ -2333,7 +2315,7 @@ void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, char mode)
     if (params.record.Rd_t) {
         for (std::size_t it = 0; it < nt; it++) {
             // scale Rd_t
-            if (mode == 0) {
+            if (mode == ScaleMode::Scale) {
                 tracer.R.t[it] /= scale1;
             }
             // unscale Rd_t
@@ -2346,7 +2328,7 @@ void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, char mode)
     if (params.record.Td_t) {
         for (std::size_t it = 0; it < nt; it++) {
             // scale Td_t
-            if (mode == 0) {
+            if (mode == ScaleMode::Scale) {
                 tracer.T.t[it] /= scale1;
             }
             // unscale Rd_t
@@ -2363,7 +2345,7 @@ void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, char mode)
         for (std::size_t ir = 0; ir < nr; ir++) {
             double scale2 = 1.0 / ((ir + 0.5) * scale1);
             // scale Rd_r
-            if (mode == 0) {
+            if (mode == ScaleMode::Scale) {
                 tracer.R.r[ir] *= scale2;
             }
             // unscale Rd_r
@@ -2377,7 +2359,7 @@ void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, char mode)
         for (std::size_t ir = 0; ir < nr; ir++) {
             double scale2 = 1.0 / ((ir + 0.5) * scale1);
             // scale Td_r
-            if (mode == 0) {
+            if (mode == ScaleMode::Scale) {
                 tracer.T.r[ir] *= scale2;
             }
             // unscale Td_r
@@ -2393,7 +2375,7 @@ void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, char mode)
             for (std::size_t it = 0; it < nt; it++) {
                 double scale2 = 1.0 / ((ir + 0.5) * scale1);
                 // scale Rd_rt
-                if (mode == 0) {
+                if (mode == ScaleMode::Scale) {
                     tracer.R.rt[ir][it] *= scale2;
                 }
                 // unscale Rd_rt
@@ -2409,7 +2391,7 @@ void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, char mode)
             for (std::size_t it = 0; it < nt; it++) {
                 double scale2 = 1.0 / ((ir + 0.5) * scale1);
                 // scale Td_rt
-                if (mode == 0) {
+                if (mode == ScaleMode::Scale) {
                     tracer.T.rt[ir][it] *= scale2;
                 }
                 // unscale Td_rt
@@ -2427,7 +2409,7 @@ void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, char mode)
         for (std::size_t ia = 0; ia < na; ia++) {
             double scale2 = 1.0 / (sin(2.0 * (ia + 0.5) * da) * scale1);
             // scale Rd_a.
-            if (mode == 0) {
+            if (mode == ScaleMode::Scale) {
                 tracer.R.a[ia] *= scale2;
             }
             // unscale Rd_a.
@@ -2441,7 +2423,7 @@ void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, char mode)
         for (std::size_t ia = 0; ia < na; ia++) {
             double scale2 = 1.0 / (sin(2.0 * (ia + 0.5) * da) * scale1);
             // scale Td_a
-            if (mode == 0) {
+            if (mode == ScaleMode::Scale) {
                 tracer.T.a[ia] *= scale2;
             }
             // unscale Td_a
@@ -2457,7 +2439,7 @@ void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, char mode)
             for (std::size_t it = 0; it < nt; it++) {
                 double scale2 = 1.0 / (sin(2.0 * (ia + 0.5) * da) * scale1);
                 // scale Rd_at
-                if (mode == 0) {
+                if (mode == ScaleMode::Scale) {
                     tracer.R.at[ia][it] *= scale2;
                 }
                 // unscale Rd_at
@@ -2473,7 +2455,7 @@ void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, char mode)
             for (std::size_t it = 0; it < nt; it++) {
                 double scale2 = 1.0 / (sin(2.0 * (ia + 0.5) * da) * scale1);
                 // scale Td_at
-                if (mode == 0) {
+                if (mode == ScaleMode::Scale) {
                     tracer.T.at[ia][it] *= scale2;
                 }
                 // unscale Td_at
@@ -2490,7 +2472,7 @@ void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, char mode)
             for (std::size_t ia = 0; ia < na; ia++) {
                 double scale2 = 1.0 / ((ir + 0.5) * sin(2.0 * (ia + 0.5) * da) * scale1);
                 // scale Rd_ra
-                if (mode == 0) {
+                if (mode == ScaleMode::Scale) {
                     tracer.R.ra[ir][ia] *= scale2;
                 }
                 // unscale Rd_ra
@@ -2506,7 +2488,7 @@ void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, char mode)
             for (std::size_t ia = 0; ia < na; ia++) {
                 double scale2 = 1.0 / ((ir + 0.5) * sin(2.0 * (ia + 0.5) * da) * scale1);
                 // scale Td_ra
-                if (mode == 0) {
+                if (mode == ScaleMode::Scale) {
                     tracer.T.ra[ir][ia] *= scale2;
                 }
                 // unscale Td_ra
@@ -2524,7 +2506,7 @@ void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, char mode)
                 for (std::size_t it = 0; it < nt; it++) {
                     double scale2 = 1.0 / ((ir + 0.5) * sin(2.0 * (ia + 0.5) * da) * scale1);
                     // scale Rd_rat
-                    if (mode == 0) {
+                    if (mode == ScaleMode::Scale) {
                         tracer.R.rat[ir][ia][it] *= scale2;
                     }
                     // unscale Rd_rat
@@ -2542,7 +2524,7 @@ void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, char mode)
                 for (std::size_t it = 0; it < nt; it++) {
                     double scale2 = 1.0 / ((ir + 0.5) * sin(2.0 * (ia + 0.5) * da) * scale1);
                     // scale Td_rat
-                    if (mode == 0) {
+                    if (mode == ScaleMode::Scale) {
                         tracer.T.rat[ir][ia][it] *= scale2;
                     }
                     // unscale Td_rat
@@ -2557,10 +2539,8 @@ void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, char mode)
 
 /*******************************************************************************
  *	Scale absorption quantities.
- *  Mode 0: scale.
- *  Mode 1: unscale.
  ****/
-void ScaleAbsorption(RunParams& params, Tracer& tracer, char mode)
+void ScaleAbsorption(RunParams& params, Tracer& tracer, ScaleMode mode)
 {
     std::size_t nz = params.num_z;
     std::size_t nr = params.num_r;
@@ -2573,7 +2553,7 @@ void ScaleAbsorption(RunParams& params, Tracer& tracer, char mode)
     double scale1 = (double)params.num_photons;
 
     // scale A
-    if (mode == 0) {
+    if (mode == ScaleMode::Scale) {
         tracer.A.ae = 1 / scale1 * sqrt(tracer.A.ae - tracer.A.ab * tracer.A.ab / scale1);
         tracer.A.ab /= scale1;
     }
@@ -2587,7 +2567,7 @@ void ScaleAbsorption(RunParams& params, Tracer& tracer, char mode)
     if (params.record.A_t) {
         for (short it = 0; it < nt; it++) {
             // scale A_t
-            if (mode == 0) {
+            if (mode == ScaleMode::Scale) {
                 tracer.A.t[it] /= scale2;
             }
             // unscale A_t
@@ -2601,7 +2581,7 @@ void ScaleAbsorption(RunParams& params, Tracer& tracer, char mode)
     if (params.record.A_z) {
         for (short iz = 0; iz < nz; iz++) {
             // scale A_z
-            if (mode == 0) {
+            if (mode == ScaleMode::Scale) {
                 tracer.A.z[iz] /= scale1;
             }
             // unscale A_z
@@ -2616,7 +2596,7 @@ void ScaleAbsorption(RunParams& params, Tracer& tracer, char mode)
         for (short iz = 0; iz < nz; iz++) {
             for (short it = 0; it < nt; it++) {
                 // scale A_zt
-                if (mode == 0) {
+                if (mode == ScaleMode::Scale) {
                     tracer.A.zt[iz][it] /= scale2;
                 }
                 // unscale A_zt
@@ -2630,7 +2610,7 @@ void ScaleAbsorption(RunParams& params, Tracer& tracer, char mode)
     if (params.record.A_rz) {
         for (short iz = 0; iz < nz; iz++) {
             // scale Ab_z
-            if (mode == 0) {
+            if (mode == ScaleMode::Scale) {
                 tracer.A.bz[iz] /= scale1;
             }
             // unscale Ab_z
@@ -2644,7 +2624,7 @@ void ScaleAbsorption(RunParams& params, Tracer& tracer, char mode)
         for (short iz = 0; iz < nz; iz++) {
             for (short it = 0; it < nt; it++) {
                 // scale Ab_zt
-                if (mode == 0) {
+                if (mode == ScaleMode::Scale) {
                     tracer.A.bzt[iz][it] /= scale2;
                 }
                 // unscale Ab_zt
@@ -2660,7 +2640,7 @@ void ScaleAbsorption(RunParams& params, Tracer& tracer, char mode)
         for (short ir = 0; ir < nr; ir++) {
             for (short iz = 0; iz < nz; iz++) {
                 // scale A_rz
-                if (mode == 0) {
+                if (mode == ScaleMode::Scale) {
                     tracer.A.rz[ir][iz] /= (ir + 0.5) * scale1;
                 }
                 // unscale A_rz
@@ -2677,7 +2657,7 @@ void ScaleAbsorption(RunParams& params, Tracer& tracer, char mode)
             for (short iz = 0; iz < nz; iz++) {
                 for (short it = 0; it < nt; it++) {
                     // scale A_rzt
-                    if (mode == 0) {
+                    if (mode == ScaleMode::Scale) {
                         tracer.A.rzt[ir][iz][it] /= (ir + 0.5) * scale2;
                     }
                     // unscale A_rzt
@@ -2695,7 +2675,7 @@ void ScaleAbsorption(RunParams& params, Tracer& tracer, char mode)
  *  Mode 0: scale result.
  *  Mode 1: unscale result.
  ****/
-void ScaleResult(RunParams& params, Tracer& tracer, char mode)
+void ScaleResult(RunParams& params, Tracer& tracer, ScaleMode mode)
 {
     ScaleReflectanceTransmittance(params, tracer, mode);
     ScaleAbsorption(params, tracer, mode);
@@ -2807,13 +2787,11 @@ void ReadRAT(std::fstream& file, Tracer& tracer)
 }
 
 /*******************************************************************************
- *  5 numbers each line.
- *  Mode = 0: read.
- *  Mode = 1: write.
+ *  Ballistic absorption per unit depth, per unit time [1/(cm ps)]
  ****/
-void IOAb_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& tracer, char mode)
+void IOAb_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# Ab[z][t]. [1/(cm ps)]",
                             "# Ab[0][0], [0][1],..[0][nt-1]",
@@ -2830,7 +2808,7 @@ void IOAb_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& tracer,
     std::size_t i = 0;
     for (std::size_t iz = 0; iz < Nz; iz++) {
         for (std::size_t it = 0; it < Nt; it++) {
-            if (mode == 1) {
+            if (mode == IoMode::Write) {
                 file << std::format("{:12.4E} ", tracer.A.zt[iz][it]);
                 if (++i % 5 == 0) {
                     file << std::format("\n");
@@ -2842,20 +2820,19 @@ void IOAb_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& tracer,
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n\n");
     }
 }
 
 /*******************************************************************************
- *  5 numbers each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Rate of absorption per unit volume, per unit time [1/(cm³ ps]
  ****/
-void IOA_rzt(std::fstream& file, std::size_t Nr, std::size_t Nz, std::size_t Nt, Tracer& tracer, char mode)
+void IOA_rzt(std::fstream& file, std::size_t Nr, std::size_t Nz, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
     IOAb_zt(file, Nz, Nt, tracer, mode);
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# A[r][z][t]. [1/(cm³ ps)]",
                             "# A[0][0][0], [0][0][1],..[0][0][nt-1]",
@@ -2872,7 +2849,7 @@ void IOA_rzt(std::fstream& file, std::size_t Nr, std::size_t Nz, std::size_t Nt,
     for (std::size_t ir = 0; ir < Nr; ir++) {
         for (std::size_t iz = 0; iz < Nz; iz++) {
             for (std::size_t it = 0; it < Nt; it++) {
-                if (mode == 1) {
+                if (mode == IoMode::Write) {
                     file << std::format("{:12.4E} ", tracer.A.rzt[ir][iz][it]);
                     if (++i % 5 == 0) {
                         file << std::format("\n");
@@ -2885,18 +2862,17 @@ void IOA_rzt(std::fstream& file, std::size_t Nr, std::size_t Nz, std::size_t Nt,
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n\n");
     }
 }
 
 /*******************************************************************************
- *  1 number each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Ballistic absorption per unit depth [1/cm] 
  ****/
-void IOAb_z(std::fstream& file, std::size_t Nz, Tracer& tracer, char mode)
+void IOAb_z(std::fstream& file, std::size_t Nz, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("Ab_z #Ab[0], [1],..Ab[nz-1]. [1/cm]\n");
     }
     else {
@@ -2904,7 +2880,7 @@ void IOAb_z(std::fstream& file, std::size_t Nz, Tracer& tracer, char mode)
     }
 
     for (std::size_t iz = 0; iz < Nz; iz++) {
-        if (mode == 1) {
+        if (mode == IoMode::Write) {
             file << std::format("{:12.4E}\n", tracer.A.bz[iz]);
         }
         else {
@@ -2912,20 +2888,19 @@ void IOAb_z(std::fstream& file, std::size_t Nz, Tracer& tracer, char mode)
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n");
     }
 }
 
 /*******************************************************************************
- *  5 numbers each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Rate of absorption per unit volume [1/cm³] 
  ****/
-void IOA_rz(std::fstream& file, std::size_t Nr, std::size_t Nz, Tracer& tracer, char mode)
+void IOA_rz(std::fstream& file, std::size_t Nr, std::size_t Nz, Tracer& tracer, IoMode mode)
 {
     IOAb_z(file, Nz, tracer, mode);
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("{}\n{}\n{}\n{}\n{}\n",
                             "# A[r][z]. [1/cm³]",
                             "# A[0][0], [0][1],..[0][nz-1]",
@@ -2941,7 +2916,7 @@ void IOA_rz(std::fstream& file, std::size_t Nr, std::size_t Nz, Tracer& tracer, 
     std::size_t i = 0;
     for (std::size_t ir = 0; ir < Nr; ir++) {
         for (std::size_t iz = 0; iz < Nz; iz++) {
-            if (mode == 1) {
+            if (mode == IoMode::Write) {
                 file << std::format("{:12.4E} ", tracer.A.rz[ir][iz]);
                 if (++i % 5 == 0) {
                     file << std::format("\n");
@@ -2953,18 +2928,17 @@ void IOA_rz(std::fstream& file, std::size_t Nr, std::size_t Nz, Tracer& tracer, 
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n\n");
     }
 }
 
 /*******************************************************************************
- *  5 numbers each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Rate of absorption per unit time [1/(cm ps)] 
  ****/
-void IOA_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& tracer, char mode)
+void IOA_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# A[z][t]. [1/(cm ps)]",
                             "# A[0][0], [0][1],..[0][nt-1]",
@@ -2981,7 +2955,7 @@ void IOA_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& tracer, 
     std::size_t i = 0;
     for (std::size_t iz = 0; iz < Nz; iz++) {
         for (std::size_t it = 0; it < Nt; it++) {
-            if (mode == 1) {
+            if (mode == IoMode::Write) {
                 file << std::format("{:12.4E} ", tracer.A.zt[iz][it]);
                 if (++i % 5 == 0) {
                     file << std::format("\n");
@@ -2993,18 +2967,17 @@ void IOA_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& tracer, 
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n\n");
     }
 }
 
 /*******************************************************************************
- *  1 number each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Absorption per unit depth [1/cm] 
  ****/
-void IOA_z(std::fstream& file, std::size_t Nz, Tracer& tracer, char mode)
+void IOA_z(std::fstream& file, std::size_t Nz, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("A_z #A[0], [1],..A[nz-1]. [1/cm]\n");
     }
     else {
@@ -3013,7 +2986,7 @@ void IOA_z(std::fstream& file, std::size_t Nz, Tracer& tracer, char mode)
     }
 
     for (std::size_t iz = 0; iz < Nz; iz++) {
-        if (mode == 1) {
+        if (mode == IoMode::Write) {
             file << std::format("{:12.4E}\n", tracer.A.z[iz]);
         }
         else {
@@ -3021,18 +2994,17 @@ void IOA_z(std::fstream& file, std::size_t Nz, Tracer& tracer, char mode)
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n");
     }
 }
 
 /*******************************************************************************
- *  1 number each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Absorption per unit time [1/ps] 
  ****/
-void IOA_t(std::fstream& file, std::size_t Nt, Tracer& tracer, char mode)
+void IOA_t(std::fstream& file, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("A_t #A[0], [1],..A[nt-1]. [1/ps]\n");
     }
     else {
@@ -3040,7 +3012,7 @@ void IOA_t(std::fstream& file, std::size_t Nt, Tracer& tracer, char mode)
     }
 
     for (std::size_t it = 0; it < Nt; it++) {
-        if (mode == 1) {
+        if (mode == IoMode::Write) {
             file << std::format("{:12.4E}\n", tracer.A.t[it]);
         }
         else {
@@ -3048,18 +3020,17 @@ void IOA_t(std::fstream& file, std::size_t Nt, Tracer& tracer, char mode)
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n");
     }
 }
 
 /*******************************************************************************
- *  5 numbers each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Diffuse reflectance per unit area, per unit solid angle, per unit time [1/(cm² sr ps)]
  ****/
-void IORd_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::size_t Nt, Tracer& tracer, char mode)
+void IORd_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# Rd[r][a][t]. [1/(cm² sr ps)]",
                             "# Rd[0][0][0], [0][0][1],..[0][0][nt-1]",
@@ -3076,7 +3047,7 @@ void IORd_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::size_t Nt
     for (std::size_t ir = 0; ir < Nr; ir++) {
         for (std::size_t ia = 0; ia < Na; ia++) {
             for (std::size_t it = 0; it < Nt; it++) {
-                if (mode == 1) {
+                if (mode == IoMode::Write) {
                     file << std::format("{:12.4E} ", tracer.R.rat[ir][ia][it]);
                     if (++i % 5 == 0) {
                         file << std::format("\n");
@@ -3089,18 +3060,17 @@ void IORd_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::size_t Nt
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n\n");
     }
 }
 
 /*******************************************************************************
- *  5 numbers each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Diffuse reflectance per unit area, per unit solid angle [1/(cm² sr)]
  ****/
-void IORd_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& tracer, char mode)
+void IORd_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# Rd[r][angle]. [1/(cm² sr)].",
                             "# Rd[0][0], [0][1],..[0][na-1]",
@@ -3115,7 +3085,7 @@ void IORd_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& tracer,
 
     for (std::size_t ir = 0; ir < Nr; ir++) {
         for (std::size_t ia = 0; ia < Na; ia++) {
-            if (mode == 1) {
+            if (mode == IoMode::Write) {
                 file << std::format("{:12.4E} ", tracer.R.ra[ir][ia]);
                 if ((ir * Na + ia + 1) % 5 == 0) {
                     file << std::format("\n");
@@ -3127,18 +3097,17 @@ void IORd_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& tracer,
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n\n");
     }
 }
 
 /*******************************************************************************
- *  5 numbers each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Diffuse reflectance per unit solid angle, per unit time [1/sr ps]
  ****/
-void IORd_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& tracer, char mode)
+void IORd_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# Rd[r][t]. [1/(cm² ps)]",
                             "# Rd[0][0], [0][1],..[0][nt-1]",
@@ -3154,7 +3123,7 @@ void IORd_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& tracer,
     std::size_t i = 0;
     for (std::size_t ir = 0; ir < Nr; ir++) {
         for (std::size_t it = 0; it < Nt; it++) {
-            if (mode == 1) {
+            if (mode == IoMode::Write) {
                 file << std::format("{:12.4E} ", tracer.R.rt[ir][it]);
                 if (++i % 5 == 0) {
                     file << std::format("\n");
@@ -3166,18 +3135,17 @@ void IORd_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& tracer,
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n\n");
     }
 }
 
 /*******************************************************************************
- *  5 numbers each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Diffuse reflectance per unit area, per unit time [1/cm² ps]
  ****/
-void IORd_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& tracer, char mode)
+void IORd_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# Rd[a][t]. [1/(sr ps)]",
                             "# Rd[0][0], [0][1],..[0][nt-1]",
@@ -3193,7 +3161,7 @@ void IORd_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& tracer,
     std::size_t i = 0;
     for (std::size_t ia = 0; ia < Na; ia++) {
         for (std::size_t it = 0; it < Nt; it++) {
-            if (mode == 1) {
+            if (mode == IoMode::Write) {
                 file << std::format("{:12.4E} ", tracer.R.at[ia][it]);
                 if (++i % 5 == 0) {
                     file << std::format("\n");
@@ -3205,18 +3173,17 @@ void IORd_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& tracer,
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n\n");
     }
 }
 
 /*******************************************************************************
- *  1 number each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Diffuse reflectance distribution per unit area [1/cm²]
  ****/
-void IORd_r(std::fstream& file, std::size_t Nr, Tracer& tracer, char mode)
+void IORd_r(std::fstream& file, std::size_t Nr, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("Rd_r #Rd[0], [1],..Rd[nr-1]. [1/cm²]\n");
     }
     else {
@@ -3224,7 +3191,7 @@ void IORd_r(std::fstream& file, std::size_t Nr, Tracer& tracer, char mode)
     }
 
     for (std::size_t ir = 0; ir < Nr; ir++) {
-        if (mode == 1) {
+        if (mode == IoMode::Write) {
             file << std::format("{:12.4E}\n", tracer.R.r[ir]);
         }
         else {
@@ -3232,18 +3199,17 @@ void IORd_r(std::fstream& file, std::size_t Nr, Tracer& tracer, char mode)
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n");
     }
 }
 
 /*******************************************************************************
- *  1 number each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Diffuse reflectance per unit solid angle [1/sr]
  ****/
-void IORd_a(std::fstream& file, std::size_t Na, Tracer& tracer, char mode)
+void IORd_a(std::fstream& file, std::size_t Na, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("Rd_a #Rd[0], [1],..Rd[na-1]. [1/sr]\n");
     }
     else {
@@ -3251,7 +3217,7 @@ void IORd_a(std::fstream& file, std::size_t Na, Tracer& tracer, char mode)
     }
 
     for (std::size_t ia = 0; ia < Na; ia++) {
-        if (mode == 1) {
+        if (mode == IoMode::Write) {
             file << std::format("{:12.4E}\n", tracer.R.a[ia]);
         }
         else {
@@ -3259,18 +3225,17 @@ void IORd_a(std::fstream& file, std::size_t Na, Tracer& tracer, char mode)
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n");
     }
 }
 
 /*******************************************************************************
- *  1 number each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Diffuse reflectance per unit time [1/ps]
  ****/
-void IORd_t(std::fstream& file, std::size_t Nt, Tracer& tracer, char mode)
+void IORd_t(std::fstream& file, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("Rd_t #Rd[0], [1],..Rd[nt-1]. [1/ps]\n");
     }
     else {
@@ -3278,7 +3243,7 @@ void IORd_t(std::fstream& file, std::size_t Nt, Tracer& tracer, char mode)
     }
 
     for (std::size_t it = 0; it < Nt; it++) {
-        if (mode == 1) {
+        if (mode == IoMode::Write) {
             file << std::format("{:12.4E}\n", tracer.R.t[it]);
         }
         else {
@@ -3286,18 +3251,17 @@ void IORd_t(std::fstream& file, std::size_t Nt, Tracer& tracer, char mode)
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n");
     }
 }
 
 /*******************************************************************************
- *  5 numbers each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Diffuse transmittance per unit area, per unit solid angle, per unit time [1/(cm² sr ps)]
  ****/
-void IOTd_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::size_t Nt, Tracer& tracer, char mode)
+void IOTd_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# Td[r][a][t]. [1/(cm² sr ps)]",
                             "# Td[0][0][0], [0][0][1],..[0][0][nt-1]",
@@ -3314,7 +3278,7 @@ void IOTd_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::size_t Nt
     for (std::size_t ir = 0; ir < Nr; ir++) {
         for (std::size_t ia = 0; ia < Na; ia++) {
             for (std::size_t it = 0; it < Nt; it++) {
-                if (mode == 1) {
+                if (mode == IoMode::Write) {
                     file << std::format("{:12.4E} ", tracer.T.rat[ir][ia][it]);
                     if (++i % 5 == 0) {
                         file << std::format("\n");
@@ -3327,18 +3291,17 @@ void IOTd_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::size_t Nt
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n\n");
     }
 }
 
 /*******************************************************************************
- *  5 numbers each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Diffuse transmittance per unit area, per unit solid angle [1/(cm² sr)]
  ****/
-void IOTd_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& tracer, char mode)
+void IOTd_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# Td[r][angle]. [1/(cm² sr)].",
                             "# Td[0][0], [0][1],..[0][na-1]",
@@ -3353,7 +3316,7 @@ void IOTd_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& tracer,
 
     for (std::size_t ir = 0; ir < Nr; ir++) {
         for (std::size_t ia = 0; ia < Na; ia++) {
-            if (mode == 1) {
+            if (mode == IoMode::Write) {
                 file << std::format("{:12.4E} ", tracer.T.ra[ir][ia]);
                 if ((ir * Na + ia + 1) % 5 == 0) {
                     file << std::format("\n");
@@ -3365,18 +3328,17 @@ void IOTd_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& tracer,
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n\n");
     }
 }
 
 /*******************************************************************************
- *  5 numbers each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Diffuse transmittance per unit solid angle, per unit time [1/sr ps]
  ****/
-void IOTd_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& tracer, char mode)
+void IOTd_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# Td[r][t]. [1/(cm² ps)]",
                             "# Td[0][0], [0][1],..[0][nt-1]",
@@ -3392,7 +3354,7 @@ void IOTd_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& tracer,
     std::size_t i = 0;
     for (std::size_t ir = 0; ir < Nr; ir++) {
         for (std::size_t it = 0; it < Nt; it++) {
-            if (mode == 1) {
+            if (mode == IoMode::Write) {
                 file << std::format("{:12.4E} ", tracer.T.rt[ir][it]);
                 if (++i % 5 == 0) {
                     file << std::format("\n");
@@ -3404,18 +3366,17 @@ void IOTd_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& tracer,
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n\n");
     }
 }
 
 /*******************************************************************************
- *  5 numbers each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Diffuse transmittance per unit area, per unit time [1/cm² ps]
  ****/
-void IOTd_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& tracer, char mode)
+void IOTd_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
                             "# Td[a][t]. [1/(sr ps)]",
                             "# Td[0][0], [0][1],..[0][nt-1]",
@@ -3431,7 +3392,7 @@ void IOTd_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& tracer,
     std::size_t i = 0;
     for (std::size_t ia = 0; ia < Na; ia++) {
         for (std::size_t it = 0; it < Nt; it++) {
-            if (mode == 1) {
+            if (mode == IoMode::Write) {
                 file << std::format("{:12.4E} ", tracer.T.at[ia][it]);
                 if (++i % 5 == 0) {
                     file << std::format("\n");
@@ -3443,18 +3404,17 @@ void IOTd_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& tracer,
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n\n");
     }
 }
 
 /*******************************************************************************
- *  1 number each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Diffuse reflectance per unit area [1/cm²] 
  ****/
-void IOTd_r(std::fstream& file, std::size_t Nr, Tracer& tracer, char mode)
+void IOTd_r(std::fstream& file, std::size_t Nr, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("Td_r #Td[0], [1],..Td[nr-1]. [1/cm²]\n");
     }
     else {
@@ -3462,7 +3422,7 @@ void IOTd_r(std::fstream& file, std::size_t Nr, Tracer& tracer, char mode)
     }
 
     for (std::size_t ir = 0; ir < Nr; ir++) {
-        if (mode == 1) {
+        if (mode == IoMode::Write) {
             file << std::format("{:12.4E}\n", tracer.T.r[ir]);
         }
         else {
@@ -3470,18 +3430,17 @@ void IOTd_r(std::fstream& file, std::size_t Nr, Tracer& tracer, char mode)
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n");
     }
 }
 
 /*******************************************************************************
- *  1 number each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Diffuse reflectance per unit solid angle [1/sr] 
  ****/
-void IOTd_a(std::fstream& file, std::size_t Na, Tracer& tracer, char mode)
+void IOTd_a(std::fstream& file, std::size_t Na, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("Td_a #Td[0], [1],..Td[na-1]. [1/sr]\n");
     }
     else {
@@ -3489,7 +3448,7 @@ void IOTd_a(std::fstream& file, std::size_t Na, Tracer& tracer, char mode)
     }
 
     for (std::size_t ia = 0; ia < Na; ia++) {
-        if (mode == 1) {
+        if (mode == IoMode::Write) {
             file << std::format("{:12.4E}\n", tracer.T.a[ia]);
         }
         else {
@@ -3497,18 +3456,17 @@ void IOTd_a(std::fstream& file, std::size_t Na, Tracer& tracer, char mode)
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n");
     }
 }
 
 /*******************************************************************************
- *  1 number each line.
- *  Mode = 0, read; mode = 1, write.
+ *  Diffuse reflectance per unit time [1/ps] 
  ****/
-void IOTd_t(std::fstream& file, std::size_t Nt, Tracer& tracer, char mode)
+void IOTd_t(std::fstream& file, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("Td_t #Rd[0], [1],..Td[nt-1]. [1/ps]\n");
     }
     else {
@@ -3516,7 +3474,7 @@ void IOTd_t(std::fstream& file, std::size_t Nt, Tracer& tracer, char mode)
     }
 
     for (std::size_t it = 0; it < Nt; it++) {
-        if (mode == 1) {
+        if (mode == IoMode::Write) {
             file << std::format("{:12.4E}\n", tracer.T.t[it]);
         }
         else {
@@ -3524,18 +3482,18 @@ void IOTd_t(std::fstream& file, std::size_t Nt, Tracer& tracer, char mode)
         }
     }
 
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         file << std::format("\n");
     }
 }
 
 /*******************************************************************************
- *  Mode = 0, read result back from a output input.
- *  Mode = 1, write result to a output input;
+ *  IoMode::Read: read result back from a output input.
+ *  IoMode::Write: write result to a output input.
  ****/
-void IOResult(std::fstream& file, RunParams& params, Tracer& tracer, char mode)
+void ReadWriteResults(std::fstream& file, RunParams& params, Tracer& tracer, IoMode mode)
 {
-    if (mode == 1) {
+    if (mode == IoMode::Write) {
         if (params.output_file_format == FileFormat::Ascii) {
             WriteVersion(file, "mcmloA2.0");
         }
