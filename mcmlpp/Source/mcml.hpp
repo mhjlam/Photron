@@ -110,7 +110,11 @@ constexpr double COS_0_TOLERANCE = 1.0E-12;
 constexpr double COS_90_TOLERANCE = 1.0E-6;
 
 
-/********************************* Structures *********************************/
+constexpr std::string_view MCI_VERSION = "mcmli_3.0";
+constexpr std::string_view MCO_VERSION = "mcmlo_3.0";
+
+
+/*********************************** Enums ************************************/
 
 enum class RunType
 {
@@ -133,8 +137,7 @@ enum class ControlBit
 
 enum class FileFormat
 {
-    Ascii,                              // Only ASCII is supported
-    Binary
+    Ascii                              // Only ASCII is supported
 };
 
 enum class IoMode
@@ -157,6 +160,13 @@ enum class PunchMode
 };
 
 
+/********************************* Structures *********************************/
+
+struct Vector3
+{
+    double x{}, y{}, z{};               // Cartesian coordinates
+};
+
 /*******************************************************************************
  *  Photon packet.
  ****/
@@ -166,8 +176,9 @@ struct Photon
     long    num_scatters{};	            //  Number of scatterings
     short   current_layer{};	        //  Index to layer where photon currently is
 
-    double  x{}, y{}, z{};		        //  Cartesian coordinates [cm]
-    double  ux{}, uy{}, uz{};	        //  Directional cosines of a photon
+    Vector3 position;		            //  Cartesian coordinates [cm]
+    Vector3 direction;		            //  Directional cosines of a photon
+
     double  weight{};		            //  Weight
     double  step_size{};		        //  Current step size [cm]
     double  step_size_left{};	        //  Step size left. dimensionless [-]
@@ -189,25 +200,24 @@ struct Layer
 {
     std::string name{};                 // Name of the layer
 
-    double      top_z{};                // Top z coordinate [cm] 
-    double      bot_z{};                // Bottom z coordinate [cm]
+    double      z0{};                   // Top z coordinate [cm]
+    double      z1{};                   // Bottom z coordinate [cm]
 
     double      eta{};	                // Refractive index
-    double      mu_a{};	                // Absorption coefficient [1/cm] 
-    double      mu_s{};	                // Scattering coefficient [1/cm] 
+    double      mu_a{};	                // Absorption coefficient [1/cm]
+    double      mu_s{};	                // Scattering coefficient [1/cm]
     double      g{};	                // Henyey-Greenstein asymmetry factor
 
     double      cos_theta_c0{};         // Cosine of the top critical angle
     double      cos_theta_c1{};         // Cosine of the bottom critical angle
 };
 
-
 struct LightSource
 {
     double      z{};		            // Z coordinate of light source
     BeamType    beam{};	                // Beam type
 
-    short       layer{};		        // Put source in this layer
+    short       layer_index{};		    // Put source in this layer
     std::string medium_name{};          // Medium name of source layer
 };
 
@@ -263,10 +273,10 @@ struct RunParams
 
     // Specify which quantity / quantities should be scored.
     // rat: Reflected photon density per unit area, per unit solid angle, per unit time
-    // r: radial distance from the light source
-    // z: depth into the medium (z = 0 is the surface)
-    // a: azimuthal angle
-    // t: time-dependent, reflectance over time
+    // r:   radial distance from the light source
+    // z:   depth into the medium (z = 0 is the surface)
+    // a:   azimuthal angle
+    // t:   time-dependent, reflectance over time
 
     bool R_rat{ false };                // Diffuse reflectance [1/(cm² sr ps)]
     bool R_ra{ false };                 // Diffuse reflectance [1/(cm² sr)]
@@ -291,79 +301,67 @@ struct RunParams
     bool A_t{ false };                  // Absorption [1/ps]
 };
 
-
-struct Reflectance
-{
-    vec3<double> rat;   // Diffuse reflectance per unit area, per unit solid angle, per unit time [1/(cm² sr ps)]
-
-    vec2<double> ra;    // Diffuse reflectance per unit area, per unit solid angle [1/(cm² sr)]
-    vec2<double> rt;    // Diffuse reflectance per unit solid angle, per unit time [1/sr ps]
-    vec2<double> at;    // Diffuse reflectance per unit area, per unit time [1/cm² ps]
-
-    vec1<double> r;     // Diffuse reflectance per unit area [1/cm²]
-    vec1<double> a;     // Diffuse reflectance per unit solid angle [1/sr]
-    vec1<double> t;     // Diffuse reflectance per unit time [1/ps]
-
-    double dr{};	    // Total diffuse reflectance
-    double de{};	    // Standard error for diffuse reflectance
-    double di{};	    // Diffuse reflectance of the i-th photon
-
-    double sp{};	    // Specular reflectance
-
-    double br{};	    // Ballistic reflectance
-    double be{};	    // Standard error for ballistic reflectance
-    double bi{};	    // Ballistic reflectance of the i-th photon
-};
-
-struct Transmittance
-{
-    vec3<double> rat;   // Diffuse transmittance per unit area, per unit solid angle, per unit time [1/(cm² sr ps)]
-
-    vec2<double> ra;    // Diffuse transmittance per unit area, per unit solid angle [1/(cm² sr)]
-    vec2<double> rt;    // Diffuse transmittance per unit solid angle, per unit time [1/sr ps]
-    vec2<double> at;    // Diffuse transmittance per unit area, per unit time [1/cm² ps]
-
-    vec1<double> r;	    // Diffuse reflectance per unit area [1/cm²] 
-    vec1<double> a;	    // Diffuse reflectance per unit solid angle [1/sr] 
-    vec1<double> t;	    // Diffuse reflectance per unit time [1/ps] 
-
-    double dr{};	    // Total diffuse transmittance
-    double de{};	    // Standard error for diffuse transmittance
-    double di{};	    // Diffuse transmittance of the i-th photon
-
-    double br{};	    // Ballistic transmittance
-    double be{};	    // Standard error for ballistic transmission
-    double bi{};	    // Ballistic transmittance of the i-th photon
-};
-
-struct Absorption
-{
-    vec3<double> rzt;   // Rate of absorption per unit volume, per unit time [1/(cm³ ps]
-
-    vec2<double> rz;	// Rate of absorption per unit volume [1/cm³]
-    vec2<double> zt;	// Rate of absorption per unit time [1/(cm ps)]
-
-    vec1<double> z;	    // Absorption per unit depth [1/cm]
-    vec1<double> t;	    // Absorption per unit time [1/ps]
-
-    double ab{};		// Total absorption
-    double ae{};		// Standard error for absorption
-    double ai{};		// Absorption of the i-th photon
-
-    vec2<double> bzt;	// Ballistic absorption per unit depth, per unit time [1/(cm ps)]
-    vec1<double> bz;	// Ballistic absorption per unit depth [1/cm]
-};
-
 /*******************************************************************************
  *	Structures for scoring physical quantities.
  ****/
 struct Tracer
 {
-    Absorption A;
-    Reflectance R;
-    Transmittance T;
+    /* Reflectance */
+
+    vec3<double> R_rat; // Diffuse reflectance per unit area, per unit solid angle, per unit time [1/(cm² sr ps)]
+    vec2<double> R_ra;  // Diffuse reflectance per unit area, per unit solid angle [1/(cm² sr)]
+    vec2<double> R_rt;  // Diffuse reflectance per unit solid angle, per unit time [1/sr ps]
+    vec2<double> R_at;  // Diffuse reflectance per unit area, per unit time [1/cm² ps]
+    vec1<double> R_r;   // Diffuse reflectance per unit area [1/cm²]
+    vec1<double> R_a;   // Diffuse reflectance per unit solid angle [1/sr]
+    vec1<double> R_t;   // Diffuse reflectance per unit time [1/ps]
+
+    double R_total{};	// Total diffuse reflectance
+    double R_spec{};	// Specular reflectance
+    double R_error{};	// Standard error of diffuse reflectance
+    double R_i{};	    // Diffuse reflectance of the i-th photon
+
+    double Rb_total{};	// Total ballistic reflectance
+    double Rb_error{};	// Standard error for ballistic reflectance
+    double Rb_i{};	    // Ballistic reflectance of the i-th photon
+
+    /* Transmittance */
+
+    vec3<double> T_rat; // Diffuse transmittance per unit area, per unit solid angle, per unit time [1/(cm² sr ps)]
+    vec2<double> T_ra;  // Diffuse transmittance per unit area, per unit solid angle [1/(cm² sr)]
+    vec2<double> T_rt;  // Diffuse transmittance per unit solid angle, per unit time [1/sr ps]
+    vec2<double> T_at;  // Diffuse transmittance per unit area, per unit time [1/cm² ps]
+    vec1<double> T_r;	// Diffuse transmittance per unit area [1/cm²]
+    vec1<double> T_a;	// Diffuse transmittance per unit solid angle [1/sr]
+    vec1<double> T_t;	// Diffuse transmittance per unit time [1/ps]
+
+    double T_total{};	// Total diffuse transmittance
+    double T_error{};	// Standard error for diffuse transmittance
+    double T_i{};	    // Diffuse transmittance of the i-th photon
+
+    double Tb_total{};	// Ballistic transmittance
+    double Tb_error{};	// Standard error for ballistic transmission
+    double Tb_i{};	    // Ballistic transmittance of the i-th photon
+
+    /* Absorption */
+
+    vec3<double> A_rzt; // Rate of absorption per unit volume, per unit time [1/(cm³ ps]
+    vec2<double> A_rz;	// Rate of absorption per unit volume [1/cm³]
+    vec2<double> A_zt;	// Rate of absorption per unit time [1/(cm ps)]
+    vec1<double> A_z;	// Absorption per unit depth [1/cm]
+    vec1<double> A_t;	// Absorption per unit time [1/ps]
+
+    double A_total{};	// Total absorption
+    double A_error{};	// Standard error for absorption
+    double A_i{};		// Absorption of the i-th photon
+
+    vec2<double> Ab_zt;	// Ballistic absorption per unit depth, per unit time [1/(cm ps)]
+    vec1<double> Ab_z;	// Ballistic absorption per unit depth [1/cm]
 };
 
 
 class Random;
 extern Random g_rand;
+
+class Timer;
+extern Timer g_timer;

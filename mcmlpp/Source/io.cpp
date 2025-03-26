@@ -10,16 +10,18 @@
 #include <format>
 #include <ranges>
 #include <random>
+#include <ranges>
 #include <string>
 #include <fstream>
+#include <numbers>
 #include <sstream>
+#include <variant>
 #include <iostream>
+#include <optional>
 #include <algorithm>
 #include <string_view>
 
-#include <numbers>
-#include <variant>
-#include <optional>
+#include "timer.hpp"
 
 
 using namespace std::literals;
@@ -194,7 +196,7 @@ std::string NextDataLine(std::istream& file)
 /*******************************************************************************
  *	Check whether the input version is the same as version.
  ****/
-bool CheckFileVersion(std::fstream& file, const std::string& version)
+bool CheckFileVersion(std::fstream& file, const std::string_view& version)
 {
     // Find next data line
     std::string line = NextDataLine(file);
@@ -210,7 +212,7 @@ bool CheckFileVersion(std::fstream& file, const std::string& version)
  *  Get a filename and open it for reading, retry until the input can be opened
  *  with a correct version or when a '.' is typed.
  ****/
-bool InputFileName(std::string& filename, const std::string& version, std::fstream& file)
+bool InputFileName(std::string& filename, const std::string_view& version, std::fstream& file)
 {
     while (true) {
         std::cout << "Specify filename (or . to quit to main menu):";
@@ -762,14 +764,14 @@ static bool ReadLayers(std::fstream& file, RunParams& params)
 
         // Intermediate layers
         if (i != 0 && i != (num_layers + 1)) {
-            params.layers[i].top_z = z;
+            params.layers[i].z0 = z;
             z += thickness;
-            params.layers[i].bot_z = z;
+            params.layers[i].z1 = z;
         }
         // Top and bottom layers
         else {
-            params.layers[i].top_z = z;
-            params.layers[i].bot_z = z;
+            params.layers[i].z0 = z;
+            params.layers[i].z1 = z;
         }
     }
 
@@ -916,12 +918,12 @@ static bool LayerIndex(double z, short& index, RunParams& params)
         std::cerr << "Nonpositive z coordinate." << std::endl;
         return false;
     }
-    else if (z > params.layers[num_layers - 1].bot_z) {
+    else if (z > params.layers[num_layers - 1].z1) {
         std::cerr << "Source is outside of the last layer. " << std::endl;
         return false;
     }
     else {
-        while (z > params.layers[i].bot_z) { i++; }
+        while (z > params.layers[i].z1) { i++; }
         index = i;
         return true;
     }
@@ -945,7 +947,7 @@ static bool ReadPhotonSource(std::istream& input, RunParams& params)
     if (extracted.size() == 1) {
         source_z = std::get<double>(extracted[0]);
 
-        if (!LayerIndex(source_z, params.source.layer, params)) {
+        if (!LayerIndex(source_z, params.source.layer_index, params)) {
             return false;
         }
     }
@@ -959,7 +961,7 @@ static bool ReadPhotonSource(std::istream& input, RunParams& params)
             }
 
             if (params.layers[source_layer].name == medium_name) {
-                if ((std::abs(source_z - params.layers[source_layer].bot_z) < DBL_EPSILON) && (params.layers[source_layer + 1].name == medium_name)) {
+                if ((std::abs(source_z - params.layers[source_layer].z1) < DBL_EPSILON) && (params.layers[source_layer + 1].name == medium_name)) {
                     source_layer++;
                     if (source_layer > params.num_layers) {
                         puts("Source is outside of the last layer.");
@@ -1301,17 +1303,17 @@ static void InterReadLayers(RunParams& params)
                 std::cin >> thick;
             }
 
-            params.layers[i].top_z = z;
+            params.layers[i].z0 = z;
             z = z + thick;
-            params.layers[i].bot_z = z;
+            params.layers[i].z1 = z;
         }
         else if (i == 0) {
-            params.layers[i].top_z = 0.0;
-            params.layers[i].bot_z = 0.0;
+            params.layers[i].z0 = 0.0;
+            params.layers[i].z1 = 0.0;
         }
         else if (i == params.num_layers + 1) {
-            params.layers[i].top_z = z;
-            params.layers[i].bot_z = z;
+            params.layers[i].z0 = z;
+            params.layers[i].z1 = z;
         }
     }
 
@@ -1362,7 +1364,7 @@ static void InterReadSourceType(RunParams& params)
 static void InterReadPhotonSource(RunParams& params)
 {
     do {
-        std::cout << "Input the z coordinate of source (0.0 - " << params.layers[params.num_layers].bot_z << " cm) and the medium" << std::endl;
+        std::cout << "Input the z coordinate of source (0.0 - " << params.layers[params.num_layers].z1 << " cm) and the medium" << std::endl;
         std::cout << "where the source is if the z is on an interface (e.g. 1.0 [air]):";
     } while (!ReadPhotonSource(std::cin, params));
 
@@ -1395,129 +1397,89 @@ static void WriteMediums(std::ostream& output, RunParams& params, int& line)
 {
     std::string format;
 
-    output << std::format("# Specify media \n");
-    line++;
-    output << std::format("#\tname\t\tn\tmua\tmus\tg\n");
+    output << std::format("{:<24} {:>8} {:>8} {:>8} {:>8}", "# Medium name", "eta", "mu_a", "mu_s", "g") << std::endl;
     line++;
 
     for (int i = 0; i < params.mediums.size(); i++) {
         More(output, line);
         Layer s = params.mediums[i];
-        if (s.name.size() + 1 > 8) {
-            output << std::format("\t{}\t{:G}\t{:G}\t{:G}\t{:G}\n", s.name, s.eta, s.mu_a, s.mu_s, s.g);
-        }
-        else {
-            output << std::format("\t{}\t\t{:G}\t{:G}\t{:G}\t{:G}\n", s.name, s.eta, s.mu_a, s.mu_s, s.g);
-        }
+        output << std::format("{:<4}{:<20} {:>8.2f} {:>8.2f} {:>8.2f} {:>8.2f}", 
+                              "", s.name, s.eta, s.mu_a, s.mu_s, s.g) << std::endl;
         line++;
     }
-    output << std::format("end #of media\n");
+    output << "end #of media\n";
     line++;
 }
 
 static void WriteFilename(std::ostream& output, RunParams& params, int& line)
 {
     More(output, line);
-    output << std::format("{} \t{}\t\t\t# output file name, format.\n", params.output_filename, 'A');
+    output << std::format("{:<50} # output file name", params.output_filename) << std::endl;
     line++;
 }
 
 static void WriteGridParams(std::ostream& output, RunParams& params, int& line)
 {
     More(output, line);
-    output << std::format("{:G}\t{:G}\t{:G}\t\t\t# dz, dr, dt.\n", params.grid_z, params.grid_r, params.grid_t);
+    output << std::format("{:<50} # dz, dr, dt", std::format("{:<8.2f} {:<8.2f} {:<8.2f}", params.grid_z, params.grid_r, params.grid_t)) << std::endl;
     line++;
 }
 
 static void WriteGridSize(std::ostream& output, RunParams& params, int& line)
 {
     More(output, line);
-    output << std::format("{:d}\t{:d}\t{:d}\t{:d}\t\t# nz, nr, nt, na.\n", params.num_z, params.num_r, params.num_t, params.num_a);
+    output << std::format("{:<50} # nz, nr, nt, na", std::format("{:<8} {:<8} {:<8} {:<8}", params.num_z, params.num_r, params.num_t, params.num_a)) << std::endl;
     line++;
 }
 
 static void WriteScored(std::ostream& output, RunParams& params, int& line)
 {
     More(output, line);
-    output << std::format("# This simulation will score the following categories:\n");
-    line++;
 
-    More(output, line);
-    if (params.R_r) {
-        output << std::format("R_r \t");
-    }
-    if (params.R_a) {
-        output << std::format("R_a \t");
-    }
-    if (params.R_ra) {
-        output << std::format("R_ra \t");
-    }
-    if (params.R_t) {
-        output << std::format("R_t \t");
-    }
-    if (params.R_rt) {
-        output << std::format("R_rt \t");
-    }
-    if (params.R_at) {
-        output << std::format("R_at \t");
-    }
-    if (params.R_rat) {
-        output << std::format("R_rat \t");
-    }
+    std::vector<std::string> quantities;
 
-    if (params.T_r) {
-        output << std::format("T_r \t");
-    }
-    if (params.T_a) {
-        output << std::format("T_a \t");
-    }
-    if (params.T_ra) {
-        output << std::format("T_ra \t");
-    }
-    if (params.T_t) {
-        output << std::format("T_t \t");
-    }
-    if (params.T_rt) {
-        output << std::format("T_rt \t");
-    }
-    if (params.T_at) {
-        output << std::format("T_at \t");
-    }
-    if (params.T_rat) {
-        output << std::format("T_rat \t");
+    if (params.R_r) { quantities.push_back("R_r"); }
+    if (params.R_a) { quantities.push_back("R_a"); }
+    if (params.R_ra) { quantities.push_back("R_ra"); }
+    if (params.R_t) { quantities.push_back("R_t"); }
+    if (params.R_rt) { quantities.push_back("R_rt"); }
+    if (params.R_at) { quantities.push_back("R_at"); }
+    if (params.R_rat) { quantities.push_back("R_rat"); }
+
+    if (params.T_r) { quantities.push_back("T_r"); }
+    if (params.T_a) { quantities.push_back("T_a"); }
+    if (params.T_ra) { quantities.push_back("T_ra"); }
+    if (params.T_t) { quantities.push_back("T_t"); }
+    if (params.T_rt) { quantities.push_back("T_rt"); }
+    if (params.T_at) { quantities.push_back("T_at"); }
+    if (params.T_rat) { quantities.push_back("T_rat"); }
+
+    if (params.A_z) { quantities.push_back("A_z"); }
+    if (params.A_rz) { quantities.push_back("A_rz"); }
+    if (params.A_t) { quantities.push_back("A_t"); }
+    if (params.A_zt) { quantities.push_back("A_zt"); }
+    if (params.A_rzt) { quantities.push_back("A_rzt"); }
+
+    std::string format;
+    for (const auto& q : quantities) {
+        format += std::format("{}{}", q, (&q == &quantities.back() ? "" : " "));
     }
 
-    if (params.A_z) {
-        output << std::format("A_z \t");
-    }
-    if (params.A_rz) {
-        output << std::format("A_rz \t");
-    }
-    if (params.A_t) {
-        output << std::format("A_t \t");
-    }
-    if (params.A_zt) {
-        output << std::format("A_zt \t");
-    }
-    if (params.A_rzt) {
-        output << std::format("A_rzt \t");
-    }
-
-    output << std::format("\n");
+    output << std::format("{:<50} # scored quantities\n", format);
     line++;
 }
 
 static void WriteWeightTreshold(std::ostream& output, RunParams& params, int& line)
 {
     More(output, line);
-    output << std::format("{:G}\t\t\t\t\t# threshold weight.\n", params.weight_treshold);
+    output << std::format("{:<50} # weight threshold", std::format("{:.6f}", params.weight_treshold)) << std::endl;
     line++;
 }
 
 static void WriteRandomSeed(std::ostream& output, RunParams& params, int& line)
 {
     More(output, line);
-    output << std::format("{}\t\t\t\t\t# random number seed.\n", params.seed);
+    output << std::format("{:<50} # random number generator seed", params.seed) << std::endl;
     line++;
 }
 
@@ -1526,7 +1488,7 @@ static void WriteLayers(std::ostream& output, RunParams& params, int& line)
     std::string format;
 
     More(output, line);
-    output << std::format("# \tmedium \t\tthickness\n");
+    output << std::format("{:<24} {:<8}", "# Layer name", "thickness") << std::endl;
     line++;
 
     for (int i = 0; i <= params.num_layers + 1; i++) {
@@ -1535,21 +1497,16 @@ static void WriteLayers(std::ostream& output, RunParams& params, int& line)
 
         s = params.layers[i];
         if (i != 0 && i != params.num_layers + 1) {
-            if (s.name.size() + 1 > 8) {
-                output << std::format("\t{} \t{:G}\n", s.name, s.bot_z - s.top_z);
-            }
-            else {
-                output << std::format("\t{} \t\t{:G}\n", s.name, s.bot_z - s.top_z);
-            }
+            output << std::format("{:<4}{:<20} {:<8.2f}", "", s.name, s.z1 - s.z0) << std::endl;
         }
         else {
-            output << std::format("\t{}\n", s.name);
+            output << "\t" << s.name << std::endl;
         }
         line++;
     }
 
     More(output, line);
-    output << std::format("end #of layers\n");
+    output << "end #of layers\n";
     line++;
 }
 
@@ -1558,13 +1515,16 @@ static void WriteEndCriteria(std::ostream& output, RunParams& params, int& line)
     More(output, line);
 
     if (params.control_bit == ControlBit::NumPhotons) {
-        output << std::format("{}  \t\t\t\t\t# no. of photons | time\n", params.num_photons);
+        output << std::format("{:<50} # photon limit", params.num_photons) << std::endl;
     }
     else if (params.control_bit == ControlBit::TimeLimit) {
-        output << std::format("{}:{}\t\t\t\t\t# no. of photons | time\n", params.time_limit / 3600, params.time_limit % 3600 / 60);
+        auto duration = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::seconds(params.time_limit));
+        output << std::format("{:<50} # time limit", std::format("{:%H:%M:%S}", duration)) << std::endl;
     }
     else {
-        output << std::format("{}  \t{}:{}\t\t\t\t# no. of photons | time\n", params.num_photons, params.time_limit / 3600, params.time_limit % 3600 / 60);
+        auto duration = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::seconds(params.time_limit));
+        output << std::format("{:<50} # photon / time limit", 
+                              std::format("{:<12} {:%H:%M:%S}", params.num_photons, duration)) << std::endl;
     }
 
     line++;
@@ -1575,10 +1535,10 @@ static void WriteSourceType(std::ostream& output, RunParams& params, int& line)
     More(output, line);
 
     if (params.source.beam == BeamType::Pencil) {
-        output << std::format("pencil \t\t\t\t\t# src type: pencil/isotropic.\n");
+        output << std::format("{:<50} # beam type", "pencil") << std::endl;
     }
     else {
-        output << std::format("isotropic \t\t\t\t# src type: pencil/isotropic.\n");
+        output << std::format("{:<50} # beam type", "isotropic") << std::endl;
     }
 
     line++;
@@ -1588,14 +1548,12 @@ static void WritePhotonSource(std::ostream& output, RunParams& params, int& line
 {
     More(output, line);
 
-    if (params.source.medium_name.empty()) {
-        output << std::format("{:G}\t\t\t\t\t# starting position of source.\n", params.source.z);
-    }
-    else if (params.source.medium_name.size() + 1 > 8) {
-        output << std::format("{:G}\t{} \t\t\t# starting position of source.\n", params.source.z, params.source.medium_name);
+    if (!params.source.medium_name.empty()) {
+        output << std::format("{:<50} # starting position of source", 
+                              std::format("{:8.2f} {:<20}", params.source.z, params.source.medium_name)) << std::endl;
     }
     else {
-        output << std::format("{:G}\t{} \t\t\t\t# starting position of source.\n", params.source.z, params.source.medium_name);
+        output << std::format("{:<50.2f} # starting position of source", params.source.z) << std::endl;
     }
 
     line++;
@@ -1606,54 +1564,53 @@ static void WritePhotonSource(std::ostream& output, RunParams& params, int& line
  ****/
 static void WriteInputParams(std::ostream& output, RunParams& params)
 {
-    // line index.
-    output << std::format("mcmli2.0 \t\t\t# file version \n\n");
+    output << std::format("{:<50} # input file version", MCI_VERSION) << std::endl << std::endl;
+
     int line = 2;
     WriteMediums(output, params, line);
 
     More(output, line);
-    output << std::format("\n# Specify data for run 1\n");
+    output << "\n# Run parameters\n";
     line += 2;
 
     WriteFilename(output, params, line);
 
-    // geometry.
+    // Layers
     More(output, line);
-    output << std::format("\n");
+    output << std::endl;
     line++;
     WriteLayers(output, params, line);
 
-    // source.
+    // Light source
     More(output, line);
-    output << std::format("\n");
+    output << std::endl;
     line++;
     WriteSourceType(output, params, line);
     WritePhotonSource(output, params, line);
 
-    // grids.
+    // Grids
     More(output, line);
-    output << std::format("\n");
+    output << std::endl;
     line++;
     WriteGridParams(output, params, line);
     WriteGridSize(output, params, line);
 
-    // scored data categories.
+    // Scored data categories
     More(output, line);
-    output << std::format("\n");
+    output << std::endl;
     line++;
     WriteScored(output, params, line);
 
-    // simulation control.
+    // Simulation control
     More(output, line);
-    output << std::format("\n");
+    output << std::endl;
     line++;
-
     WriteEndCriteria(output, params, line);
     WriteWeightTreshold(output, params, line);
     WriteRandomSeed(output, params, line);
 
     More(output, line);
-    output << std::format("end #of runs\n\n");
+    output << "end #of runs\n\n";
 }
 
 /*******************************************************************************
@@ -1715,15 +1672,15 @@ static bool CheckInputParams(RunParams& params)
         std::cout << "Can not put isotropic source in upper ambient medium." << std::endl;
         return 0;
     }
-    if (!LayerIndex(params.source.z, params.source.layer, params)) {
+    if (!LayerIndex(params.source.z, params.source.layer_index, params)) {
         return 0;
     }
 
     if (params.source.medium_name[0] != '\0') {
-        if (params.layers[params.source.layer].name == params.source.medium_name) {
-            if ((std::abs(params.source.z - params.layers[params.source.layer].bot_z) < DBL_EPSILON) && 
-                (params.layers[params.source.layer + 1].name == params.source.medium_name)) {
-                params.source.layer++;
+        if (params.layers[params.source.layer_index].name == params.source.medium_name) {
+            if ((std::abs(params.source.z - params.layers[params.source.layer_index].z1) < DBL_EPSILON) && 
+                (params.layers[params.source.layer_index + 1].name == params.source.medium_name)) {
+                params.source.layer_index++;
             }
             else {
                 std::cerr << "Medium name and z coordinate do not match." << std::endl;
@@ -2116,18 +2073,18 @@ void InitTracer(RunParams& params, Tracer& tracer)
     std::size_t na = params.num_a;
     std::size_t nt = params.num_t;
 
-    tracer.R.sp = 0.0;
-    tracer.R.br = 0.0;
-    tracer.R.dr = 0.0;
-    tracer.T.dr = 0.0;
-    tracer.T.br = 0.0;
-    tracer.A.ab = 0.0;
+    tracer.R_spec = 0.0;
+    tracer.Rb_total = 0.0;
+    tracer.R_total = 0.0;
+    tracer.T_total = 0.0;
+    tracer.Tb_total = 0.0;
+    tracer.A_total = 0.0;
 
-    tracer.R.be = 0.0;
-    tracer.R.de = 0.0;
-    tracer.T.de = 0.0;
-    tracer.T.be = 0.0;
-    tracer.A.ae = 0.0;
+    tracer.Rb_error = 0.0;
+    tracer.R_error = 0.0;
+    tracer.T_error = 0.0;
+    tracer.Tb_error = 0.0;
+    tracer.A_error = 0.0;
 
     auto alloc3 = [](std::size_t x, std::size_t y, std::size_t z) {
         return vec3<double>(x, vec2<double>(y, vec1<double>(z, 0.0)));
@@ -2142,66 +2099,66 @@ void InitTracer(RunParams& params, Tracer& tracer)
     };
 
     // Reflectance
-    if (params.R_rat) { tracer.R.rat = alloc3(nr, na, nt); }
-    if (params.R_ra) { tracer.R.ra = alloc2(nr, na); }
-    if (params.R_rt) { tracer.R.rt = alloc2(nr, nt); }
-    if (params.R_at) { tracer.R.at = alloc2(na, nt); }
-    if (params.R_r) { tracer.R.r = alloc1(nr); }
-    if (params.R_a) { tracer.R.a = alloc1(na); }
-    if (params.R_t) { tracer.R.t = alloc1(nt); }
+    if (params.R_rat) { tracer.R_rat = alloc3(nr, na, nt); }
+    if (params.R_ra) { tracer.R_ra = alloc2(nr, na); }
+    if (params.R_rt) { tracer.R_rt = alloc2(nr, nt); }
+    if (params.R_at) { tracer.R_at = alloc2(na, nt); }
+    if (params.R_r) { tracer.R_r = alloc1(nr); }
+    if (params.R_a) { tracer.R_a = alloc1(na); }
+    if (params.R_t) { tracer.R_t = alloc1(nt); }
 
     // Transmittance
-    if (params.T_rat) { tracer.T.rat = alloc3(nr, na, nt); }
-    if (params.T_ra) { tracer.T.ra = alloc2(nr, na); }
-    if (params.T_rt) { tracer.T.rt = alloc2(nr, nt); }
-    if (params.T_at) { tracer.T.at = alloc2(na, nt); }
-    if (params.T_r) { tracer.T.r = alloc1(nr); }
-    if (params.T_a) { tracer.T.a = alloc1(na); }
-    if (params.T_t) { tracer.T.t = alloc1(nt); }
+    if (params.T_rat) { tracer.T_rat = alloc3(nr, na, nt); }
+    if (params.T_ra) { tracer.T_ra = alloc2(nr, na); }
+    if (params.T_rt) { tracer.T_rt = alloc2(nr, nt); }
+    if (params.T_at) { tracer.T_at = alloc2(na, nt); }
+    if (params.T_r) { tracer.T_r = alloc1(nr); }
+    if (params.T_a) { tracer.T_a = alloc1(na); }
+    if (params.T_t) { tracer.T_t = alloc1(nt); }
 
     // Absorption
     if (params.A_rzt) {
-        tracer.A.rzt = alloc3(nr, nz, nt);
-        tracer.A.bzt = alloc2(nz, nt);
+        tracer.A_rzt = alloc3(nr, nz, nt);
+        tracer.Ab_zt = alloc2(nz, nt);
     }
     if (params.A_rz) {
-        tracer.A.rz = alloc2(nr, nz);
-        tracer.A.bz = alloc1(nz);
+        tracer.A_rz = alloc2(nr, nz);
+        tracer.Ab_z = alloc1(nz);
     }
-    if (params.A_zt) { tracer.A.zt = alloc2(nz, nt); }
-    if (params.A_z) { tracer.A.z = alloc1(nz); }
-    if (params.A_t) { tracer.A.t = alloc1(nt); }
+    if (params.A_zt) { tracer.A_zt = alloc2(nz, nt); }
+    if (params.A_z) { tracer.A_z = alloc1(nz); }
+    if (params.A_t) { tracer.A_t = alloc1(nt); }
 }
 
 void ClearRun(RunParams& params, Tracer& tracer)
 {
-    if (params.R_rat) { tracer.R.rat.clear(); }
-    if (params.R_ra) { tracer.R.ra.clear(); }
-    if (params.R_rt) { tracer.R.rt.clear(); }
-    if (params.R_at) { tracer.R.at.clear(); }
-    if (params.R_r) { tracer.R.r.clear(); }
-    if (params.R_a) { tracer.R.a.clear(); }
-    if (params.R_t) { tracer.R.t.clear(); }
+    if (params.R_rat) { tracer.R_rat.clear(); }
+    if (params.R_ra) { tracer.R_ra.clear(); }
+    if (params.R_rt) { tracer.R_rt.clear(); }
+    if (params.R_at) { tracer.R_at.clear(); }
+    if (params.R_r) { tracer.R_r.clear(); }
+    if (params.R_a) { tracer.R_a.clear(); }
+    if (params.R_t) { tracer.R_t.clear(); }
 
-    if (params.T_rat) { tracer.T.rat.clear(); }
-    if (params.T_ra) { tracer.T.ra.clear(); }
-    if (params.T_rt) { tracer.T.rt.clear(); }
-    if (params.T_at) { tracer.T.at.clear(); }
-    if (params.T_r) { tracer.T.r.clear(); }
-    if (params.T_a) { tracer.T.a.clear(); }
-    if (params.T_t) { tracer.T.t.clear(); }
+    if (params.T_rat) { tracer.T_rat.clear(); }
+    if (params.T_ra) { tracer.T_ra.clear(); }
+    if (params.T_rt) { tracer.T_rt.clear(); }
+    if (params.T_at) { tracer.T_at.clear(); }
+    if (params.T_r) { tracer.T_r.clear(); }
+    if (params.T_a) { tracer.T_a.clear(); }
+    if (params.T_t) { tracer.T_t.clear(); }
 
     if (params.A_rzt) {
-        tracer.A.rzt.clear();
-        tracer.A.bzt.clear();
+        tracer.A_rzt.clear();
+        tracer.Ab_zt.clear();
     }
     if (params.A_rz) {
-        tracer.A.rz.clear();
-        tracer.A.bz.clear();
+        tracer.A_rz.clear();
+        tracer.Ab_z.clear();
     }
-    if (params.A_zt) { tracer.A.zt.clear(); }
-    if (params.A_z) { tracer.A.z.clear(); }
-    if (params.A_t) { tracer.A.t.clear(); }
+    if (params.A_zt) { tracer.A_zt.clear(); }
+    if (params.A_z) { tracer.A_z.clear(); }
+    if (params.A_t) { tracer.A_t.clear(); }
 
     params.layers.clear();
 }
@@ -2235,26 +2192,26 @@ static void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, Sca
 
     double scale1 = (double)params.num_photons;
     if (mode == ScaleMode::Scale) {
-        tracer.R.de = 1 / scale1 * sqrt(tracer.R.de - tracer.R.dr * tracer.R.dr / scale1);
-        tracer.T.de = 1 / scale1 * sqrt(tracer.T.de - tracer.T.dr * tracer.T.dr / scale1);
-        tracer.R.be = 1 / scale1 * sqrt(tracer.R.be - tracer.R.br * tracer.R.br / scale1);
-        tracer.T.be = 1 / scale1 * sqrt(tracer.T.be - tracer.T.br * tracer.T.br / scale1);
+        tracer.R_error = 1 / scale1 * sqrt(tracer.R_error - tracer.R_total * tracer.R_total / scale1);
+        tracer.T_error = 1 / scale1 * sqrt(tracer.T_error - tracer.T_total * tracer.T_total / scale1);
+        tracer.Rb_error = 1 / scale1 * sqrt(tracer.Rb_error - tracer.Rb_total * tracer.Rb_total / scale1);
+        tracer.Tb_error = 1 / scale1 * sqrt(tracer.Tb_error - tracer.Tb_total * tracer.Tb_total / scale1);
 
-        tracer.R.dr /= scale1;
-        tracer.T.dr /= scale1;
-        tracer.R.br = tracer.R.br / scale1 + tracer.R.sp;
-        tracer.T.br /= scale1;
+        tracer.R_total /= scale1;
+        tracer.T_total /= scale1;
+        tracer.Rb_total = tracer.Rb_total / scale1 + tracer.R_spec;
+        tracer.Tb_total /= scale1;
     }
     else {
-        tracer.R.dr *= scale1;
-        tracer.T.dr *= scale1;
-        tracer.R.br = (tracer.R.br - tracer.R.sp) * scale1;
-        tracer.T.br *= scale1;
+        tracer.R_total *= scale1;
+        tracer.T_total *= scale1;
+        tracer.Rb_total = (tracer.Rb_total - tracer.R_spec) * scale1;
+        tracer.Tb_total *= scale1;
 
-        tracer.R.de = (scale1 * tracer.R.de) * (scale1 * tracer.R.de) + 1 / scale1 * tracer.R.dr * tracer.R.dr;
-        tracer.T.de = (scale1 * tracer.T.de) * (scale1 * tracer.T.de) + 1 / scale1 * tracer.T.dr * tracer.T.dr;
-        tracer.R.be = (scale1 * tracer.R.be) * (scale1 * tracer.R.be) + 1 / scale1 * tracer.R.br * tracer.R.br;
-        tracer.T.be = (scale1 * tracer.T.be) * (scale1 * tracer.T.be) + 1 / scale1 * tracer.T.br * tracer.T.br;
+        tracer.R_error = (scale1 * tracer.R_error) * (scale1 * tracer.R_error) + 1 / scale1 * tracer.R_total * tracer.R_total;
+        tracer.T_error = (scale1 * tracer.T_error) * (scale1 * tracer.T_error) + 1 / scale1 * tracer.T_total * tracer.T_total;
+        tracer.Rb_error = (scale1 * tracer.Rb_error) * (scale1 * tracer.Rb_error) + 1 / scale1 * tracer.Rb_total * tracer.Rb_total;
+        tracer.Tb_error = (scale1 * tracer.Tb_error) * (scale1 * tracer.Tb_error) + 1 / scale1 * tracer.Tb_total * tracer.Tb_total;
     }
 
     scale1 = dt * params.num_photons;
@@ -2262,11 +2219,11 @@ static void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, Sca
         for (std::size_t it = 0; it < nt; it++) {
             // scale R_t
             if (mode == ScaleMode::Scale) {
-                tracer.R.t[it] /= scale1;
+                tracer.R_t[it] /= scale1;
             }
             // unscale R_t
             else {
-                tracer.R.t[it] *= scale1;
+                tracer.R_t[it] *= scale1;
             }
         }
     }
@@ -2275,11 +2232,11 @@ static void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, Sca
         for (std::size_t it = 0; it < nt; it++) {
             // scale T_t
             if (mode == ScaleMode::Scale) {
-                tracer.T.t[it] /= scale1;
+                tracer.T_t[it] /= scale1;
             }
             // unscale R_t
             else {
-                tracer.T.t[it] *= scale1;
+                tracer.T_t[it] *= scale1;
             }
         }
     }
@@ -2292,11 +2249,11 @@ static void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, Sca
             double scale2 = 1.0 / ((ir + 0.5) * scale1);
             // scale R_r
             if (mode == ScaleMode::Scale) {
-                tracer.R.r[ir] *= scale2;
+                tracer.R_r[ir] *= scale2;
             }
             // unscale R_r
             else {
-                tracer.R.r[ir] /= scale2;
+                tracer.R_r[ir] /= scale2;
             }
         }
     }
@@ -2306,11 +2263,11 @@ static void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, Sca
             double scale2 = 1.0 / ((ir + 0.5) * scale1);
             // scale T_r
             if (mode == ScaleMode::Scale) {
-                tracer.T.r[ir] *= scale2;
+                tracer.T_r[ir] *= scale2;
             }
             // unscale T_r
             else {
-                tracer.T.r[ir] /= scale2;
+                tracer.T_r[ir] /= scale2;
             }
         }
     }
@@ -2322,11 +2279,11 @@ static void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, Sca
                 double scale2 = 1.0 / ((ir + 0.5) * scale1);
                 // scale R_rt
                 if (mode == ScaleMode::Scale) {
-                    tracer.R.rt[ir][it] *= scale2;
+                    tracer.R_rt[ir][it] *= scale2;
                 }
                 // unscale R_rt
                 else {
-                    tracer.R.rt[ir][it] *= scale2;
+                    tracer.R_rt[ir][it] *= scale2;
                 }
             }
         }
@@ -2338,11 +2295,11 @@ static void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, Sca
                 double scale2 = 1.0 / ((ir + 0.5) * scale1);
                 // scale T_rt
                 if (mode == ScaleMode::Scale) {
-                    tracer.T.rt[ir][it] *= scale2;
+                    tracer.T_rt[ir][it] *= scale2;
                 }
                 // unscale T_rt
                 else {
-                    tracer.T.rt[ir][it] /= scale2;
+                    tracer.T_rt[ir][it] /= scale2;
                 }
             }
         }
@@ -2356,11 +2313,11 @@ static void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, Sca
             double scale2 = 1.0 / (sin(2.0 * (ia + 0.5) * da) * scale1);
             // scale R_a.
             if (mode == ScaleMode::Scale) {
-                tracer.R.a[ia] *= scale2;
+                tracer.R_a[ia] *= scale2;
             }
             // unscale R_a.
             else {
-                tracer.R.a[ia] /= scale2;
+                tracer.R_a[ia] /= scale2;
             }
         }
     }
@@ -2370,11 +2327,11 @@ static void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, Sca
             double scale2 = 1.0 / (sin(2.0 * (ia + 0.5) * da) * scale1);
             // scale T_a
             if (mode == ScaleMode::Scale) {
-                tracer.T.a[ia] *= scale2;
+                tracer.T_a[ia] *= scale2;
             }
             // unscale T_a
             else {
-                tracer.T.a[ia] /= scale2;
+                tracer.T_a[ia] /= scale2;
             }
         }
     }
@@ -2386,11 +2343,11 @@ static void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, Sca
                 double scale2 = 1.0 / (sin(2.0 * (ia + 0.5) * da) * scale1);
                 // scale R_at
                 if (mode == ScaleMode::Scale) {
-                    tracer.R.at[ia][it] *= scale2;
+                    tracer.R_at[ia][it] *= scale2;
                 }
                 // unscale R_at
                 else {
-                    tracer.R.at[ia][it] /= scale2;
+                    tracer.R_at[ia][it] /= scale2;
                 }
             }
         }
@@ -2402,11 +2359,11 @@ static void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, Sca
                 double scale2 = 1.0 / (sin(2.0 * (ia + 0.5) * da) * scale1);
                 // scale T_at
                 if (mode == ScaleMode::Scale) {
-                    tracer.T.at[ia][it] *= scale2;
+                    tracer.T_at[ia][it] *= scale2;
                 }
                 // unscale T_at
                 else {
-                    tracer.T.at[ia][it] /= scale2;
+                    tracer.T_at[ia][it] /= scale2;
                 }
             }
         }
@@ -2419,11 +2376,11 @@ static void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, Sca
                 double scale2 = 1.0 / ((ir + 0.5) * sin(2.0 * (ia + 0.5) * da) * scale1);
                 // scale R_ra
                 if (mode == ScaleMode::Scale) {
-                    tracer.R.ra[ir][ia] *= scale2;
+                    tracer.R_ra[ir][ia] *= scale2;
                 }
                 // unscale R_ra
                 else {
-                    tracer.R.ra[ir][ia] /= scale2;
+                    tracer.R_ra[ir][ia] /= scale2;
                 }
             }
         }
@@ -2435,11 +2392,11 @@ static void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, Sca
                 double scale2 = 1.0 / ((ir + 0.5) * sin(2.0 * (ia + 0.5) * da) * scale1);
                 // scale T_ra
                 if (mode == ScaleMode::Scale) {
-                    tracer.T.ra[ir][ia] *= scale2;
+                    tracer.T_ra[ir][ia] *= scale2;
                 }
                 // unscale T_ra
                 else {
-                    tracer.T.ra[ir][ia] /= scale2;
+                    tracer.T_ra[ir][ia] /= scale2;
                 }
             }
         }
@@ -2453,11 +2410,11 @@ static void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, Sca
                     double scale2 = 1.0 / ((ir + 0.5) * sin(2.0 * (ia + 0.5) * da) * scale1);
                     // scale R_rat
                     if (mode == ScaleMode::Scale) {
-                        tracer.R.rat[ir][ia][it] *= scale2;
+                        tracer.R_rat[ir][ia][it] *= scale2;
                     }
                     // unscale R_rat
                     else {
-                        tracer.R.rat[ir][ia][it] /= scale2;
+                        tracer.R_rat[ir][ia][it] /= scale2;
                     }
                 }
             }
@@ -2471,11 +2428,11 @@ static void ScaleReflectanceTransmittance(RunParams& params, Tracer& tracer, Sca
                     double scale2 = 1.0 / ((ir + 0.5) * sin(2.0 * (ia + 0.5) * da) * scale1);
                     // scale T_rat
                     if (mode == ScaleMode::Scale) {
-                        tracer.T.rat[ir][ia][it] *= scale2;
+                        tracer.T_rat[ir][ia][it] *= scale2;
                     }
                     // unscale T_rat
                     else {
-                        tracer.T.rat[ir][ia][it] /= scale2;
+                        tracer.T_rat[ir][ia][it] /= scale2;
                     }
                 }
             }
@@ -2500,13 +2457,13 @@ static void ScaleAbsorption(RunParams& params, Tracer& tracer, ScaleMode mode)
 
     // scale A
     if (mode == ScaleMode::Scale) {
-        tracer.A.ae = 1 / scale1 * sqrt(tracer.A.ae - tracer.A.ab * tracer.A.ab / scale1);
-        tracer.A.ab /= scale1;
+        tracer.A_error = 1 / scale1 * sqrt(tracer.A_error - tracer.A_total * tracer.A_total / scale1);
+        tracer.A_total /= scale1;
     }
     // unscale A
     else {
-        tracer.A.ab *= scale1;
-        tracer.A.ae = (scale1 * tracer.A.ae) * (scale1 * tracer.A.ae) + 1 / scale1 * tracer.A.ab * tracer.A.ab;
+        tracer.A_total *= scale1;
+        tracer.A_error = (scale1 * tracer.A_error) * (scale1 * tracer.A_error) + 1 / scale1 * tracer.A_total * tracer.A_total;
     }
 
     double scale2 = scale1 * dt;
@@ -2514,11 +2471,11 @@ static void ScaleAbsorption(RunParams& params, Tracer& tracer, ScaleMode mode)
         for (short it = 0; it < nt; it++) {
             // scale A_t
             if (mode == ScaleMode::Scale) {
-                tracer.A.t[it] /= scale2;
+                tracer.A_t[it] /= scale2;
             }
             // unscale A_t
             else {
-                tracer.A.t[it] *= scale2;
+                tracer.A_t[it] *= scale2;
             }
         }
     }
@@ -2528,11 +2485,11 @@ static void ScaleAbsorption(RunParams& params, Tracer& tracer, ScaleMode mode)
         for (short iz = 0; iz < nz; iz++) {
             // scale A_z
             if (mode == ScaleMode::Scale) {
-                tracer.A.z[iz] /= scale1;
+                tracer.A_z[iz] /= scale1;
             }
             // unscale A_z
             else {
-                tracer.A.z[iz] *= scale1;
+                tracer.A_z[iz] *= scale1;
             }
         }
     }
@@ -2543,11 +2500,11 @@ static void ScaleAbsorption(RunParams& params, Tracer& tracer, ScaleMode mode)
             for (short it = 0; it < nt; it++) {
                 // scale A_zt
                 if (mode == ScaleMode::Scale) {
-                    tracer.A.zt[iz][it] /= scale2;
+                    tracer.A_zt[iz][it] /= scale2;
                 }
                 // unscale A_zt
                 else {
-                    tracer.A.zt[iz][it] *= scale2;
+                    tracer.A_zt[iz][it] *= scale2;
                 }
             }
         }
@@ -2557,11 +2514,11 @@ static void ScaleAbsorption(RunParams& params, Tracer& tracer, ScaleMode mode)
         for (short iz = 0; iz < nz; iz++) {
             // scale Ab_z
             if (mode == ScaleMode::Scale) {
-                tracer.A.bz[iz] /= scale1;
+                tracer.Ab_z[iz] /= scale1;
             }
             // unscale Ab_z
             else {
-                tracer.A.bz[iz] *= scale1;
+                tracer.Ab_z[iz] *= scale1;
             }
         }
     }
@@ -2571,11 +2528,11 @@ static void ScaleAbsorption(RunParams& params, Tracer& tracer, ScaleMode mode)
             for (short it = 0; it < nt; it++) {
                 // scale Ab_zt
                 if (mode == ScaleMode::Scale) {
-                    tracer.A.bzt[iz][it] /= scale2;
+                    tracer.Ab_zt[iz][it] /= scale2;
                 }
                 // unscale Ab_zt
                 else {
-                    tracer.A.bzt[iz][it] *= scale2;
+                    tracer.Ab_zt[iz][it] *= scale2;
                 }
             }
         }
@@ -2587,11 +2544,11 @@ static void ScaleAbsorption(RunParams& params, Tracer& tracer, ScaleMode mode)
             for (short iz = 0; iz < nz; iz++) {
                 // scale A_rz
                 if (mode == ScaleMode::Scale) {
-                    tracer.A.rz[ir][iz] /= (ir + 0.5) * scale1;
+                    tracer.A_rz[ir][iz] /= (ir + 0.5) * scale1;
                 }
                 // unscale A_rz
                 else {
-                    tracer.A.rz[ir][iz] *= (ir + 0.5) * scale1;
+                    tracer.A_rz[ir][iz] *= (ir + 0.5) * scale1;
                 }
             }
         }
@@ -2604,11 +2561,11 @@ static void ScaleAbsorption(RunParams& params, Tracer& tracer, ScaleMode mode)
                 for (short it = 0; it < nt; it++) {
                     // scale A_rzt
                     if (mode == ScaleMode::Scale) {
-                        tracer.A.rzt[ir][iz][it] /= (ir + 0.5) * scale2;
+                        tracer.A_rzt[ir][iz][it] /= (ir + 0.5) * scale2;
                     }
                     // unscale A_rzt
                     else {
-                        tracer.A.rzt[ir][iz][it] *= (ir + 0.5) * scale2;
+                        tracer.A_rzt[ir][iz][it] *= (ir + 0.5) * scale2;
                     }
                 }
             }
@@ -2631,14 +2588,9 @@ void ScaleResult(RunParams& params, Tracer& tracer, ScaleMode mode)
  *	Write the version number as the first string in the input.
  *	Use chars only so that they can be read as either ASCII or binary.
  ****/
-static void WriteVersion(std::fstream& file, const std::string& version)
+static void WriteVersion(std::fstream& file, const std::string_view& version)
 {
-    file << version << " \t# Version number of the file format.\n" << std::endl;
-    file << "####\n# Data categories include: " << std::endl;
-    file << "# R_r\tR_a\tR_ra\tR_t\tR_rt\tR_at\tR_rat" << std::endl;
-    file << "# T_r\tT_a\tT_ra\tT_t\tT_rt\tT_at\tT_rat" << std::endl;
-    file << "# A_z\tA_rz\tA_t\t\tA_zt\tA_rzt" << std::endl;
-    file << "####\n" << std::endl;
+    file << std::format("{:<50} # output file version\n", version);
 }
 
 /********************************************************************************
@@ -2646,16 +2598,16 @@ static void WriteVersion(std::fstream& file, const std::string& version)
  ****/
 static void WriteRandomizer(std::fstream& file)
 {
-    auto status = g_rand.getState();
+    auto status = g_rand.state();
 
-    file << std::format("# status of the random number generator:") << std::endl;
+    file << "# PRNG state:\n";
 
     for (int i = 0; i < status.size(); i++) {
         if (i % 5) {
             file << std::format("{:14d}", status[i]);
         }
         else {
-            file << std::endl << std::format("{:14d}", status[i]);
+            file << std::format("\n{:14d}", status[i]);
         }
     }
 
@@ -2680,7 +2632,7 @@ static void ReadRandomizer(std::fstream& file)
     }
 
     // Restore the status
-    g_rand.setState(status);
+    g_rand.state(status);
 }
 
 /*******************************************************************************
@@ -2688,15 +2640,22 @@ static void ReadRandomizer(std::fstream& file)
  ****/
 static void WriteRAT(std::fstream& file, Tracer& tracer)
 {
-    file << std::format("RAT #Reflectance, Absorption, Transmittance.\n");
-    file << std::format("# Average \tStandard Err \tRel Err\n");
-    file << std::format("{:<14.6G} \t\t\t\t#Rsp: Specular reflectance.\n", tracer.R.sp);
-    file << std::format("{:<14.6G} \t{:<14.6G} {:6.2f}%\t#Rb: Ballistic reflectance.\n", tracer.R.br, tracer.R.be, (tracer.R.br) ? tracer.R.be / tracer.R.br * 100 : 0);
-    file << std::format("{:<14.6G} \t{:<14.6G} {:6.2f}%\t#Rd: Diffuse reflectance.\n", tracer.R.dr, tracer.R.de, (tracer.R.dr) ? tracer.R.de / tracer.R.dr * 100 : 0);
-    file << std::format("{:<14.6G} \t{:<14.6G} {:6.2f}%\t#A:  Absorbed fraction.\n", tracer.A.ab, tracer.A.ae, (tracer.A.ab) ? tracer.A.ae / tracer.A.ab * 100 : 0);
-    file << std::format("{:<14.6G} \t{:<14.6G} {:6.2f}%\t#Tb: Ballistic transmittance.\n", tracer.T.br, tracer.T.be, (tracer.T.br) ? tracer.T.be / tracer.T.br * 100 : 0);
-    file << std::format("{:<14.6G} \t{:<14.6G} {:6.2f}%\t#Td: Diffuse transmittance.\n", tracer.T.dr, tracer.T.de, (tracer.T.dr) ? tracer.T.de / tracer.T.dr * 100 : 0);
-    file << std::format("\n");
+    double Rb_rel_error = (tracer.Rb_total) ? tracer.Rb_error / tracer.Rb_total * 100 : 0;
+    double R_rel_error = (tracer.R_total) ? tracer.R_error / tracer.R_total * 100 : 0;
+    double Tb_rel_error = (tracer.Tb_total) ? tracer.Tb_error / tracer.Tb_total * 100 : 0;
+    double T_rel_error = (tracer.T_total) ? tracer.T_error / tracer.T_total * 100 : 0;
+    double A_rel_error = (tracer.A_total) ? tracer.A_error / tracer.A_total * 100 : 0;
+
+    file << "RAT # Reflectance, Absorption & Transmittance:\n\n";
+    file << std::format("# {:<12} {:<18} {:<16}\n", "Average", "Standard Error", "Relative Error");
+
+    file << std::format("{:<14.9f} {:<18} {:<16} {}\n", tracer.R_spec, "", "", "# Rs: Specular reflectance");
+    file << std::format("{:<14.9f} {:<18.9f} {:<16.2f} {}\n", tracer.Rb_total, tracer.Rb_error, Rb_rel_error, "# Rb: Ballistic reflectance");
+    file << std::format("{:<14.9f} {:<18.9f} {:<16.2f} {}\n", tracer.R_total, tracer.R_error, R_rel_error, "# Rd: Diffuse reflectance");
+    file << std::format("{:<14.9f} {:<18.9f} {:<16.2f} {}\n", tracer.Tb_total, tracer.Tb_error, Tb_rel_error, "# Tb: Ballistic transmittance");
+    file << std::format("{:<14.9f} {:<18.9f} {:<16.2f} {}\n", tracer.T_total, tracer.T_error, T_rel_error, "# Td: Diffuse transmittance");
+    file << std::format("{:<14.9f} {:<18.9f} {:<16.2f} {}\n", tracer.A_total, tracer.A_error, A_rel_error, "# A:  Absorbed fraction");
+    file << std::endl;
 }
 
 /*******************************************************************************
@@ -2709,27 +2668,27 @@ static void ReadRAT(std::fstream& file, Tracer& tracer)
 
     buf = NextDataLine(file);
     std::istringstream iss(buf);
-    iss >> tracer.R.sp;
+    iss >> tracer.R_spec;
 
     buf = NextDataLine(file);
     iss = std::istringstream(buf);
-    iss >> tracer.R.br >> tracer.R.be;
+    iss >> tracer.Rb_total >> tracer.Rb_error;
 
     buf = NextDataLine(file);
     iss = std::istringstream(buf);
-    iss >> tracer.R.dr >> tracer.R.de;
+    iss >> tracer.R_total >> tracer.R_error;
 
     buf = NextDataLine(file);
     iss = std::istringstream(buf);
-    iss >> tracer.A.ab >> tracer.A.ae;
+    iss >> tracer.A_total >> tracer.A_error;
 
     buf = NextDataLine(file);
     iss = std::istringstream(buf);
-    iss >> tracer.T.br >> tracer.T.be;
+    iss >> tracer.Tb_total >> tracer.Tb_error;
 
     buf = NextDataLine(file);
     iss = std::istringstream(buf);
-    iss >> tracer.T.dr >> tracer.T.de;
+    iss >> tracer.T_total >> tracer.T_error;
 }
 
 /*******************************************************************************
@@ -2738,13 +2697,12 @@ static void ReadRAT(std::fstream& file, Tracer& tracer)
 static void IOAb_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
-                            "# Ab[z][t]. [1/(cm ps)]",
-                            "# Ab[0][0], [0][1],..[0][nt-1]",
-                            "# Ab[1][0], [1][1],..[1][nt-1]",
-                            "# ...",
-                            "# Ab[nz-1][0], [nz-1][1],..[nz-1][nt-1]",
-                            "Ab_zt");
+        file << "# Ab[z][t]. [1/(cm ps)]\n"
+                "# Ab[0][0], [0][1],..[0][nt-1]\n"
+                "# Ab[1][0], [1][1],..[1][nt-1]\n"
+                "# ...\n"
+                "# Ab[nz-1][0], [nz-1][1],..[nz-1][nt-1]\n"
+                "Ab_zt";
     }
     else {
         // skip A_z line
@@ -2755,19 +2713,19 @@ static void IOAb_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& 
     for (std::size_t iz = 0; iz < Nz; iz++) {
         for (std::size_t it = 0; it < Nt; it++) {
             if (mode == IoMode::Write) {
-                file << std::format("{:12.4E} ", tracer.A.zt[iz][it]);
+                file << std::format("{:12.9f} ", tracer.A_zt[iz][it]);
                 if (++i % 5 == 0) {
-                    file << std::format("\n");
+                    file << std::endl;
                 }
             }
             else {
-                file >> tracer.A.zt[iz][it];
+                file >> tracer.A_zt[iz][it];
             }
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n\n");
+        file << std::endl << std::endl;
     }
 }
 
@@ -2779,13 +2737,12 @@ static void IOA_rzt(std::fstream& file, std::size_t Nr, std::size_t Nz, std::siz
     IOAb_zt(file, Nz, Nt, tracer, mode);
 
     if (mode == IoMode::Write) {
-        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
-                            "# A[r][z][t]. [1/(cm³ ps)]",
-                            "# A[0][0][0], [0][0][1],..[0][0][nt-1]",
-                            "# A[0][1][0], [0][1][1],..[0][1][nt-1]",
-                            "# ...",
-                            "# A[nr-1][nz-1][0], [nr-1][nz-1][1],..[nr-1][nz-1][nt-1]",
-                            "A_rzt");
+        file << "# A[r][z][t]. [1/(cm³ ps)]\n"
+            "# A[0][0][0], [0][0][1],..[0][0][nt-1]\n"
+            "# A[0][1][0], [0][1][1],..[0][1][nt-1]\n"
+            "# ...\n"
+            "# A[nr-1][nz-1][0], [nr-1][nz-1][1],..[nr-1][nz-1][nt-1]\n"
+            "A_rzt\n";
     }
     else {
         NextDataLine(file);
@@ -2796,20 +2753,20 @@ static void IOA_rzt(std::fstream& file, std::size_t Nr, std::size_t Nz, std::siz
         for (std::size_t iz = 0; iz < Nz; iz++) {
             for (std::size_t it = 0; it < Nt; it++) {
                 if (mode == IoMode::Write) {
-                    file << std::format("{:12.4E} ", tracer.A.rzt[ir][iz][it]);
+                    file << std::format("{:12.9f} ", tracer.A_rzt[ir][iz][it]);
                     if (++i % 5 == 0) {
-                        file << std::format("\n");
+                        file << std::endl;
                     }
                 }
                 else {
-                    file >> tracer.A.rzt[ir][iz][it];
+                    file >> tracer.A_rzt[ir][iz][it];
                 }
             }
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n\n");
+        file << std::endl << std::endl;
     }
 }
 
@@ -2819,7 +2776,7 @@ static void IOA_rzt(std::fstream& file, std::size_t Nr, std::size_t Nz, std::siz
 static void IOAb_z(std::fstream& file, std::size_t Nz, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("Ab_z #Ab[0], [1],..Ab[nz-1]. [1/cm]\n");
+        file << "Ab_z # Ab[0], [1],..Ab[nz-1]. [1/cm]\n";
     }
     else {
         NextDataLine(file);
@@ -2827,15 +2784,15 @@ static void IOAb_z(std::fstream& file, std::size_t Nz, Tracer& tracer, IoMode mo
 
     for (std::size_t iz = 0; iz < Nz; iz++) {
         if (mode == IoMode::Write) {
-            file << std::format("{:12.4E}\n", tracer.A.bz[iz]);
+            file << std::format("{:12.9f}\n", tracer.Ab_z[iz]);
         }
         else {
-            file >> tracer.A.bz[iz];
+            file >> tracer.Ab_z[iz];
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n");
+        file << std::endl;
     }
 }
 
@@ -2847,12 +2804,11 @@ static void IOA_rz(std::fstream& file, std::size_t Nr, std::size_t Nz, Tracer& t
     IOAb_z(file, Nz, tracer, mode);
 
     if (mode == IoMode::Write) {
-        file << std::format("{}\n{}\n{}\n{}\n{}\n",
-                            "# A[r][z]. [1/cm³]",
-                            "# A[0][0], [0][1],..[0][nz-1]",
-                            "# ...",
-                            "# A[nr-1][0], [nr-1][1],..[nr-1][nz-1]",
-                            "A_rz");
+        file << "# A[r][z]. [1/cm³]\n"
+                "# A[0][0], [0][1],..[0][nz-1]\n"
+                "# ...\n"
+                "# A[nr-1][0], [nr-1][1],..[nr-1][nz-1]\n"
+                "A_rz\n";
     }
     else {
         // skip A_rz line.
@@ -2863,19 +2819,19 @@ static void IOA_rz(std::fstream& file, std::size_t Nr, std::size_t Nz, Tracer& t
     for (std::size_t ir = 0; ir < Nr; ir++) {
         for (std::size_t iz = 0; iz < Nz; iz++) {
             if (mode == IoMode::Write) {
-                file << std::format("{:12.4E} ", tracer.A.rz[ir][iz]);
+                file << std::format("{:12.9f} ", tracer.A_rz[ir][iz]);
                 if (++i % 5 == 0) {
-                    file << std::format("\n");
+                    file << std::endl;
                 }
             }
             else {
-                file >> tracer.A.rz[ir][iz];
+                file >> tracer.A_rz[ir][iz];
             }
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n\n");
+        file << std::endl << std::endl;
     }
 }
 
@@ -2885,13 +2841,12 @@ static void IOA_rz(std::fstream& file, std::size_t Nr, std::size_t Nz, Tracer& t
 static void IOA_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
-                            "# A[z][t]. [1/(cm ps)]",
-                            "# A[0][0], [0][1],..[0][nt-1]",
-                            "# A[1][0], [1][1],..[1][nt-1]",
-                            "# ...",
-                            "# A[nz-1][0], [nz-1][1],..[nz-1][nt-1]",
-                            "A_zt");
+        file << "# A[z][t]. [1/(cm ps)]\n"
+                "# A[0][0], [0][1],..[0][nt-1]\n"
+                "# A[1][0], [1][1],..[1][nt-1]\n"
+                "# ...\n"
+                "# A[nz-1][0], [nz-1][1],..[nz-1][nt-1]\n"
+                "A_zt\n";
     }
     else {
         // skip A_zt line
@@ -2902,19 +2857,19 @@ static void IOA_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& t
     for (std::size_t iz = 0; iz < Nz; iz++) {
         for (std::size_t it = 0; it < Nt; it++) {
             if (mode == IoMode::Write) {
-                file << std::format("{:12.4E} ", tracer.A.zt[iz][it]);
+                file << std::format("{:12.9f} ", tracer.A_zt[iz][it]);
                 if (++i % 5 == 0) {
-                    file << std::format("\n");
+                    file << std::endl;
                 }
             }
             else {
-                file >> tracer.A.zt[iz][it];
+                file >> tracer.A_zt[iz][it];
             }
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n\n");
+        file << std::endl << std::endl;
     }
 }
 
@@ -2924,7 +2879,7 @@ static void IOA_zt(std::fstream& file, std::size_t Nz, std::size_t Nt, Tracer& t
 static void IOA_z(std::fstream& file, std::size_t Nz, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("A_z #A[0], [1],..A[nz-1]. [1/cm]\n");
+        file << "A_z # A[0], [1],..A[nz-1]. [1/cm]\n";
     }
     else {
         // skip A_z line
@@ -2933,15 +2888,15 @@ static void IOA_z(std::fstream& file, std::size_t Nz, Tracer& tracer, IoMode mod
 
     for (std::size_t iz = 0; iz < Nz; iz++) {
         if (mode == IoMode::Write) {
-            file << std::format("{:12.4E}\n", tracer.A.z[iz]);
+            file << std::format("{:12.9f}\n", tracer.A_z[iz]);
         }
         else {
-            file >> tracer.A.z[iz];
+            file >> tracer.A_z[iz];
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n");
+        file << std::endl;
     }
 }
 
@@ -2951,7 +2906,7 @@ static void IOA_z(std::fstream& file, std::size_t Nz, Tracer& tracer, IoMode mod
 static void IOA_t(std::fstream& file, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("A_t #A[0], [1],..A[nt-1]. [1/ps]\n");
+        file << "A_t # A[0], [1],..A[nt-1]. [1/ps]\n";
     }
     else {
         NextDataLine(file);
@@ -2959,15 +2914,15 @@ static void IOA_t(std::fstream& file, std::size_t Nt, Tracer& tracer, IoMode mod
 
     for (std::size_t it = 0; it < Nt; it++) {
         if (mode == IoMode::Write) {
-            file << std::format("{:12.4E}\n", tracer.A.t[it]);
+            file << std::format("{:12.9f}\n", tracer.A_t[it]);
         }
         else {
-            file >> tracer.A.t[it];
+            file >> tracer.A_t[it];
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n");
+        file << std::endl;
     }
 }
 
@@ -2977,13 +2932,12 @@ static void IOA_t(std::fstream& file, std::size_t Nt, Tracer& tracer, IoMode mod
 static void IOR_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
-                            "# Rd[r][a][t]. [1/(cm² sr ps)]",
-                            "# Rd[0][0][0], [0][0][1],..[0][0][nt-1]",
-                            "# Rd[0][1][0], [0][1][1],..[0][1][nt-1]",
-                            "# ...",
-                            "# Rd[nr-1][na-1][0], [nr-1][na-1][1],..[nr-1][na-1][nt-1]",
-                            "R_rat");
+        file << "# Rd[r][a][t]. [1/(cm² sr ps)]\n"
+                "# Rd[0][0][0], [0][0][1],..[0][0][nt-1]\n"
+                "# Rd[0][1][0], [0][1][1],..[0][1][nt-1]\n"
+                "# ...\n"
+                "# Rd[nr-1][na-1][0], [nr-1][na-1][1],..[nr-1][na-1][nt-1]\n"
+                "R_rat\n";
     }
     else {
         NextDataLine(file);
@@ -2994,20 +2948,20 @@ static void IOR_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::siz
         for (std::size_t ia = 0; ia < Na; ia++) {
             for (std::size_t it = 0; it < Nt; it++) {
                 if (mode == IoMode::Write) {
-                    file << std::format("{:12.4E} ", tracer.R.rat[ir][ia][it]);
+                    file << std::format("{:12.9f} ", tracer.R_rat[ir][ia][it]);
                     if (++i % 5 == 0) {
-                        file << std::format("\n");
+                        file << std::endl;
                     }
                 }
                 else {
-                    file >> tracer.R.rat[ir][ia][it];
+                    file >> tracer.R_rat[ir][ia][it];
                 }
             }
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n\n");
+        file << std::endl << std::endl;
     }
 }
 
@@ -3017,13 +2971,12 @@ static void IOR_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::siz
 static void IOR_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
-                            "# Rd[r][angle]. [1/(cm² sr)].",
-                            "# Rd[0][0], [0][1],..[0][na-1]",
-                            "# Rd[1][0], [1][1],..[1][na-1]",
-                            "# ...",
-                            "# Rd[nr-1][0], [nr-1][1],..[nr-1][na-1]",
-                            "R_ra");
+        file << "# Rd[r][angle]. [1/(cm² sr)].\n"
+                "# Rd[0][0], [0][1],..[0][na-1]\n"
+                "# Rd[1][0], [1][1],..[1][na-1]\n"
+                "# ...\n"
+                "# Rd[nr-1][0], [nr-1][1],..[nr-1][na-1]\n"
+                "R_ra\n";
     }
     else {
         NextDataLine(file);
@@ -3032,19 +2985,19 @@ static void IOR_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& t
     for (std::size_t ir = 0; ir < Nr; ir++) {
         for (std::size_t ia = 0; ia < Na; ia++) {
             if (mode == IoMode::Write) {
-                file << std::format("{:12.4E} ", tracer.R.ra[ir][ia]);
+                file << std::format("{:12.9f} ", tracer.R_ra[ir][ia]);
                 if ((ir * Na + ia + 1) % 5 == 0) {
                     file << std::format("\n");
                 }
             }
             else {
-                file >> tracer.R.ra[ir][ia];
+                file >> tracer.R_ra[ir][ia];
             }
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n\n");
+        file << std::endl << std::endl;
     }
 }
 
@@ -3054,13 +3007,12 @@ static void IOR_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& t
 static void IOR_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
-                            "# Rd[r][t]. [1/(cm² ps)]",
-                            "# Rd[0][0], [0][1],..[0][nt-1]",
-                            "# Rd[0][0], [0][1],..[0][nt-1]",
-                            "# ...",
-                            "# Rd[nr-1][0], [nr-1][1],..[nr-1][nt-1]",
-                            "R_rt");
+        file << "# Rd[r][t]. [1/(cm² ps)]\n"
+                "# Rd[0][0], [0][1],..[0][nt-1]\n"
+                "# Rd[0][0], [0][1],..[0][nt-1]\n"
+                "# ...\n"
+                "# Rd[nr-1][0], [nr-1][1],..[nr-1][nt-1]\n"
+                "R_rt\n";
     }
     else {
         NextDataLine(file);
@@ -3070,19 +3022,19 @@ static void IOR_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& t
     for (std::size_t ir = 0; ir < Nr; ir++) {
         for (std::size_t it = 0; it < Nt; it++) {
             if (mode == IoMode::Write) {
-                file << std::format("{:12.4E} ", tracer.R.rt[ir][it]);
+                file << std::format("{:12.9f} ", tracer.R_rt[ir][it]);
                 if (++i % 5 == 0) {
                     file << std::format("\n");
                 }
             }
             else {
-                file >> tracer.R.rt[ir][it];
+                file >> tracer.R_rt[ir][it];
             }
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n\n");
+        file << std::endl << std::endl;
     }
 }
 
@@ -3092,13 +3044,12 @@ static void IOR_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& t
 static void IOR_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
-                            "# Rd[a][t]. [1/(sr ps)]",
-                            "# Rd[0][0], [0][1],..[0][nt-1]",
-                            "# Rd[1][0], [1][1],..[1][nt-1]",
-                            "# ...",
-                            "# Rd[na-1][0], [na-1][1],..[na-1][nt-1]",
-                            "R_at");
+        file << "# Rd[a][t]. [1/(sr ps)]\n"
+                "# Rd[0][0], [0][1],..[0][nt-1]\n"
+                "# Rd[1][0], [1][1],..[1][nt-1]\n"
+                "# ...\n"
+                "# Rd[na-1][0], [na-1][1],..[na-1][nt-1]\n"
+                "R_at\n";
     }
     else {
         NextDataLine(file);
@@ -3108,19 +3059,19 @@ static void IOR_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& t
     for (std::size_t ia = 0; ia < Na; ia++) {
         for (std::size_t it = 0; it < Nt; it++) {
             if (mode == IoMode::Write) {
-                file << std::format("{:12.4E} ", tracer.R.at[ia][it]);
+                file << std::format("{:12.9f} ", tracer.R_at[ia][it]);
                 if (++i % 5 == 0) {
                     file << std::format("\n");
                 }
             }
             else {
-                file >> tracer.R.at[ia][it];
+                file >> tracer.R_at[ia][it];
             }
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n\n");
+        file << std::endl << std::endl;
     }
 }
 
@@ -3130,7 +3081,7 @@ static void IOR_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& t
 static void IOR_r(std::fstream& file, std::size_t Nr, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("R_r #Rd[0], [1],..Rd[nr-1]. [1/cm²]\n");
+        file << "R_r # Rd[0], [1],..Rd[nr-1]. [1/cm²]\n";
     }
     else {
         NextDataLine(file);
@@ -3138,15 +3089,15 @@ static void IOR_r(std::fstream& file, std::size_t Nr, Tracer& tracer, IoMode mod
 
     for (std::size_t ir = 0; ir < Nr; ir++) {
         if (mode == IoMode::Write) {
-            file << std::format("{:12.4E}\n", tracer.R.r[ir]);
+            file << std::format("{:12.9f}\n", tracer.R_r[ir]);
         }
         else {
-            file >> tracer.R.r[ir];
+            file >> tracer.R_r[ir];
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n");
+        file << std::endl;
     }
 }
 
@@ -3156,23 +3107,24 @@ static void IOR_r(std::fstream& file, std::size_t Nr, Tracer& tracer, IoMode mod
 static void IOR_a(std::fstream& file, std::size_t Na, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("R_a #Rd[0], [1],..Rd[na-1]. [1/sr]\n");
+        file << "Rd_a # Rd[0], [1],..Rd[na-1]. [1/sr]\n";
     }
     else {
+        // Skip comment line
         NextDataLine(file);
     }
 
     for (std::size_t ia = 0; ia < Na; ia++) {
         if (mode == IoMode::Write) {
-            file << std::format("{:12.4E}\n", tracer.R.a[ia]);
+            file << std::format("{:12.9f}\n", tracer.R_a[ia]);
         }
         else {
-            file >> tracer.R.a[ia];
+            file >> tracer.R_a[ia];
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n");
+        file << std::endl;
     }
 }
 
@@ -3182,7 +3134,7 @@ static void IOR_a(std::fstream& file, std::size_t Na, Tracer& tracer, IoMode mod
 static void IOR_t(std::fstream& file, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("R_t #Rd[0], [1],..Rd[nt-1]. [1/ps]\n");
+        file << "R_t # Rd[0], [1],..Rd[nt-1]. [1/ps]\n";
     }
     else {
         NextDataLine(file);
@@ -3190,15 +3142,15 @@ static void IOR_t(std::fstream& file, std::size_t Nt, Tracer& tracer, IoMode mod
 
     for (std::size_t it = 0; it < Nt; it++) {
         if (mode == IoMode::Write) {
-            file << std::format("{:12.4E}\n", tracer.R.t[it]);
+            file << std::format("{:12.9f}\n", tracer.R_t[it]);
         }
         else {
-            file >> tracer.R.t[it];
+            file >> tracer.R_t[it];
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n");
+        file << std::endl;
     }
 }
 
@@ -3208,13 +3160,12 @@ static void IOR_t(std::fstream& file, std::size_t Nt, Tracer& tracer, IoMode mod
 static void IOT_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
-                            "# Td[r][a][t]. [1/(cm² sr ps)]",
-                            "# Td[0][0][0], [0][0][1],..[0][0][nt-1]",
-                            "# Td[0][1][0], [0][1][1],..[0][1][nt-1]",
-                            "# ...",
-                            "# Td[nr-1][na-1][0], [nr-1][na-1][1],..[nr-1][na-1][nt-1]",
-                            "T_rat");
+        file << "# Td[r][a][t]. [1/(cm² sr ps)]\n"
+                "# Td[0][0][0], [0][0][1],..[0][0][nt-1]\n"
+                "# Td[0][1][0], [0][1][1],..[0][1][nt-1]\n"
+                "# ...\n"
+                "# Td[nr-1][na-1][0], [nr-1][na-1][1],..[nr-1][na-1][nt-1]\n"
+                "T_rat\n";
     }
     else {
         NextDataLine(file);
@@ -3225,20 +3176,20 @@ static void IOT_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::siz
         for (std::size_t ia = 0; ia < Na; ia++) {
             for (std::size_t it = 0; it < Nt; it++) {
                 if (mode == IoMode::Write) {
-                    file << std::format("{:12.4E} ", tracer.T.rat[ir][ia][it]);
+                    file << std::format("{:12.9f} ", tracer.T_rat[ir][ia][it]);
                     if (++i % 5 == 0) {
                         file << std::format("\n");
                     }
                 }
                 else {
-                    file >> tracer.T.rat[ir][ia][it];
+                    file >> tracer.T_rat[ir][ia][it];
                 }
             }
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n\n");
+        file << std::endl << std::endl;
     }
 }
 
@@ -3248,13 +3199,12 @@ static void IOT_rat(std::fstream& file, std::size_t Nr, std::size_t Na, std::siz
 static void IOT_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
-                            "# Td[r][angle]. [1/(cm² sr)].",
-                            "# Td[0][0], [0][1],..[0][na-1]",
-                            "# Td[1][0], [1][1],..[1][na-1]",
-                            "# ...",
-                            "# Td[nr-1][0], [nr-1][1],..[nr-1][na-1]",
-                            "T_ra");
+        file << "# Td[r][angle]. [1/(cm² sr)].\n",
+                "# Td[0][0], [0][1],..[0][na-1]\n",
+                "# Td[1][0], [1][1],..[1][na-1]\n",
+                "# ...\n",
+                "# Td[nr-1][0], [nr-1][1],..[nr-1][na-1]\n",
+                "T_ra\n";
     }
     else {
         NextDataLine(file);
@@ -3263,19 +3213,19 @@ static void IOT_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& t
     for (std::size_t ir = 0; ir < Nr; ir++) {
         for (std::size_t ia = 0; ia < Na; ia++) {
             if (mode == IoMode::Write) {
-                file << std::format("{:12.4E} ", tracer.T.ra[ir][ia]);
+                file << std::format("{:12.9f} ", tracer.T_ra[ir][ia]);
                 if ((ir * Na + ia + 1) % 5 == 0) {
                     file << std::format("\n");
                 }
             }
             else {
-                file >> tracer.T.ra[ir][ia];
+                file >> tracer.T_ra[ir][ia];
             }
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n\n");
+        file << std::endl << std::endl;
     }
 }
 
@@ -3285,13 +3235,12 @@ static void IOT_ra(std::fstream& file, std::size_t Nr, std::size_t Na, Tracer& t
 static void IOT_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
-                            "# Td[r][t]. [1/(cm² ps)]",
-                            "# Td[0][0], [0][1],..[0][nt-1]",
-                            "# Td[0][0], [0][1],..[0][nt-1]",
-                            "# ...",
-                            "# Td[nr-1][0], [nr-1][1],..[nr-1][nt-1]",
-                            "T_rt");
+        file << "# Td[r][t]. [1/(cm² ps)]\n"
+                "# Td[0][0], [0][1],..[0][nt-1]\n"
+                "# Td[0][0], [0][1],..[0][nt-1]\n"
+                "# ...\n"
+                "# Td[nr-1][0], [nr-1][1],..[nr-1][nt-1]\n"
+                "T_rt\n";
     }
     else {
         NextDataLine(file);
@@ -3301,19 +3250,19 @@ static void IOT_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& t
     for (std::size_t ir = 0; ir < Nr; ir++) {
         for (std::size_t it = 0; it < Nt; it++) {
             if (mode == IoMode::Write) {
-                file << std::format("{:12.4E} ", tracer.T.rt[ir][it]);
+                file << std::format("{:12.9f} ", tracer.T_rt[ir][it]);
                 if (++i % 5 == 0) {
                     file << std::format("\n");
                 }
             }
             else {
-                file >> tracer.T.rt[ir][it];
+                file >> tracer.T_rt[ir][it];
             }
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n\n");
+        file << std::endl << std::endl;
     }
 }
 
@@ -3323,13 +3272,12 @@ static void IOT_rt(std::fstream& file, std::size_t Nr, std::size_t Nt, Tracer& t
 static void IOT_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("{}\n{}\n{}\n{}\n{}\n{}\n",
-                            "# Td[a][t]. [1/(sr ps)]",
-                            "# Td[0][0], [0][1],..[0][nt-1]",
-                            "# Td[1][0], [1][1],..[1][nt-1]",
-                            "# ...",
-                            "# Td[na-1][0], [na-1][1],..[na-1][nt-1]",
-                            "T_at");
+        file << "# Td[a][t]. [1/(sr ps)]\n"
+                "# Td[0][0], [0][1],..[0][nt-1]\n"
+                "# Td[1][0], [1][1],..[1][nt-1]\n"
+                "# ...\n"
+                "# Td[na-1][0], [na-1][1],..[na-1][nt-1]\n"
+                "T_at\n";
     }
     else {
         NextDataLine(file);
@@ -3339,19 +3287,19 @@ static void IOT_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& t
     for (std::size_t ia = 0; ia < Na; ia++) {
         for (std::size_t it = 0; it < Nt; it++) {
             if (mode == IoMode::Write) {
-                file << std::format("{:12.4E} ", tracer.T.at[ia][it]);
+                file << std::format("{:12.9f} ", tracer.T_at[ia][it]);
                 if (++i % 5 == 0) {
                     file << std::format("\n");
                 }
             }
             else {
-                file >> tracer.T.at[ia][it];
+                file >> tracer.T_at[ia][it];
             }
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n\n");
+        file << std::endl << std::endl;
     }
 }
 
@@ -3361,7 +3309,7 @@ static void IOT_at(std::fstream& file, std::size_t Na, std::size_t Nt, Tracer& t
 static void IOT_r(std::fstream& file, std::size_t Nr, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("T_r #Td[0], [1],..Td[nr-1]. [1/cm²]\n");
+        file << "T_r # Td[0], [1],..Td[nr-1]. [1/cm²]\n";
     }
     else {
         NextDataLine(file);
@@ -3369,15 +3317,15 @@ static void IOT_r(std::fstream& file, std::size_t Nr, Tracer& tracer, IoMode mod
 
     for (std::size_t ir = 0; ir < Nr; ir++) {
         if (mode == IoMode::Write) {
-            file << std::format("{:12.4E}\n", tracer.T.r[ir]);
+            file << std::format("{:12.9f}\n", tracer.T_r[ir]);
         }
         else {
-            file >> tracer.T.r[ir];
+            file >> tracer.T_r[ir];
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n");
+        file << std::endl;
     }
 }
 
@@ -3387,7 +3335,7 @@ static void IOT_r(std::fstream& file, std::size_t Nr, Tracer& tracer, IoMode mod
 static void IOT_a(std::fstream& file, std::size_t Na, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("T_a #Td[0], [1],..Td[na-1]. [1/sr]\n");
+        file << "T_a # Td[0], [1],..Td[na-1]. [1/sr]\n";
     }
     else {
         NextDataLine(file);
@@ -3395,15 +3343,15 @@ static void IOT_a(std::fstream& file, std::size_t Na, Tracer& tracer, IoMode mod
 
     for (std::size_t ia = 0; ia < Na; ia++) {
         if (mode == IoMode::Write) {
-            file << std::format("{:12.4E}\n", tracer.T.a[ia]);
+            file << std::format("{:12.9f}\n", tracer.T_a[ia]);
         }
         else {
-            file >> tracer.T.a[ia];
+            file >> tracer.T_a[ia];
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n");
+        file << std::endl;
     }
 }
 
@@ -3413,7 +3361,7 @@ static void IOT_a(std::fstream& file, std::size_t Na, Tracer& tracer, IoMode mod
 static void IOT_t(std::fstream& file, std::size_t Nt, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        file << std::format("T_t #Rd[0], [1],..Td[nt-1]. [1/ps]\n");
+        file << "T_t # Rd[0], [1],..Td[nt-1]. [1/ps]\n";
     }
     else {
         NextDataLine(file);
@@ -3421,15 +3369,15 @@ static void IOT_t(std::fstream& file, std::size_t Nt, Tracer& tracer, IoMode mod
 
     for (std::size_t it = 0; it < Nt; it++) {
         if (mode == IoMode::Write) {
-            file << std::format("{:12.4E}\n", tracer.T.t[it]);
+            file << std::format("{:12.9f}\n", tracer.T_t[it]);
         }
         else {
-            file >> tracer.T.t[it];
+            file >> tracer.T_t[it];
         }
     }
 
     if (mode == IoMode::Write) {
-        file << std::format("\n");
+        file << std::endl;
     }
 }
 
@@ -3440,13 +3388,7 @@ static void IOT_t(std::fstream& file, std::size_t Nt, Tracer& tracer, IoMode mod
 void ReadWriteResults(std::fstream& file, RunParams& params, Tracer& tracer, IoMode mode)
 {
     if (mode == IoMode::Write) {
-        if (params.output_file_format == FileFormat::Ascii) {
-            WriteVersion(file, "mcmloA2.0");
-        }
-        else {
-            WriteVersion(file, "mcmloB2.0");
-        }
-
+        WriteVersion(file, MCO_VERSION);
         WriteInputParams(file, params);
         WriteRandomizer(file);
         WriteRAT(file, tracer);
@@ -3456,68 +3398,30 @@ void ReadWriteResults(std::fstream& file, RunParams& params, Tracer& tracer, IoM
         ReadRAT(file, tracer);
     }
 
-    // Absorption
-    if (params.A_rzt) {
-        IOA_rzt(file, params.num_r, params.num_z, params.num_t, tracer, mode);
-    }
-    if (params.A_rz) {
-        IOA_rz(file, params.num_r, params.num_z, tracer, mode);
-    }
-    if (params.A_zt) {
-        IOA_zt(file, params.num_z, params.num_t, tracer, mode);
-    }
-    if (params.A_z) {
-        IOA_z(file, params.num_z, tracer, mode);
-    }
-    if (params.A_t) {
-        IOA_t(file, params.num_t, tracer, mode);
-    }
-
     // Reflectance
-    if (params.R_rat) {
-        IOR_rat(file, params.num_r, params.num_a, params.num_t, tracer, mode);
-    }
-    if (params.R_ra) {
-        IOR_ra(file, params.num_r, params.num_a, tracer, mode);
-    }
-    if (params.R_rt) {
-        IOR_rt(file, params.num_r, params.num_t, tracer, mode);
-    }
-    if (params.R_at) {
-        IOR_at(file, params.num_a, params.num_t, tracer, mode);
-    }
-    if (params.R_r) {
-        IOR_r(file, params.num_r, tracer, mode);
-    }
-    if (params.R_a) {
-        IOR_a(file, params.num_a, tracer, mode);
-    }
-    if (params.R_t) {
-        IOR_t(file, params.num_t, tracer, mode);
-    }
+    if (params.R_rat) { IOR_rat(file, params.num_r, params.num_a, params.num_t, tracer, mode); }
+    if (params.R_ra) { IOR_ra(file, params.num_r, params.num_a, tracer, mode); }
+    if (params.R_rt) { IOR_rt(file, params.num_r, params.num_t, tracer, mode); }
+    if (params.R_at) { IOR_at(file, params.num_a, params.num_t, tracer, mode); }
+    if (params.R_r) { IOR_r(file, params.num_r, tracer, mode); }
+    if (params.R_a) { IOR_a(file, params.num_a, tracer, mode); }
+    if (params.R_t) { IOR_t(file, params.num_t, tracer, mode); }
 
     // Transmittance
-    if (params.T_rat) {
-        IOT_rat(file, params.num_r, params.num_a, params.num_t, tracer, mode);
-    }
-    if (params.T_ra) {
-        IOT_ra(file, params.num_r, params.num_a, tracer, mode);
-    }
-    if (params.T_rt) {
-        IOT_rt(file, params.num_r, params.num_t, tracer, mode);
-    }
-    if (params.T_at) {
-        IOT_at(file, params.num_a, params.num_t, tracer, mode);
-    }
-    if (params.T_r) {
-        IOT_r(file, params.num_r, tracer, mode);
-    }
-    if (params.T_a) {
-        IOT_a(file, params.num_a, tracer, mode);
-    }
-    if (params.T_t) {
-        IOT_t(file, params.num_t, tracer, mode);
-    }
+    if (params.T_rat) { IOT_rat(file, params.num_r, params.num_a, params.num_t, tracer, mode); }
+    if (params.T_ra) { IOT_ra(file, params.num_r, params.num_a, tracer, mode); }
+    if (params.T_rt) { IOT_rt(file, params.num_r, params.num_t, tracer, mode); }
+    if (params.T_at) { IOT_at(file, params.num_a, params.num_t, tracer, mode); }
+    if (params.T_r) { IOT_r(file, params.num_r, tracer, mode); }
+    if (params.T_a) { IOT_a(file, params.num_a, tracer, mode); }
+    if (params.T_t) { IOT_t(file, params.num_t, tracer, mode); }
+
+    // Absorption
+    if (params.A_rzt) { IOA_rzt(file, params.num_r, params.num_z, params.num_t, tracer, mode); }
+    if (params.A_rz) { IOA_rz(file, params.num_r, params.num_z, tracer, mode); }
+    if (params.A_zt) { IOA_zt(file, params.num_z, params.num_t, tracer, mode); }
+    if (params.A_z) { IOA_z(file, params.num_z, tracer, mode); }
+    if (params.A_t) { IOA_t(file, params.num_t, tracer, mode); }
 
     file.close();
 }

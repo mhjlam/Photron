@@ -10,22 +10,23 @@ class Timer
 public:
     Timer() : rt0(std::chrono::system_clock::now()) {}
 
-    void Reset()
+    void reset()
     {
         rt0 = std::chrono::system_clock::now();
     }
 
-    long long Punch()
+    long long punch()
     {
         auto now = std::chrono::system_clock::now();
         std::chrono::duration<double> elapsed = now - rt0;
         return std::chrono::duration_cast<std::chrono::seconds>(elapsed).count();
     }
 
-    std::string HoursMinutesSeconds(long long seconds)
+    std::string hoursMinSec(long long add_seconds = 0)
     {
-        std::chrono::duration<long long> elapsed(seconds);
-        return std::format("{:%H:%M:%S}", elapsed);
+        auto seconds = punch() + add_seconds;
+        auto duration = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::seconds(seconds));
+        return std::format("{:%H:%M:%S}", duration);
     }
 
 private:

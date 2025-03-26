@@ -28,17 +28,17 @@ void ScaleResult(RunParams&, Tracer&, ScaleMode);
 bool ReadMedia(std::fstream&, RunParams&);
 void TracePhoton(RunParams&, Photon&, Tracer&);
 bool RunNewInput(RunParams&);
-bool InputFileName(std::string&, const std::string&, std::fstream&);
+bool InputFileName(std::string&, const std::string_view&, std::fstream&);
 void ClearRun(RunParams&, Tracer&);
 bool ReadEndCriteria(std::istream&, RunParams&, bool = false);
-bool CheckFileVersion(std::fstream&, const std::string&);
+bool CheckFileVersion(std::fstream&, const std::string_view&);
 
 
 // Random number generator
 Random g_rand;
 
 // Timer
-Timer g_time;
+Timer g_timer;
 
 
 /*******************************************************************************
@@ -48,7 +48,7 @@ std::string FormDateString(RunParams& params)
 {
     auto now = std::chrono::system_clock::now();
     auto time_limit = std::chrono::seconds(params.time_limit);
-    auto punch_time = std::chrono::seconds(g_time.Punch());
+    auto punch_time = std::chrono::seconds(g_timer.punch());
     
     auto done_time = now + time_limit - punch_time;
 
@@ -105,7 +105,7 @@ void ReportStatus(RunParams& params, long photons_done)
  ****/
 void ReportResult(RunParams& params, Tracer& tracer)
 {
-    std::string time_report = g_time.HoursMinutesSeconds(g_time.Punch());
+    std::string time_report = g_timer.hoursMinSec(g_timer.punch());
     std::cout << std::endl << "Finished tracing " << params.num_photons 
               << " photons. This took " << time_report << "." << std::endl;
 
@@ -131,17 +131,17 @@ void DoOneRun(RunParams& params, Tracer& tracer, RunType run_type, std::size_t r
 {
     // Start a new simulation
     if (run_type == RunType::StartNew) {
-        if (params.source.layer == 0) {
+        if (params.source.layer_index == 0) {
             // Calculate specular reflectance
             double r = (params.layers[0].eta - params.layers[1].eta) / (params.layers[0].eta + params.layers[1].eta);
-            tracer.R.sp = (r * r);
+            tracer.R_spec = (r * r);
         }
 
         // Initialize the number generator
         g_rand.seed(1);
     }
     
-    g_time.Reset();
+    g_timer.reset();
     ReportControlInfo(params, runs_remaining);
 
     // Photon number traced
@@ -166,16 +166,16 @@ void DoOneRun(RunParams& params, Tracer& tracer, RunType run_type, std::size_t r
             exit_switch = (photon_index > params.num_photons);
         }
         else if (params.control_bit == ControlBit::TimeLimit) {
-            exit_switch = (g_time.Punch() >= params.time_limit);
+            exit_switch = (g_timer.punch() >= params.time_limit);
         }
         else {
-            exit_switch = (photon_index > params.num_photons) || (g_time.Punch() >= params.time_limit);
+            exit_switch = (photon_index > params.num_photons) || (g_timer.punch() >= params.time_limit);
         }
     }
     while (!exit_switch);
 
     params.num_photons = params.add_num_photons + photon_index - 1;
-    params.time_limit = params.add_time_limit + (long)g_time.Punch();
+    params.time_limit = params.add_time_limit + (long)g_timer.punch();
     params.control_bit = ControlBit::Both;
 
     ReportResult(params, tracer);
@@ -224,7 +224,7 @@ void FileInterSimu(RunParams& params, Tracer& tracer)
     std::string input_filename;
     std::fstream input_file;
 
-    if (InputFileName(input_filename, "mcmli2.0", input_file)) {
+    if (InputFileName(input_filename, MCI_VERSION, input_file)) {
         if (ReadMedia(input_file, params)) {
             ReadRunParams(input_file, params);
             std::cout << "The parameters of the first run have been read in." << std::endl;
@@ -243,14 +243,14 @@ void FileInterSimu(RunParams& params, Tracer& tracer)
 /*******************************************************************************
  *	Continue a previous simulation.
  ****/
-void ContinueSimu(RunParams& params, Tracer& tracer)
+void ResumeSimulation(RunParams& params, Tracer& tracer)
 {
     std::cout << "Specify the output file name of a previous simulation. " << std::endl;
     
     std::string input_filename;
     std::fstream file;
     
-    if (InputFileName(input_filename, "mcmloA2.0", file)) {
+    if (InputFileName(input_filename, MCO_VERSION, file)) {
         return;
     }
 
@@ -317,7 +317,7 @@ void BranchMainMenu(std::string& string, RunParams& params, Tracer& tracer)
             std::string input_filename;
             std::fstream input_file;
             
-            if (InputFileName(input_filename, "mcmli2.0", input_file)) {
+            if (InputFileName(input_filename, MCI_VERSION, input_file)) {
                 Simulate(input_file, params, tracer);
             }
             break;
@@ -344,7 +344,7 @@ void BranchMainMenu(std::string& string, RunParams& params, Tracer& tracer)
 
         case 'C':
         {
-            ContinueSimu(params, tracer);
+            ResumeSimulation(params, tracer);
             break;
         }
 
@@ -380,7 +380,7 @@ int main(int argc, char* argv[])
         std::fstream input_file_ptr(input_filename, std::ios::in);
 
         if (input_file_ptr.is_open()) {
-            if (CheckFileVersion(input_file_ptr, "mcmli2.0")) {
+            if (CheckFileVersion(input_file_ptr, MCI_VERSION)) {
                 RunParams params;
                 Tracer tracer;
                 Simulate(input_file_ptr, params, tracer);

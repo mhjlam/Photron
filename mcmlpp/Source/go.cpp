@@ -31,9 +31,9 @@
 void Spin(Photon& photon, double g) // g: Henyey-Greenstein asymmetry parameter
 {
     // Cosine and sine of Ψ
-    double ux = photon.ux;
-    double uy = photon.uy;
-    double uz = photon.uz;
+    double ux = photon.direction.x;
+    double uy = photon.direction.y;
+    double uz = photon.direction.z;
 
     // Sample θ
     // Generate a random variable based on the Henyey-Greenstein distribution
@@ -50,15 +50,15 @@ void Spin(Photon& photon, double g) // g: Henyey-Greenstein asymmetry parameter
 
     // Close to perpendicular
     if (1.0 - std::abs(uz) <= COS_0_TOLERANCE) {
-        photon.ux = sin_theta * cos_psi;
-        photon.uy = sin_theta * sin_psi;
-        photon.uz = cos_theta * std::copysign(1.0, uz);
+        photon.direction.x = sin_theta * cos_psi;
+        photon.direction.y = sin_theta * sin_psi;
+        photon.direction.z = cos_theta * std::copysign(1.0, uz);
     }
     else {
         double temp = std::sqrt(1.0 - uz * uz);
-        photon.ux =  sin_theta * (ux * uz * cos_psi - uy * sin_psi) / temp + ux * cos_theta;
-        photon.uy =  sin_theta * (uy * uz * cos_psi + ux * sin_psi) / temp + uy * cos_theta;
-        photon.uz = -sin_theta * cos_psi * temp + uz * cos_theta;
+        photon.direction.x = sin_theta * (ux * uz * cos_psi - uy * sin_psi) / temp + ux * cos_theta;
+        photon.direction.y = sin_theta * (uy * uz * cos_psi + ux * sin_psi) / temp + uy * cos_theta;
+        photon.direction.z = -sin_theta * cos_psi * temp + uz * cos_theta;
     }
 }
 
@@ -71,26 +71,26 @@ void Spin(Photon& photon, double g) // g: Henyey-Greenstein asymmetry parameter
  ****/
 void LaunchPhoton(RunParams& params, Tracer& tracer, Photon& photon)
 {
-    photon.weight = 1.0 - tracer.R.sp;
+    photon.weight = 1.0 - tracer.R_spec;
     photon.alive = 1;
-    photon.current_layer = (params.source.layer != 0) ? params.source.layer : 1;
+    photon.current_layer = (params.source.layer_index != 0) ? params.source.layer_index : 1;
     photon.step_size = 0;
     photon.step_size_left = 0;
     photon.num_scatters = 0;
     photon.flight_time = 0;
 
-    photon.x = 0.0;
-    photon.y = 0.0;
-    photon.z = params.source.z;
-    photon.ux = 0.0;
-    photon.uy = 0.0;
-    photon.uz = 1.0;
+    photon.position.x = 0.0;
+    photon.position.y = 0.0;
+    photon.position.z = params.source.z;
+    photon.direction.x = 0.0;
+    photon.direction.y = 0.0;
+    photon.direction.z = 1.0;
 
-    tracer.A.ai = 0.0;
-    tracer.T.bi = 0.0;
-    tracer.T.di = 0.0;
-    tracer.R.bi = 0.0;
-    tracer.R.di = 0.0;
+    tracer.A_i = 0.0;
+    tracer.Tb_i = 0.0;
+    tracer.T_i = 0.0;
+    tracer.Rb_i = 0.0;
+    tracer.R_i = 0.0;
 
     if (params.source.beam  == BeamType::Isotropic) {
         Layer layer = params.layers[photon.current_layer];
@@ -104,7 +104,8 @@ void LaunchPhoton(RunParams& params, Tracer& tracer, Photon& photon)
         // Glass layer.
         if (layer.mu_a == 0.0 && layer.mu_s == 0.0) {
             // Total internal reflection
-            if (std::abs(photon.uz) <= layer.cos_theta_c0 && std::abs(photon.uz) <= layer.cos_theta_c1) {
+            if (std::abs(photon.direction.z) <= layer.cos_theta_c0 && 
+                std::abs(photon.direction.z) <= layer.cos_theta_c1) {
                 photon.alive = 0;
             }
         }
@@ -116,9 +117,9 @@ void LaunchPhoton(RunParams& params, Tracer& tracer, Photon& photon)
  ****/
 void Hop(Photon& photon, double dist, double n)
 {
-    photon.x += dist * photon.ux;
-    photon.y += dist * photon.uy;
-    photon.z += dist * photon.uz;
+    photon.position.x += dist * photon.direction.x;
+    photon.position.y += dist * photon.direction.y;
+    photon.position.z += dist * photon.direction.z;
     photon.flight_time += dist * n * SPEED_OF_LIGHT_INV;
 }
 
@@ -145,18 +146,18 @@ double PathToBoundary(Photon& photon, RunParams& params)
 {
     // Length to boundary
     short layer = photon.current_layer;
-    double uz = photon.uz;
+    double uz = photon.direction.z;
 
     // Distance to the boundary
     double path = std::numeric_limits<double>::max(); // infinity
 
     // Path > 0
     if (uz > 0.0) {
-        path = (params.layers[layer].bot_z - photon.z) / uz;
+        path = (params.layers[layer].z1 - photon.position.z) / uz;
     }
     // Path > 0
     else if (uz < 0.0) {
-        path = (params.layers[layer].top_z - photon.z) / uz;
+        path = (params.layers[layer].z0 - photon.position.z) / uz;
     }
 
     return path;
@@ -170,8 +171,8 @@ double PathToBoundary(Photon& photon, RunParams& params)
 void Drop(RunParams& params, Photon& photon, Tracer& tracer)
 {
     // Absorbed weight
-    double x = photon.x;
-    double y = photon.y;
+    double x = photon.position.x;
+    double y = photon.position.y;
 
     short layer = photon.current_layer;
 
@@ -185,11 +186,11 @@ void Drop(RunParams& params, Photon& photon, Tracer& tracer)
     std::size_t iz, ir, it;
 
     if (params.A_rzt || params.A_zt || params.A_z || params.A_rz) {
-        if (photon.z >= params.max_z) {
+        if (photon.position.z >= params.max_z) {
             iz = params.num_z - 1;
         }
         else {
-            iz = static_cast<short>(photon.z / params.grid_z);
+            iz = static_cast<short>(photon.position.z / params.grid_z);
         }
     }
 
@@ -216,34 +217,34 @@ void Drop(RunParams& params, Photon& photon, Tracer& tracer)
             }
         }
         if (params.A_rzt) {
-            tracer.A.rzt[ir][iz][it] += dwa;
+            tracer.A_rzt[ir][iz][it] += dwa;
         }
         if (params.A_rz) {
-            tracer.A.rz[ir][iz] += dwa;
+            tracer.A_rz[ir][iz] += dwa;
         }
     }
 
     // Ballistic
     else {
         if (params.A_rzt) {
-            tracer.A.bzt[iz][it] += dwa;
+            tracer.Ab_zt[iz][it] += dwa;
         }
         if (params.A_rz) {
-            tracer.A.bz[iz] += dwa;
+            tracer.Ab_z[iz] += dwa;
         }
     }
 
     if (params.A_zt) {
-        tracer.A.zt[iz][it] += dwa;
+        tracer.A_zt[iz][it] += dwa;
     }
     if (params.A_z) {
-        tracer.A.z[iz] += dwa;
+        tracer.A_z[iz] += dwa;
     }
 
     if (params.A_t) {
-        tracer.A.t[it] += dwa;
+        tracer.A_t[it] += dwa;
     }
-    tracer.A.ai += dwa;
+    tracer.A_i += dwa;
 }
 
 /*******************************************************************************
@@ -336,8 +337,8 @@ double FresnelReflectance(double eta_i, double eta_t, double cos_ai, double& cos
  ****/
 void RecordReflectance(RunParams& params, Photon& photon, Tracer& tracer, double reflectance)
 {
-    double x = photon.x;
-    double y = photon.y;
+    double x = photon.position.x;
+    double y = photon.position.y;
 
     // Index to r & angle
     std::size_t ir, ia, it;
@@ -363,42 +364,41 @@ void RecordReflectance(RunParams& params, Photon& photon, Tracer& tracer, double
             }
         }
         if (params.R_rat || params.R_at || params.R_ra || params.R_a) {
-            if ((ia = static_cast<short>(std::acos(-photon.uz) / params.grid_a) > params.num_a - 1)) {
+            if ((ia = static_cast<short>(std::acos(-photon.direction.z) / params.grid_a) > params.num_a - 1)) {
                 ia = params.num_a - 1;
             }
         }
 
         // Assign photon weight to the reflection array element
         if (params.R_rat) {
-            tracer.R.rat[ir][ia][it] += photon.weight * (1.0 - reflectance);
+            tracer.R_rat[ir][ia][it] += photon.weight * (1.0 - reflectance);
         }
         if (params.R_ra) {
-            tracer.R.ra[ir][ia] += photon.weight * (1.0 - reflectance);
+            tracer.R_ra[ir][ia] += photon.weight * (1.0 - reflectance);
         }
 
         if (params.R_rt) {
-            tracer.R.rt[ir][it] += photon.weight * (1.0 - reflectance);
+            tracer.R_rt[ir][it] += photon.weight * (1.0 - reflectance);
         }
         if (params.R_r) {
-            tracer.R.r[ir] += photon.weight * (1.0 - reflectance);
+            tracer.R_r[ir] += photon.weight * (1.0 - reflectance);
         }
 
         if (params.R_at) {
-            tracer.R.at[ia][it] += photon.weight * (1.0 - reflectance);
+            tracer.R_at[ia][it] += photon.weight * (1.0 - reflectance);
         }
         if (params.R_a) {
-            tracer.R.a[ia] += photon.weight * (1.0 - reflectance);
+            tracer.R_a[ia] += photon.weight * (1.0 - reflectance);
         }
         if (params.R_t) {
-            tracer.R.t[it] += photon.weight * (1.0 - reflectance);
+            tracer.R_t[it] += photon.weight * (1.0 - reflectance);
         }
-        tracer.R.di += photon.weight * (1.0 - reflectance);
-
+        tracer.R_i += photon.weight * (1.0 - reflectance);
     }
 
     // Ballistic reflection
     else {
-        tracer.R.bi += photon.weight * (1.0 - reflectance);
+        tracer.Rb_i += photon.weight * (1.0 - reflectance);
     }
 
     photon.weight *= reflectance;
@@ -410,8 +410,8 @@ void RecordReflectance(RunParams& params, Photon& photon, Tracer& tracer, double
  ****/
 void RecordTransmittance(RunParams& params, Photon& photon, Tracer& tracer, double reflectance)
 {
-    double x = photon.x;
-    double y = photon.y;
+    double x = photon.position.x;
+    double y = photon.position.y;
 
     // Index to r & angle
     std::size_t ir, ia, it;
@@ -436,42 +436,42 @@ void RecordTransmittance(RunParams& params, Photon& photon, Tracer& tracer, doub
             }
         }
         if (params.T_rat || params.T_at || params.T_ra || params.T_a) {
-            if ((ia = static_cast<short>(std::acos(photon.uz) / params.grid_a) > params.num_a - 1)) {
+            if ((ia = static_cast<short>(std::acos(photon.direction.z) / params.grid_a) > params.num_a - 1)) {
                 ia = params.num_a - 1;
             }
         }
 
         // Assign photon weight to the transmittance array element
         if (params.T_rat) {
-            tracer.T.rat[ir][ia][it] += photon.weight * (1.0 - reflectance);
+            tracer.T_rat[ir][ia][it] += photon.weight * (1.0 - reflectance);
         }
         if (params.T_ra) {
-            tracer.T.ra[ir][ia] += photon.weight * (1.0 - reflectance);
+            tracer.T_ra[ir][ia] += photon.weight * (1.0 - reflectance);
         }
 
         if (params.T_rt) {
-            tracer.T.rt[ir][it] += photon.weight * (1.0 - reflectance);
+            tracer.T_rt[ir][it] += photon.weight * (1.0 - reflectance);
         }
         if (params.T_r) {
-            tracer.T.r[ir] += photon.weight * (1.0 - reflectance);
+            tracer.T_r[ir] += photon.weight * (1.0 - reflectance);
         }
 
         if (params.T_at) {
-            tracer.T.at[ia][it] += photon.weight * (1.0 - reflectance);
+            tracer.T_at[ia][it] += photon.weight * (1.0 - reflectance);
         }
         if (params.T_a) {
-            tracer.T.a[ia] += photon.weight * (1.0 - reflectance);
+            tracer.T_a[ia] += photon.weight * (1.0 - reflectance);
         }
 
         if (params.T_t) {
-            tracer.T.t[it] += photon.weight * (1.0 - reflectance);
+            tracer.T_t[it] += photon.weight * (1.0 - reflectance);
         }
-        tracer.T.di += photon.weight * (1.0 - reflectance);
+        tracer.T_i += photon.weight * (1.0 - reflectance);
     }
 
     // Collimated
     else {
-        tracer.T.bi += photon.weight * (1.0 - reflectance);
+        tracer.Tb_i += photon.weight * (1.0 - reflectance);
     }
 
     photon.weight *= reflectance;
@@ -496,7 +496,7 @@ void RecordTransmittance(RunParams& params, Photon& photon, Tracer& tracer, doub
 void CrossUp(RunParams& params, Photon& photon, Tracer& tracer)
 {
     // Z directional cosine
-    double uz = photon.uz;
+    double uz = photon.direction.z;
 
     // Cosines of transmission alpha.
     double uz1 = 0.0;
@@ -511,20 +511,20 @@ void CrossUp(RunParams& params, Photon& photon, Tracer& tracer)
     if (PARTIAL_REFLECTION) {
         // Partially transmitted
         if (layer == 1 && refl < 1.0) {
-            photon.uz = -uz1; // Escaped photon
+            photon.direction.z = -uz1; // Escaped photon
             RecordReflectance(params, photon, tracer, refl);
-            photon.uz = -uz; // Reflected photon
+            photon.direction.z = -uz; // Reflected photon
         }
         // Transmitted to current_layer - 1
         else if (g_rand.next() > refl) {
             photon.current_layer--;
-            photon.ux *= eta_i / eta_t;
-            photon.uy *= eta_i / eta_t;
-            photon.uz = -uz1;
+            photon.direction.x *= eta_i / eta_t;
+            photon.direction.y *= eta_i / eta_t;
+            photon.direction.z = -uz1;
         }
         // Reflected
         else {
-            photon.uz = -uz;
+            photon.direction.z = -uz;
         }
     }
     else {
@@ -532,20 +532,20 @@ void CrossUp(RunParams& params, Photon& photon, Tracer& tracer)
         if (g_rand.next() > refl) {
             // Escaped
             if (layer == 1) {
-                photon.uz = -uz1;
+                photon.direction.z = -uz1;
                 RecordReflectance(params, photon, tracer, 0.0);
                 photon.alive = 0;
             }
             else {
                 photon.current_layer--;
-                photon.ux *= eta_i / eta_t;
-                photon.uy *= eta_i / eta_t;
-                photon.uz = -uz1;
+                photon.direction.x *= eta_i / eta_t;
+                photon.direction.y *= eta_i / eta_t;
+                photon.direction.z = -uz1;
             }
         }
         // Reflected
         else {
-            photon.uz = -uz;
+            photon.direction.z = -uz;
         }
     }
 }
@@ -562,7 +562,7 @@ void CrossUp(RunParams& params, Photon& photon, Tracer& tracer)
 void CrossDown(RunParams& params, Photon& photon, Tracer& tracer)
 {
     // Z directional cosine
-    double uz = photon.uz;
+    double uz = photon.direction.z;
 
     // Cosines of transmission alpha
     double uz1 = 0.0;
@@ -577,21 +577,21 @@ void CrossDown(RunParams& params, Photon& photon, Tracer& tracer)
     if (PARTIAL_REFLECTION)
     {
         if (layer == params.num_layers && refl < 1.0) {
-            photon.uz = uz1;
+            photon.direction.z = uz1;
             RecordTransmittance(params, photon, tracer, refl);
-            photon.uz = -uz;
+            photon.direction.z = -uz;
         }
         // Transmitted to current_layer + 1
         else if (g_rand.next() > refl) {
             photon.current_layer++;
-            photon.ux *= eta_i / eta_t;
-            photon.uy *= eta_i / eta_t;
-            photon.uz = uz1;
+            photon.direction.x *= eta_i / eta_t;
+            photon.direction.y *= eta_i / eta_t;
+            photon.direction.z = uz1;
         }
         // Reflected
         else
         {
-            photon.uz = -uz;
+            photon.direction.z = -uz;
         }
     }
     else 
@@ -599,7 +599,7 @@ void CrossDown(RunParams& params, Photon& photon, Tracer& tracer)
         // Transmitted to current_layer + 1
         if (g_rand.next() > refl) {
             if (layer == params.num_layers) {
-                photon.uz = uz1;
+                photon.direction.z = uz1;
                 RecordTransmittance(params, photon, tracer, 0.0);
 
                 // Escaped
@@ -607,14 +607,14 @@ void CrossDown(RunParams& params, Photon& photon, Tracer& tracer)
             }
             else {
                 photon.current_layer++;
-                photon.ux *= eta_i / eta_t;
-                photon.uy *= eta_i / eta_t;
-                photon.uz = uz1;
+                photon.direction.x *= eta_i / eta_t;
+                photon.direction.y *= eta_i / eta_t;
+                photon.direction.z = uz1;
             }
         }
         // Reflected
         else {
-            photon.uz = -uz;
+            photon.direction.z = -uz;
         }
     }
 }
@@ -650,7 +650,7 @@ void HopDropSpin(RunParams& params, Photon& photon, Tracer& tracer)
         // Update s
         photon.step_size -= path * mu_t;
 
-        if (photon.uz < 0.0) {
+        if (photon.direction.z < 0.0) {
             CrossUp(params, photon, tracer);
         }
         else {
@@ -682,16 +682,16 @@ void TracePhoton(RunParams& params, Photon& photon, Tracer& tracer)
         }
     } while (photon.alive);
 
-    tracer.A.ab += tracer.A.ai;
-    tracer.A.ae += tracer.A.ai * tracer.A.ai;
+    tracer.A_total += tracer.A_i;
+    tracer.A_error += tracer.A_i * tracer.A_i;
 
-    tracer.T.br += tracer.T.bi;
-    tracer.T.be += tracer.T.bi * tracer.T.bi;
-    tracer.T.dr += tracer.T.di;
-    tracer.T.de += tracer.T.di * tracer.T.di;
+    tracer.Tb_total += tracer.Tb_i;
+    tracer.Tb_error += tracer.Tb_i * tracer.Tb_i;
+    tracer.T_total += tracer.T_i;
+    tracer.T_error += tracer.T_i * tracer.T_i;
 
-    tracer.R.br += tracer.R.bi;
-    tracer.R.be += tracer.R.bi * tracer.R.bi;
-    tracer.R.dr += tracer.R.di;
-    tracer.R.de += tracer.R.di * tracer.R.di;
+    tracer.Rb_total += tracer.Rb_i;
+    tracer.Rb_error += tracer.Rb_i * tracer.Rb_i;
+    tracer.R_total += tracer.R_i;
+    tracer.R_error += tracer.R_i * tracer.R_i;
 }

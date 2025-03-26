@@ -17,7 +17,7 @@
 ################################################################################
 
 # File version
-mcmli2.0
+mcmli_3.0
 
 #########
 # Media #
@@ -36,9 +36,9 @@ end #of media
 # Output file	ASCII/Binary
 sample1a.mco	A
 
-############
+##########
 # Layers #
-############
+##########
 
 # Medium    Thickness
   air
@@ -53,7 +53,7 @@ end #of layers
 # Type: pencil/isotropic
 pencil
 
-# Starting z position
+# Source z position
 0
 
 #########
@@ -66,7 +66,7 @@ pencil
 #	nz	nr	nt	na
 	1	1	1	30
 
-# scored data categories 
+# Scored data categories 
 Rd_a
 
 ######################
@@ -76,10 +76,10 @@ Rd_a
 # photons	time
 1000000		4:00
 
-# threshold weight
+# Weight threshold
 1E-4
 
-# random number seed
+# Random number seed
 1
 
 # end of run 1

@@ -6,6 +6,7 @@
 #include <sstream>
 
 
+// Random number generator
 class Random
 {
 private:
@@ -29,7 +30,7 @@ public:
     }
 
     // Save the current state of the generator
-    std::vector<std::uint32_t> getState() const
+    std::vector<std::uint32_t> state() const
     {
         std::ostringstream oss;
         oss << rng; // Serialize generator state
@@ -44,7 +45,7 @@ public:
     }
 
     // Restore generator state
-    void setState(const std::vector<std::uint32_t>& status)
+    void state(const std::vector<std::uint32_t>& status)
     {
         std::ostringstream oss;
         for (std::uint32_t value : status) {
