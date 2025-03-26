@@ -12,99 +12,43 @@
 #include <fstream>
 #include <iostream>
 
+#include "timer.hpp"
 #include "random.hpp"
 
 
-using str = std::string;
+void InitTracer(RunParams&, Tracer&);
+std::string NextDataLine(std::istream&);
+void InterReadParams(RunParams&);
+void LaunchPhoton(RunParams&, Tracer&, Photon&);
+void AboutMCML();
+void ReadWriteResults(std::fstream&, RunParams&, Tracer&, IoMode);
+void CheckParamFromFile(std::fstream&, RunParams&);
+void ReadRunParams(std::fstream&, RunParams&);
+void ScaleResult(RunParams&, Tracer&, ScaleMode);
+bool ReadMedia(std::fstream&, RunParams&);
+void TracePhoton(RunParams&, Photon&, Tracer&);
+bool RunNewInput(RunParams&);
+bool InputFileName(std::string&, const std::string&, std::fstream&);
+void ClearRun(RunParams&, Tracer&);
+bool ReadEndCriteria(std::istream&, RunParams&, bool = false);
+bool CheckFileVersion(std::fstream&, const std::string&);
 
-void    InitTracer(RunParams&, Tracer&);
-str     FindDataLine(std::istream&);
-void    InterReadParams(RunParams&);
-void    LaunchPhoton(double, RunParams&, Tracer&, Photon&);
-void    AboutMCML();
-void    ReadWriteResults(std::fstream&, RunParams&, Tracer&, IoMode);
-void    CheckParamFromFile(std::fstream&, RunParams&);
-void    ReadRunParams(std::fstream&, RunParams&);
-void    ScaleResult(RunParams&, Tracer&, ScaleMode);
-double  Rspecular(std::vector<Layer>&);
-bool    ReadMediumListQ(std::fstream&, RunParams&);
-void    TracePhoton(RunParams&, Photon&, Tracer&);
-bool    RunNewInput(RunParams&);
-bool    GetFile(std::string&, const std::string&, std::fstream&);
-void    ClearRun(RunParams&, Tracer&);
-bool    ReadEndCriteria(std::istream&, RunParams&, bool = false);
-bool    CheckFileVersion(std::fstream&, const std::string&);
 
 // Random number generator
-Random Rand;
+Random g_rand;
 
-// Real time reference
-static std::chrono::system_clock::time_point RealTimeRef;
+// Timer
+Timer g_time;
 
-
-/*******************************************************************************
- *  Mode = ResetTimer:      reset the clock
- *  Mode = TimeElapsed:     return elapsed time since last reset
- *  Mode = TimeElapsedStr:  return elapsed time since last reset and pass 
- *                          the real time to output string
- ****/
-long long PunchTime(PunchMode mode, std::string& msg, RunParams& params)
-{
-    if (mode == PunchMode::ResetTimer) {
-        RealTimeRef = std::chrono::system_clock::now();
-        return 0;
-    }
-
-    auto now = std::chrono::system_clock::now();
-    std::chrono::duration<double> elapsed = now - RealTimeRef;
-
-    // Show & pass real time
-    auto real_time_secs = std::chrono::duration_cast<std::chrono::seconds>(now - RealTimeRef);
-
-    
-    if (mode == PunchMode::TimeElapsedStr) {
-        real_time_secs += std::chrono::seconds(params.add_limit);
-        msg = std::format("This took {:%H:%M:%S}.", elapsed);
-    }
-
-    // Return time elapsed since last reset
-    return real_time_secs.count();
-}
-
-/*******************************************************************************
- *	Print the current time and the estimated finishing time.
- ****/
-void PredictDoneTime(long photonsComputed, RunParams& params)
-{
-    auto now = std::chrono::system_clock::now();
-    std::cout << std::format("{:%H:%M %a %m/%d/%Y}\t", now);
-
-    if (params.control_bit == ControlBit::TimeLimit || params.control_bit == ControlBit::Both) {
-        std::string msg;
-
-        auto done_time = now + (std::chrono::seconds(PunchTime(PunchMode::TimeElapsed, msg, params)) / std::chrono::seconds(photonsComputed) * std::chrono::seconds(params.num_photons - photonsComputed));
-
-        if (params.control_bit == ControlBit::Both) {
-            if (!(done_time < (now + std::chrono::seconds(params.time_limit) - std::chrono::seconds(PunchTime(PunchMode::TimeElapsed, msg, params))))) {
-                done_time = (now + std::chrono::seconds(params.time_limit) - std::chrono::seconds(PunchTime(PunchMode::TimeElapsed, msg, params)));
-            }
-        }
-
-        std::cout << std::format("{:%H:%M %a %Y/%m/%d}", done_time);
-    }
-    std::cout << std::endl;
-}
 
 /*******************************************************************************
  *	Generate a string representing the user-specified done time.
  ****/
 std::string FormDateString(RunParams& params)
 {
-    std::string msg;
-
     auto now = std::chrono::system_clock::now();
     auto time_limit = std::chrono::seconds(params.time_limit);
-    auto punch_time = std::chrono::seconds(PunchTime(PunchMode::TimeElapsed, msg, params));
+    auto punch_time = std::chrono::seconds(g_time.Punch());
     
     auto done_time = now + time_limit - punch_time;
 
@@ -114,29 +58,29 @@ std::string FormDateString(RunParams& params)
 /*******************************************************************************
  *	Report how and when the simultion will be terminated.
  ****/
-void ReportControlInfo(short NumRunsLeft, RunParams& params)
+void ReportControlInfo(RunParams& params, std::size_t runs_remaining)
 {
-    std::cout << std::endl << "Starting run #" << params.num_runs - NumRunsLeft  << ". ";
+    std::cout << std::endl << "Starting run #" << params.num_runs - runs_remaining  << ". ";
     switch (params.control_bit) {
         case ControlBit::NumPhotons: {
             std::cout << "Tracing " << params.num_photons << " photons." << std::endl << std::endl;
-            std::cout << "\tPhotons Done\tCurrent Time\t\tEstimated Done Time" << std::endl;
-            std::cout << "\t------------\t--------------------\t--------------------" << std::endl;
+            std::cout << "\tPhotons Done" << std::endl;
+            std::cout << "\t------------" << std::endl;
             break;
         }
         case ControlBit::TimeLimit: {
             std::string date = FormDateString(params);
-            std::cout << "The simulation will terminate on " << date << ".\n" << std::endl;
-            std::cout << "\tPhotons Done\tCurrent Time" << std::endl;
-            std::cout << "\t------------\t--------------------" << std::endl;
+            std::cout << "The simulation will terminate on " << date << "." << std::endl << std::endl;
+            std::cout << "\tPhotons Done" << std::endl;
+            std::cout << "\t------------" << std::endl;
             break;
         }
         case ControlBit::Both: {
             std::string date = FormDateString(params);
             std::cout << "Tracing " << params.num_photons << " photons ";
-            std::cout << "with a deadline at " << date << ".\n" << std::endl;
-            std::cout << "\tPhotons Done\tCurrent Time\t\tEstimated Done Time" << std::endl;
-            std::cout << "\t------------\t--------------------\t--------------------" << std::endl;
+            std::cout << "with a deadline at " << date << "." << std::endl << std::endl;
+            std::cout << "\tPhotons Done" << std::endl;
+            std::cout << "\t------------" << std::endl;
             break;
         }
     }
@@ -146,19 +90,14 @@ void ReportControlInfo(short NumRunsLeft, RunParams& params)
  *	Report the estimated time, number of photons and runs left after calculating
  *  10 photons or every 1/10th of total number of photons.
  ****/
-void ReportStatus(long numTraced, RunParams& params)
+void ReportStatus(RunParams& params, long photons_done)
 {
     if (params.control_bit == ControlBit::TimeLimit) {
-        std::cout << std::format("{:>11} ({:6.2f}%)\t", numTraced, (float)numTraced * 100 / params.num_photons);
-    }
-    else if (params.control_bit == ControlBit::Both) {
-        std::cout << std::format("\t{:>12}\t", numTraced);
+        std::cout << std::format("\t{:>12}\t", photons_done) << std::endl;
     }
     else {
-        std::cout << std::format("{:>11} ({:6.2f}%)\t", numTraced, (float)numTraced * 100 / params.num_photons);
+        std::cout << std::format("{:>11} ({:6.2f}%)\t", photons_done, (float)photons_done * 100 / params.num_photons) << std::endl;
     }
-
-    PredictDoneTime(numTraced, params);
 }
 
 /*******************************************************************************
@@ -166,9 +105,9 @@ void ReportStatus(long numTraced, RunParams& params)
  ****/
 void ReportResult(RunParams& params, Tracer& tracer)
 {
-    std::string time_report;
-    PunchTime(PunchMode::TimeElapsedStr, time_report, params);
-    std::cout << std::endl << "Finished tracing " << params.num_photons << " photons. " << time_report << std::endl;
+    std::string time_report = g_time.HoursMinutesSeconds(g_time.Punch());
+    std::cout << std::endl << "Finished tracing " << params.num_photons 
+              << " photons. This took " << time_report << "." << std::endl;
 
     ScaleResult(params, tracer, ScaleMode::Scale);
 
@@ -188,21 +127,22 @@ void ReportResult(RunParams& params, Tracer& tracer)
  *  Type 0: start a new simulation.
  *  Type 1: continue previous simulation.
  ****/
-void DoOneRun(short runsRemaining, RunParams& params, Tracer& tracer, RunType runType)
+void DoOneRun(RunParams& params, Tracer& tracer, RunType run_type, std::size_t runs_remaining = 0)
 {
     // Start a new simulation
-    if (runType == RunType::StartNew) {
-        if (params.source_layer == 0) {
-            tracer.R.sp = Rspecular(params.layers);
+    if (run_type == RunType::StartNew) {
+        if (params.source.layer == 0) {
+            // Calculate specular reflectance
+            double r = (params.layers[0].eta - params.layers[1].eta) / (params.layers[0].eta + params.layers[1].eta);
+            tracer.R.sp = (r * r);
         }
 
         // Initialize the number generator
-        Rand.seed(1);
+        g_rand.seed(1);
     }
     
-    std::string msg;
-    PunchTime(PunchMode::ResetTimer, msg, params);
-    ReportControlInfo(runsRemaining, params);
+    g_time.Reset();
+    ReportControlInfo(params, runs_remaining);
 
     // Photon number traced
     long photon_index = 1;
@@ -213,29 +153,29 @@ void DoOneRun(short runsRemaining, RunParams& params, Tracer& tracer, RunType ru
     int tens = 10;
     do {
         Photon photon;
-        LaunchPhoton(tracer.R.sp, params, tracer, photon);
+        LaunchPhoton(params, tracer, photon);
         TracePhoton(params, photon, tracer);
 
         // Report status every ten photons
         if (photon_index == tens) {
             tens *= 10;
-            ReportStatus(photon_index, params);
+            ReportStatus(params, photon_index);
         }
         photon_index++;
         if (params.control_bit == ControlBit::NumPhotons) {
             exit_switch = (photon_index > params.num_photons);
         }
         else if (params.control_bit == ControlBit::TimeLimit) {
-            exit_switch = (PunchTime(PunchMode::TimeElapsed, msg, params) >= params.time_limit);
+            exit_switch = (g_time.Punch() >= params.time_limit);
         }
         else {
-            exit_switch = (photon_index > params.num_photons) || (PunchTime(PunchMode::TimeElapsed, msg, params) >= params.time_limit);
+            exit_switch = (photon_index > params.num_photons) || (g_time.Punch() >= params.time_limit);
         }
     }
     while (!exit_switch);
 
     params.num_photons = params.add_num_photons + photon_index - 1;
-    params.time_limit = params.add_limit + (long)PunchTime(PunchMode::TimeElapsed, msg, params);
+    params.time_limit = params.add_time_limit + (long)g_time.Punch();
     params.control_bit = ControlBit::Both;
 
     ReportResult(params, tracer);
@@ -264,12 +204,14 @@ void AddNumPhotons(RunParams& params)
 void Simulate(std::fstream& file, RunParams& params, Tracer& tracer)
 {
     CheckParamFromFile(file, params);
-    short num_runs_left = params.num_runs;
+    std::size_t num_runs_left = params.num_runs;
+
     while (num_runs_left--) {
         ReadRunParams(file, params);
         InitTracer(params, tracer);
-        DoOneRun(num_runs_left, params, tracer, RunType::StartNew);
+        DoOneRun(params, tracer, RunType::StartNew, num_runs_left);
     }
+
     file.close();
     std::exit(0);
 }
@@ -282,14 +224,14 @@ void FileInterSimu(RunParams& params, Tracer& tracer)
     std::string input_filename;
     std::fstream input_file;
 
-    if (GetFile(input_filename, "mcmli2.0", input_file)) {
-        if (ReadMediumListQ(input_file, params)) {
+    if (InputFileName(input_filename, "mcmli2.0", input_file)) {
+        if (ReadMedia(input_file, params)) {
             ReadRunParams(input_file, params);
             std::cout << "The parameters of the first run have been read in." << std::endl;
 
             if (RunNewInput(params)) {
                 InitTracer(params, tracer);
-                DoOneRun(0, params, tracer, RunType::StartNew);
+                DoOneRun(params, tracer, RunType::StartNew);
                 input_file.close();
                 std::exit(0);
             }
@@ -308,13 +250,13 @@ void ContinueSimu(RunParams& params, Tracer& tracer)
     std::string input_filename;
     std::fstream file;
     
-    if (GetFile(input_filename, "mcmloA2.0", file)) {
+    if (InputFileName(input_filename, "mcmloA2.0", file)) {
         return;
     }
 
     // skip the line of file version.
-    FindDataLine(file);
-    if (!ReadMediumListQ(file, params)) {
+    NextDataLine(file);
+    if (!ReadMedia(file, params)) {
         std::exit(1);
     }
     ReadRunParams(file, params);
@@ -325,8 +267,8 @@ void ContinueSimu(RunParams& params, Tracer& tracer)
     ScaleResult(params, tracer, ScaleMode::Unscale);
 
     std::swap(params.num_photons, params.add_num_photons);
-    std::swap(params.time_limit, params.add_limit);
-    DoOneRun(0, params, tracer, RunType::Continue);
+    std::swap(params.time_limit, params.add_time_limit);
+    DoOneRun(params, tracer, RunType::Continue);
     std::exit(0);
 }
 
@@ -375,7 +317,7 @@ void BranchMainMenu(std::string& string, RunParams& params, Tracer& tracer)
             std::string input_filename;
             std::fstream input_file;
             
-            if (GetFile(input_filename, "mcmli2.0", input_file)) {
+            if (InputFileName(input_filename, "mcmli2.0", input_file)) {
                 Simulate(input_file, params, tracer);
             }
             break;
@@ -394,7 +336,7 @@ void BranchMainMenu(std::string& string, RunParams& params, Tracer& tracer)
             InterReadParams(params);
             if (RunNewInput(params)) {
                 InitTracer(params, tracer);
-                DoOneRun(0, params, tracer, RunType::StartNew);
+                DoOneRun(params, tracer, RunType::StartNew);
                 std::exit(0);
             }
             break;

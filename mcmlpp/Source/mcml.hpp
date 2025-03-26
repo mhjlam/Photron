@@ -48,7 +48,7 @@
  *	Major modifications in version 2.0 include:
  *		- Allow interactive input of parameters.
  *		- Allow to score various simulation quantities.
- *		- Time-resolved simulation.
+ *		- g_time-resolved simulation.
  *		- Adjustable source position.
  *		- Support Isotropic source.
  *		- Simulation time control in addition to photon control.
@@ -87,7 +87,7 @@ template <typename T> using vec1 = std::vector<T>;
 template <typename T> using vec2 = std::vector<std::vector<T>>;
 template <typename T> using vec3 = std::vector<std::vector<std::vector<T>>>;
 
-using unique_strings = std::unordered_set<std::string>;
+using unique_str = std::unordered_set<std::string>;
 
 
 // Roulette survival chance
@@ -127,7 +127,7 @@ enum class BeamType
 enum class ControlBit
 {
     NumPhotons,                         // Photon number only
-    TimeLimit,                          // Time limit only
+    TimeLimit,                          // g_time limit only
     Both                                // Both photon number and time limit
 };
 
@@ -175,34 +175,6 @@ struct Photon
 };
 
 /*******************************************************************************
- *  Specify which quantity/quantities should be scored.
- ****/
-struct Record
-{
-    bool Rd_rat{ false };                 // Diffuse reflectance [1/(cm² sr ps)]
-    bool Rd_ra{ false };                  // Diffuse reflectance [1/(cm² sr)]
-    bool Rd_rt{ false };                  // Diffuse reflectance [1/sr ps]
-    bool Rd_at{ false };                  // Diffuse reflectance [1/(cm² ps)]
-    bool Rd_r{ false };                   // Diffuse reflectance [1/cm²]
-    bool Rd_a{ false };                   // Diffuse reflectance [1/sr]
-    bool Rd_t{ false };                   // Diffuse reflectance [1/ps]
-
-    bool Td_rat{ false };                 // Diffuse transmittance [1/(cm² sr ps)]
-    bool Td_ra{ false };                  // Diffuse transmittance [1/(cm² sr)]
-    bool Td_rt{ false };                  // Diffuse transmittance [1/sr ps]
-    bool Td_at{ false };                  // Diffuse transmittance [1/(cm² ps)]
-    bool Td_r{ false };                   // Diffuse transmittance [1/cm²]
-    bool Td_a{ false };                   // Diffuse transmittance [1/sr]
-    bool Td_t{ false };                   // Diffuse transmittance [1/ps]
-
-    bool A_rzt{ false };                  // Absorption [1/(cm² sr ps)]
-    bool A_rz{ false };                   // Absorption [1/cm²]
-    bool A_zt{ false };                   // Absorption [1/(cm² ps)]
-    bool A_z{ false };                    // Absorption [1/cm²]
-    bool A_t{ false };                    // Absorption [1/ps]
-};
-
-/*******************************************************************************
  *	Structure used to describe the geometry and optical properties of a layer.
  *	Top and bottom are the z coordinates for the upper boundary and lower
  *  boundary respectively.
@@ -221,12 +193,22 @@ struct Layer
     double      bot_z{};                // Bottom z coordinate [cm]
 
     double      eta{};	                // Refractive index
-    double      mua{};	                // Absorption coefficient [1/cm] 
-    double      mus{};	                // Scattering coefficient [1/cm] 
-    double      ani{};	                // Anisotropy
+    double      mu_a{};	                // Absorption coefficient [1/cm] 
+    double      mu_s{};	                // Scattering coefficient [1/cm] 
+    double      g{};	                // Henyey-Greenstein asymmetry factor
 
-    double      cos_crit0{};
-    double      cos_crit1{};
+    double      cos_theta_c0{};         // Cosine of the top critical angle
+    double      cos_theta_c1{};         // Cosine of the bottom critical angle
+};
+
+
+struct LightSource
+{
+    double      z{};		            // Z coordinate of light source
+    BeamType    beam{};	                // Beam type
+
+    short       layer{};		        // Put source in this layer
+    std::string medium_name{};          // Medium name of source layer
 };
 
 /*******************************************************************************
@@ -243,27 +225,27 @@ struct Layer
 struct RunParams
 {
     std::string output_filename{};      // Output file name
+    unique_str  unique_output_filenames;// Unique output file names
+
     FileFormat  output_file_format{};   // Output file format
     ControlBit  control_bit{};          // Control of simulation termination.
 
-    long        num_photons{};	        // Number of photons to be traced
-    long        add_num_photons{};	    // Additional photon number
-    long        time_limit{};	        // Computation time limit [sec]
-    long        add_limit{};	        // Additional computation time
+    std::size_t num_runs{};		        // Number of runs
+    std::size_t num_layers{};           // Number of intermediate layers
 
-    short       seed{};		            // Random number seed (unused)
-    short       num_runs{};		        // Number of runs
+    long        seed{};		            // Random number seed (unused)
     double      weight_treshold{};		// Play roulette if photon weight is less than this threshold
 
-    BeamType    source{};	            // Beam type
-    double      source_z{};		        // Z coordinate of source
-    short       source_layer{};		    // Put source in source_layer
-    std::string source_medium_name{};   // Medium name of source layer
+    std::size_t num_photons{};	        // Number of photons to be traced
+    std::size_t add_num_photons{};	    // Additional photon number
+
+    long        time_limit{};	        // Computation time limit [sec]
+    long        add_time_limit{};	    // Additional computation time
 
     double      grid_z{};		        // Z grid line separation [cm]
     double      grid_r{};		        // R grid line separation [cm]
     double      grid_a{};		        // Alpha grid line separation [rad]
-    double      grid_t{};		        // Time grid line separation [ps]
+    double      grid_t{};		        // g_time grid line separation [ps]
 
     std::size_t num_z{};		        // Number of Z grid lines
     std::size_t num_r{};		        // Number of R grid lines
@@ -275,13 +257,38 @@ struct RunParams
     double      max_alpha{};		    // Maximum alpha [rad]
     double      max_time{};		        // Maximum time [ps]
 
-    Record      record;		            // Recorded quantities
+    LightSource source;                 // Light source parameters
     vec1<Layer> layers;                 // Layer parameters
     vec1<Layer> mediums;                // Medium parameters
 
-    std::size_t num_layers{};           // Number of intermediate layers
+    // Specify which quantity / quantities should be scored.
+    // rat: Reflected photon density per unit area, per unit solid angle, per unit time
+    // r: radial distance from the light source
+    // z: depth into the medium (z = 0 is the surface)
+    // a: azimuthal angle
+    // t: time-dependent, reflectance over time
 
-    unique_strings unique_outputs;      // Unique output file names
+    bool R_rat{ false };                // Diffuse reflectance [1/(cm² sr ps)]
+    bool R_ra{ false };                 // Diffuse reflectance [1/(cm² sr)]
+    bool R_rt{ false };                 // Diffuse reflectance [1/sr ps]
+    bool R_at{ false };                 // Diffuse reflectance [1/(cm² ps)]
+    bool R_r{ false };                  // Diffuse reflectance [1/cm²]
+    bool R_a{ false };                  // Diffuse reflectance [1/sr]
+    bool R_t{ false };                  // Diffuse reflectance [1/ps]
+
+    bool T_rat{ false };                // Diffuse transmittance [1/(cm² sr ps)]
+    bool T_ra{ false };                 // Diffuse transmittance [1/(cm² sr)]
+    bool T_rt{ false };                 // Diffuse transmittance [1/sr ps]
+    bool T_at{ false };                 // Diffuse transmittance [1/(cm² ps)]
+    bool T_r{ false };                  // Diffuse transmittance [1/cm²]
+    bool T_a{ false };                  // Diffuse transmittance [1/sr]
+    bool T_t{ false };                  // Diffuse transmittance [1/ps]
+
+    bool A_rzt{ false };                // Absorption [1/(cm² sr ps)]
+    bool A_rz{ false };                 // Absorption [1/cm²]
+    bool A_zt{ false };                 // Absorption [1/(cm² ps)]
+    bool A_z{ false };                  // Absorption [1/cm²]
+    bool A_t{ false };                  // Absorption [1/ps]
 };
 
 
@@ -359,4 +366,4 @@ struct Tracer
 
 
 class Random;
-extern Random Rand;
+extern Random g_rand;

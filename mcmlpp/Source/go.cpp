@@ -12,19 +12,6 @@
 
 
 /*******************************************************************************
- *	Compute the specular reflectance.
- *
- *	If the first layer is a turbid name, use the Fresnel reflection from the 
- *  boundary between the top abmient name and the first layer as the specular 
- *  reflectance.
- ****/
-double Rspecular(std::vector<Layer>& layers)
-{
-    double r = (layers[0].eta - layers[1].eta) / (layers[0].eta + layers[1].eta);
-    return (r * r);
-}
-
-/*******************************************************************************
  *  Choose a new direction for photon propagation by sampling:
  *	1. The polar (deflection) angle θ, measuring from downwards z-axis
  *	2. The azimuthal angle Ψ, measuring rotation around the z-axis in the xy-plane
@@ -32,9 +19,16 @@ double Rspecular(std::vector<Layer>& layers)
  *  θ range:    0 - π  (0 to 180 degrees)    [sin(θ) range:  0 to 1]
  *  Ψ range:    0 - 2π (0 to 360 degrees)    [cos(Ψ) range: -1 to 1]
  * 
- *  Since cos²(θ) + sin²(θ) = 1, and if sin(θ) is known, then: cos(θ) = sqrt(1-sin(θ)²)
+ *  Since cos²(θ) + sin²(θ) = 1, and if sin(θ) is known; cos(θ) = sqrt(1-sin(θ)²)
+ * 
+ *  In the Henyey-Greenstein phase function, g is the asymmetry parameter and 
+ *  typically takes values in the range [-1, 1]:
+ *      g = 0: isotropic scattering (uniform in all directions).
+ *      g > 0: forward scattering (continue in the same direction).
+ *      g < 0: backward scattering (scatter in the opposite direction).
+ * 
  ****/
-void Spin(double g, Photon& photon)
+void Spin(Photon& photon, double g) // g: Henyey-Greenstein asymmetry parameter
 {
     // Cosine and sine of Ψ
     double ux = photon.ux;
@@ -42,27 +36,28 @@ void Spin(double g, Photon& photon)
     double uz = photon.uz;
 
     // Sample θ
-    double theta = (1 - g * g) / (1 - g + 2 * g * Rand.next());
-    double cos_theta = (g == 0.0) ? 2 * Rand.next() - 1 : (1 + g * g - theta * theta) / (2 * g);
+    // Generate a random variable based on the Henyey-Greenstein distribution
+    double theta = (1 - g * g) / (1 - g + 2 * g * g_rand.next());
+    double cos_theta = (g == 0.0) ? 2 * g_rand.next() - 1 : (1 + g * g - theta * theta) / (2 * g);
     double sin_theta = std::sqrt(1.0 - cos_theta * cos_theta);
 
     // Sample Ψ
-    double psi = 2.0 * std::numbers::pi * Rand.next();
+    double psi = 2.0 * std::numbers::pi * g_rand.next();
     double cos_psi = std::cos(psi);
     double sin_psi = (psi < std::numbers::pi) ? std::sqrt(1.0 - cos_psi * cos_psi) : -std::sqrt(1.0 - cos_psi * cos_psi);
 
     // Update directional cosines
 
     // Close to perpendicular
-    if (1 - std::abs(uz) <= COS_0_TOLERANCE) {
+    if (1.0 - std::abs(uz) <= COS_0_TOLERANCE) {
         photon.ux = sin_theta * cos_psi;
         photon.uy = sin_theta * sin_psi;
         photon.uz = cos_theta * std::copysign(1.0, uz);
     }
     else {
         double temp = std::sqrt(1.0 - uz * uz);
-        photon.ux = sin_theta * (ux * uz * cos_psi - uy * sin_psi) / temp + ux * cos_theta;
-        photon.uy = sin_theta * (uy * uz * cos_psi + ux * sin_psi) / temp + uy * cos_theta;
+        photon.ux =  sin_theta * (ux * uz * cos_psi - uy * sin_psi) / temp + ux * cos_theta;
+        photon.uy =  sin_theta * (uy * uz * cos_psi + ux * sin_psi) / temp + uy * cos_theta;
         photon.uz = -sin_theta * cos_psi * temp + uz * cos_theta;
     }
 }
@@ -74,11 +69,11 @@ void Spin(double g, Photon& photon)
  *  photon will be total-internally reflected. If so, kill the photon to avoid 
  *  infinite travelling inside the glass layer.
  ****/
-void LaunchPhoton(double Rsp, RunParams& params, Tracer& tracer, Photon& photon)
+void LaunchPhoton(RunParams& params, Tracer& tracer, Photon& photon)
 {
-    photon.weight = 1.0 - Rsp;
+    photon.weight = 1.0 - tracer.R.sp;
     photon.alive = 1;
-    photon.current_layer = (params.source_layer != 0) ? params.source_layer : 1;
+    photon.current_layer = (params.source.layer != 0) ? params.source.layer : 1;
     photon.step_size = 0;
     photon.step_size_left = 0;
     photon.num_scatters = 0;
@@ -86,7 +81,7 @@ void LaunchPhoton(double Rsp, RunParams& params, Tracer& tracer, Photon& photon)
 
     photon.x = 0.0;
     photon.y = 0.0;
-    photon.z = params.source_z;
+    photon.z = params.source.z;
     photon.ux = 0.0;
     photon.uy = 0.0;
     photon.uz = 1.0;
@@ -97,19 +92,19 @@ void LaunchPhoton(double Rsp, RunParams& params, Tracer& tracer, Photon& photon)
     tracer.R.bi = 0.0;
     tracer.R.di = 0.0;
 
-    if (params.source == BeamType::Isotropic) {
+    if (params.source.beam  == BeamType::Isotropic) {
         Layer layer = params.layers[photon.current_layer];
 
         // To avoid scoring into reflectance or transmittance
         photon.num_scatters++;
 
         // Isotropically scatter the photon
-        Spin(0.0, photon);
+        Spin(photon, 0.0);
 
         // Glass layer.
-        if (layer.mua == 0.0 && layer.mus == 0.0) {
+        if (layer.mu_a == 0.0 && layer.mu_s == 0.0) {
             // Total internal reflection
-            if (std::abs(photon.uz) <= layer.cos_crit0 && std::abs(photon.uz) <= layer.cos_crit1) {
+            if (std::abs(photon.uz) <= layer.cos_theta_c0 && std::abs(photon.uz) <= layer.cos_theta_c1) {
                 photon.alive = 0;
             }
         }
@@ -136,7 +131,7 @@ void SetStepSize(Photon& photon)
     // Make a new step
     if (photon.step_size == 0.0) {
         double rnd; // Avoid zero
-        while ((rnd = Rand.next()) <= 0.0);
+        while ((rnd = g_rand.next()) <= 0.0);
 
         photon.step_size = -std::log(rnd);
     }
@@ -179,18 +174,17 @@ void Drop(RunParams& params, Photon& photon, Tracer& tracer)
     double y = photon.y;
 
     short layer = photon.current_layer;
-    Record record = params.record;
 
     // Update photon weight
-    double mua = params.layers[layer].mua;
-    double mus = params.layers[layer].mus;
+    double mua = params.layers[layer].mu_a;
+    double mus = params.layers[layer].mu_s;
     double dwa = photon.weight * mua / (mua + mus);
     photon.weight -= dwa;
 
     // Compute array indices
     std::size_t iz, ir, it;
 
-    if (record.A_rzt || record.A_zt || record.A_z || record.A_rz) {
+    if (params.A_rzt || params.A_zt || params.A_z || params.A_rz) {
         if (photon.z >= params.max_z) {
             iz = params.num_z - 1;
         }
@@ -199,7 +193,7 @@ void Drop(RunParams& params, Photon& photon, Tracer& tracer)
         }
     }
 
-    if (record.A_rzt || record.A_zt || record.A_t) {
+    if (params.A_rzt || params.A_zt || params.A_t) {
         if (photon.flight_time >= params.max_time) {
             it = params.num_t - 1;
         }
@@ -212,7 +206,7 @@ void Drop(RunParams& params, Photon& photon, Tracer& tracer)
 
     // Scattered
     if (photon.num_scatters) {
-        if (record.A_rzt || record.A_rz) {
+        if (params.A_rzt || params.A_rz) {
             double temp = std::sqrt(x * x + y * y);
             if (temp >= params.max_r) {
                 ir = params.num_r - 1;
@@ -221,32 +215,32 @@ void Drop(RunParams& params, Photon& photon, Tracer& tracer)
                 ir = static_cast<short>(temp / params.grid_r);
             }
         }
-        if (record.A_rzt) {
+        if (params.A_rzt) {
             tracer.A.rzt[ir][iz][it] += dwa;
         }
-        if (record.A_rz) {
+        if (params.A_rz) {
             tracer.A.rz[ir][iz] += dwa;
         }
     }
 
     // Ballistic
     else {
-        if (record.A_rzt) {
+        if (params.A_rzt) {
             tracer.A.bzt[iz][it] += dwa;
         }
-        if (record.A_rz) {
+        if (params.A_rz) {
             tracer.A.bz[iz] += dwa;
         }
     }
 
-    if (record.A_zt) {
+    if (params.A_zt) {
         tracer.A.zt[iz][it] += dwa;
     }
-    if (record.A_z) {
+    if (params.A_z) {
         tracer.A.z[iz] += dwa;
     }
 
-    if (record.A_t) {
+    if (params.A_t) {
         tracer.A.t[it] += dwa;
     }
     tracer.A.ai += dwa;
@@ -263,7 +257,7 @@ void Roulette(Photon& photon)
     }
 
     // Survived the roulette
-    else if (Rand.next() < ROULETTE_SURVIVAL) {
+    else if (g_rand.next() < ROULETTE_SURVIVAL) {
         photon.weight /= ROULETTE_SURVIVAL;
     }
     else {
@@ -287,7 +281,7 @@ void Roulette(Photon& photon)
  *  eta_t:  transmit refractive index
  *  cos_ai: cosine of angle ai
  ****/
-double RFresnel(double eta_i, double eta_t, double cos_ai, double& cos_at)
+double FresnelReflectance(double eta_i, double eta_t, double cos_ai, double& cos_at)
 {
     // Matched boundary
     if (eta_i == eta_t) {
@@ -340,16 +334,15 @@ double RFresnel(double eta_i, double eta_t, double cos_ai, double& cos_at)
  *	Record photon weight exiting the first layer (uz < 0) to the reflectance 
  *  array and update its weight.
  ****/
-void RecordR(double reflectance, RunParams& params, Photon& photon, Tracer& tracer)
+void RecordReflectance(RunParams& params, Photon& photon, Tracer& tracer, double reflectance)
 {
     double x = photon.x;
     double y = photon.y;
-    Record record = params.record;
 
     // Index to r & angle
     std::size_t ir, ia, it;
 
-    if (record.Rd_rat || record.Rd_at || record.Rd_rt || record.Rd_t) {
+    if (params.R_rat || params.R_at || params.R_rt || params.R_t) {
         if (photon.flight_time >= params.max_time) {
             it = params.num_t - 1;
         }
@@ -360,7 +353,7 @@ void RecordR(double reflectance, RunParams& params, Photon& photon, Tracer& trac
 
     // Scattered
     if (photon.num_scatters) {
-        if (record.Rd_rat || record.Rd_rt || record.Rd_ra || record.Rd_r) {
+        if (params.R_rat || params.R_rt || params.R_ra || params.R_r) {
             double temp = std::sqrt(x * x + y * y);
             if (temp >= params.max_r) {
                 ir = params.num_r - 1;
@@ -369,34 +362,34 @@ void RecordR(double reflectance, RunParams& params, Photon& photon, Tracer& trac
                 ir = static_cast<short>(temp / params.grid_r);
             }
         }
-        if (record.Rd_rat || record.Rd_at || record.Rd_ra || record.Rd_a) {
+        if (params.R_rat || params.R_at || params.R_ra || params.R_a) {
             if ((ia = static_cast<short>(std::acos(-photon.uz) / params.grid_a) > params.num_a - 1)) {
                 ia = params.num_a - 1;
             }
         }
 
         // Assign photon weight to the reflection array element
-        if (record.Rd_rat) {
+        if (params.R_rat) {
             tracer.R.rat[ir][ia][it] += photon.weight * (1.0 - reflectance);
         }
-        if (record.Rd_ra) {
+        if (params.R_ra) {
             tracer.R.ra[ir][ia] += photon.weight * (1.0 - reflectance);
         }
 
-        if (record.Rd_rt) {
+        if (params.R_rt) {
             tracer.R.rt[ir][it] += photon.weight * (1.0 - reflectance);
         }
-        if (record.Rd_r) {
+        if (params.R_r) {
             tracer.R.r[ir] += photon.weight * (1.0 - reflectance);
         }
 
-        if (record.Rd_at) {
+        if (params.R_at) {
             tracer.R.at[ia][it] += photon.weight * (1.0 - reflectance);
         }
-        if (record.Rd_a) {
+        if (params.R_a) {
             tracer.R.a[ia] += photon.weight * (1.0 - reflectance);
         }
-        if (record.Rd_t) {
+        if (params.R_t) {
             tracer.R.t[it] += photon.weight * (1.0 - reflectance);
         }
         tracer.R.di += photon.weight * (1.0 - reflectance);
@@ -415,15 +408,14 @@ void RecordR(double reflectance, RunParams& params, Photon& photon, Tracer& trac
  *	Record the photon weight exiting the last layer (uz > 0), no matter whether 
  *  the layer is glass or not, to the transmittance array.
  ****/
-void RecordT(double reflectance, RunParams& params, Photon& photon, Tracer& tracer)
+void RecordTransmittance(RunParams& params, Photon& photon, Tracer& tracer, double reflectance)
 {
     double x = photon.x;
     double y = photon.y;
-    Record record = params.record;
 
     // Index to r & angle
     std::size_t ir, ia, it;
-    if (record.Td_rat || record.Td_at || record.Td_rt || record.Td_t) {
+    if (params.T_rat || params.T_at || params.T_rt || params.T_t) {
         if (photon.flight_time >= params.max_time) {
             it = params.num_t - 1;
         }
@@ -434,7 +426,7 @@ void RecordT(double reflectance, RunParams& params, Photon& photon, Tracer& trac
 
     // Scattered
     if (photon.num_scatters) {
-        if (record.Td_rat || record.Td_rt || record.Td_ra || record.Td_r) {
+        if (params.T_rat || params.T_rt || params.T_ra || params.T_r) {
             double temp = std::sqrt(x * x + y * y);
             if (temp >= params.max_r) {
                 ir = params.num_r - 1;
@@ -443,35 +435,35 @@ void RecordT(double reflectance, RunParams& params, Photon& photon, Tracer& trac
                 ir = (short)(temp / params.grid_r);
             }
         }
-        if (record.Td_rat || record.Td_at || record.Td_ra || record.Td_a) {
+        if (params.T_rat || params.T_at || params.T_ra || params.T_a) {
             if ((ia = static_cast<short>(std::acos(photon.uz) / params.grid_a) > params.num_a - 1)) {
                 ia = params.num_a - 1;
             }
         }
 
         // Assign photon weight to the transmittance array element
-        if (record.Td_rat) {
+        if (params.T_rat) {
             tracer.T.rat[ir][ia][it] += photon.weight * (1.0 - reflectance);
         }
-        if (record.Td_ra) {
+        if (params.T_ra) {
             tracer.T.ra[ir][ia] += photon.weight * (1.0 - reflectance);
         }
 
-        if (record.Td_rt) {
+        if (params.T_rt) {
             tracer.T.rt[ir][it] += photon.weight * (1.0 - reflectance);
         }
-        if (record.Td_r) {
+        if (params.T_r) {
             tracer.T.r[ir] += photon.weight * (1.0 - reflectance);
         }
 
-        if (record.Td_at) {
+        if (params.T_at) {
             tracer.T.at[ia][it] += photon.weight * (1.0 - reflectance);
         }
-        if (record.Td_a) {
+        if (params.T_a) {
             tracer.T.a[ia] += photon.weight * (1.0 - reflectance);
         }
 
-        if (record.Td_t) {
+        if (params.T_t) {
             tracer.T.t[it] += photon.weight * (1.0 - reflectance);
         }
         tracer.T.di += photon.weight * (1.0 - reflectance);
@@ -510,28 +502,24 @@ void CrossUp(RunParams& params, Photon& photon, Tracer& tracer)
     double uz1 = 0.0;
 
     short layer = photon.current_layer;
-    double ni = params.layers[layer].eta;
-    double nt = params.layers[layer - 1].eta;
+    double eta_i = params.layers[layer].eta;
+    double eta_t = params.layers[layer - 1].eta;
 
     // Get reflectance; if 1.0, then total internal reflection
-    double r = (-uz <= params.layers[layer].cos_crit0) ? 1.0 : RFresnel(ni, nt, -uz, uz1);
+    double refl = (-uz <= params.layers[layer].cos_theta_c0) ? 1.0 : FresnelReflectance(eta_i, eta_t, -uz, uz1);
 
     if (PARTIAL_REFLECTION) {
         // Partially transmitted
-        if (layer == 1 && r < 1.0) {
-            // Escaped photon
-            photon.uz = -uz1;
-
-            RecordR(r, params, photon, tracer);
-
-            // Reflected photon
-            photon.uz = -uz;
+        if (layer == 1 && refl < 1.0) {
+            photon.uz = -uz1; // Escaped photon
+            RecordReflectance(params, photon, tracer, refl);
+            photon.uz = -uz; // Reflected photon
         }
         // Transmitted to current_layer - 1
-        else if (Rand.next() > r) {
+        else if (g_rand.next() > refl) {
             photon.current_layer--;
-            photon.ux *= ni / nt;
-            photon.uy *= ni / nt;
+            photon.ux *= eta_i / eta_t;
+            photon.uy *= eta_i / eta_t;
             photon.uz = -uz1;
         }
         // Reflected
@@ -541,17 +529,17 @@ void CrossUp(RunParams& params, Photon& photon, Tracer& tracer)
     }
     else {
         // Transmitted to current_layer - 1
-        if (Rand.next() > r) {
+        if (g_rand.next() > refl) {
             // Escaped
             if (layer == 1) {
                 photon.uz = -uz1;
-                RecordR(0.0, params, photon, tracer);
+                RecordReflectance(params, photon, tracer, 0.0);
                 photon.alive = 0;
             }
             else {
                 photon.current_layer--;
-                photon.ux *= ni / nt;
-                photon.uy *= ni / nt;
+                photon.ux *= eta_i / eta_t;
+                photon.uy *= eta_i / eta_t;
                 photon.uz = -uz1;
             }
         }
@@ -584,17 +572,17 @@ void CrossDown(RunParams& params, Photon& photon, Tracer& tracer)
     double eta_t = params.layers[layer + 1].eta;
 
     // Get reflectance; if 1.0, then total internal reflection
-    double r = (uz <= params.layers[layer].cos_crit1) ? 1.0 : RFresnel(eta_i, eta_t, uz, uz1);
+    double refl = (uz <= params.layers[layer].cos_theta_c1) ? 1.0 : FresnelReflectance(eta_i, eta_t, uz, uz1);
 
     if (PARTIAL_REFLECTION)
     {
-        if (layer == params.num_layers && r < 1.0) {
+        if (layer == params.num_layers && refl < 1.0) {
             photon.uz = uz1;
-            RecordT(r, params, photon, tracer);
+            RecordTransmittance(params, photon, tracer, refl);
             photon.uz = -uz;
         }
         // Transmitted to current_layer + 1
-        else if (Rand.next() > r) {
+        else if (g_rand.next() > refl) {
             photon.current_layer++;
             photon.ux *= eta_i / eta_t;
             photon.uy *= eta_i / eta_t;
@@ -609,10 +597,10 @@ void CrossDown(RunParams& params, Photon& photon, Tracer& tracer)
     else 
     {
         // Transmitted to current_layer + 1
-        if (Rand.next() > r) {
+        if (g_rand.next() > refl) {
             if (layer == params.num_layers) {
                 photon.uz = uz1;
-                RecordT(0.0, params, photon, tracer);
+                RecordTransmittance(params, photon, tracer, 0.0);
 
                 // Escaped
                 photon.alive = 0;
@@ -647,7 +635,7 @@ void CrossDown(RunParams& params, Photon& photon, Tracer& tracer)
 void HopDropSpin(RunParams& params, Photon& photon, Tracer& tracer)
 {
     Layer& layer = params.layers[photon.current_layer];
-    double mut = layer.mua + layer.mus;
+    double mu_t = layer.mu_a + layer.mu_s;
     
     SetStepSize(photon);
 
@@ -655,12 +643,12 @@ void HopDropSpin(RunParams& params, Photon& photon, Tracer& tracer)
     double path = PathToBoundary(photon, params);
 
     // Hit boundary
-    if (path * mut <= photon.step_size) {
+    if (path * mu_t <= photon.step_size) {
         // Move to boundary plane
         Hop(photon, path, layer.eta);
 
         // Update s
-        photon.step_size -= path * mut;
+        photon.step_size -= path * mu_t;
 
         if (photon.uz < 0.0) {
             CrossUp(params, photon, tracer);
@@ -671,12 +659,12 @@ void HopDropSpin(RunParams& params, Photon& photon, Tracer& tracer)
     }
     // Fit in current_layer
     else {
-        Hop(photon, photon.step_size / mut, layer.eta);
+        Hop(photon, photon.step_size / mu_t, layer.eta);
 
         // Update s
         photon.step_size = 0;
         Drop(params, photon, tracer);
-        Spin(params.layers[photon.current_layer].ani, photon);
+        Spin(photon, params.layers[photon.current_layer].g);
         photon.num_scatters++;
     }
 }

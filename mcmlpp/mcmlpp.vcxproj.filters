@@ -17,6 +17,9 @@
     <ClInclude Include="Source\random.hpp">
       <Filter>Source</Filter>
     </ClInclude>
+    <ClInclude Include="Source\timer.hpp">
+      <Filter>Source</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Source\go.cpp">

@@ -155,6 +155,7 @@
   <ItemGroup>
     <ClInclude Include="Source\mcml.hpp" />
     <ClInclude Include="Source\random.hpp" />
+    <ClInclude Include="Source\timer.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Source\go.cpp" />
