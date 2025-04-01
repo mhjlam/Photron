@@ -18,6 +18,7 @@ class Tracer
 {
 public:
     Tracer(RunParams& params, std::shared_ptr<Random>& random);
+    Tracer(RunParams& params, std::shared_ptr<Random>& random, Radiance radiance);
     ~Tracer() = default;
 
     /*  Choose a new direction for photon propagation by sampling:

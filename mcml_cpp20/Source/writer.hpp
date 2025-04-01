@@ -13,7 +13,7 @@ struct RunParams;
 class Writer
 {
 public:
-    Writer(std::string filename);
+    Writer(std::string filename = {});
     ~Writer();
 
     void WriteMediums(std::ostream& output, RunParams& params);

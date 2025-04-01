@@ -8,14 +8,15 @@
 #include "mcml.hpp"
 #include "random.hpp"
 
+
 Writer::Writer(std::string filename) : m_output{ std::make_unique<std::ostream>(nullptr) }
 {
     if (filename.empty()) {
         m_output = std::make_unique<std::ostream>(std::cout.rdbuf());
     }
-
-    if (!filename.empty()) {
+    else {
         auto file_stream = std::make_unique<std::ofstream>(filename);
+
         if (!file_stream->is_open()) {
             throw std::runtime_error("Failed to open file: " + filename);
         }
@@ -261,15 +262,17 @@ void Writer::WriteResults(std::ostream& output, RunParams& params, Radiance& rad
     if (file && file.is_open()) {  // If cast succeeds, it's an fstream
         file.close();
     }
+
+    std::cout << "Results written to file " << params.output_filename << std::endl;
 }
 
 void Writer::WriteRadiance(std::ostream& output, Radiance& radiance)
 {
-    double Rb_rel_error = (radiance.Rb_total) ? radiance.Rb_error / radiance.Rb_total * 100 : 0;
-    double R_rel_error = (radiance.R_total) ? radiance.R_error / radiance.R_total * 100 : 0;
-    double Tb_rel_error = (radiance.Tb_total) ? radiance.Tb_error / radiance.Tb_total * 100 : 0;
-    double T_rel_error = (radiance.T_total) ? radiance.T_error / radiance.T_total * 100 : 0;
-    double A_rel_error = (radiance.A_total) ? radiance.A_error / radiance.A_total * 100 : 0;
+    double Rb_rel_error = (radiance.Rb_total) ? radiance.Rb_error / radiance.Rb_total * 100.0 : 0.0;
+    double R_rel_error = (radiance.R_total) ? radiance.R_error / radiance.R_total * 100.0 : 0.0;
+    double Tb_rel_error = (radiance.Tb_total) ? radiance.Tb_error / radiance.Tb_total * 100.0 : 0.0;
+    double T_rel_error = (radiance.T_total) ? radiance.T_error / radiance.T_total * 100.0 : 0.0;
+    double A_rel_error = (radiance.A_total) ? radiance.A_error / radiance.A_total * 100.0 : 0.0;
 
     output << "RAT # Reflectance, Absorption & Transmittance:\n\n";
     output << std::format("# {:<12} {:<18} {:<16}\n", "Average", "Standard Error", "Relative Error");

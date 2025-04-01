@@ -18,37 +18,27 @@
 #include "tracer.hpp"
 
 
-Simulator::Simulator(std::string in_file, std::string out_file) :
-    m_params{},
+Simulator::Simulator(std::string in_file) :
+    m_mci{ in_file }, m_params{},
     m_reader{ std::make_shared<Reader>(in_file) },
     m_cin_reader{ std::make_shared<CinReader>() },
-    m_writer{ std::make_shared<Writer>(out_file) },
+    m_writer{ std::make_shared<Writer>() },
     m_cout_writer{ std::make_shared<CoutWriter>() },
     m_random{ std::make_shared<Random>() },
     m_timer{ std::make_shared<Timer>() },
     m_tracer{ std::make_shared<Tracer>(m_params, m_random) }
 {
-    // Ask for filename input when none was specified
-    while (in_file.empty()) {
-        std::cout << "Specify filename (or . to quit to main menu):";
-
-        // Read input buffer
-        std::getline(std::cin, in_file);
-
-        if (!in_file.empty()) {
-            // Terminate with a period
-            if (in_file.size() == 1 && in_file[0] == '.') {
-                return; // Return if '.' entered
-            }
-
-            // Open the input & check the version
-            m_reader = std::make_shared<Reader>(in_file);
-        }
-    }
+    m_random->seed(1);
 }
 
-void Simulator::Simulate(bool edit)
+void Simulator::Simulate()
 {
+    m_mci = promptFileName();
+    if (m_mci.empty()) {
+        return;
+    }
+
+    m_reader = std::make_shared<Reader>(m_mci);
     m_reader->ReadParams(*m_reader, m_params);
 
     std::size_t run_i = 1;
@@ -63,13 +53,16 @@ void Simulator::Resume()
 {
     std::cout << "Specify the output file name of a previous simulation. " << std::endl;
 
-    std::string mco_filename = promptFileName();
+    std::string mco_filename = promptFileName(".mco");
     if (mco_filename.empty()) {
         return;
     }
 
     try {
         auto file_reader = std::make_unique<Reader>(mco_filename, MCO_VERSION);
+
+        // Skip file version number
+        file_reader->SkipLine(*file_reader);
         m_params.mediums = file_reader->ReadMediums(*file_reader);
 
         if (m_params.mediums.empty()) {
@@ -79,19 +72,14 @@ void Simulator::Resume()
         file_reader->ReadRunParams(*file_reader, m_params);
 
         // Add photons / time limit
-        std::cout << m_params.target.num_photons << " photons have been traced in the previous simulation.\n";
-        std::cout << "Specify additional photons or compution time in hh:mm format,\n";
-        std::cout << "or both in one line (e.g. 10000 5:30): ";
+        m_params.target = m_cin_reader->ReadTarget(*m_cin_reader, m_params, true);
 
-        m_cin_reader->ReadTarget(*m_cin_reader, m_params, true);
+        Radiance radiance = file_reader->ReadRadiance(*file_reader, m_params, m_random);
+        m_tracer = std::make_shared<Tracer>(m_params, m_random, radiance);
 
-        m_tracer = std::make_shared<Tracer>(m_params, m_random);
-        file_reader->ReadRadiance(*file_reader, m_params, m_random);
-
-        Radiance& radiance = *m_tracer;
-        scaleReflectance(radiance, ScaleMode::Unscale);
-        scaleTransmittance(radiance, ScaleMode::Unscale);
-        scaleAbsorption(radiance, ScaleMode::Unscale);
+        scaleReflectance(*m_tracer, ScaleMode::Unscale);
+        scaleTransmittance(*m_tracer, ScaleMode::Unscale);
+        scaleAbsorption(*m_tracer, ScaleMode::Unscale);
 
         std::swap(m_params.target.num_photons, m_params.target.add_num_photons);
         std::swap(m_params.target.time_limit, m_params.target.add_time_limit);
@@ -111,8 +99,9 @@ void Simulator::Interactive()
     // Read params interactively
     m_cin_reader->ReadParams(*m_cin_reader, m_params);
 
-    std::cout << "Do you want to save the input to a file? (Y/N)";
+    std::cout << "Do you want to save the input to a file? (Y/N) ";
     char c; std::cin.get(c);
+    std::cin.ignore(max_size, '\n');
 
     if (std::toupper(c) == 'Y') {
         std::string string;
@@ -138,6 +127,7 @@ void Simulator::Interactive()
 
 void Simulator::InteractiveEdit()
 {
+    // Read mci file
     std::string mci_filename = promptFileName();
     if (mci_filename.empty()) {
         return;
@@ -147,7 +137,12 @@ void Simulator::InteractiveEdit()
     auto file_reader = std::make_unique<Reader>(mci_filename);
     m_params.mediums = file_reader->ReadMediums(*file_reader);
     file_reader->ReadRunParams(*file_reader, m_params);
-    std::cout << "The parameters of the first run have been read in." << std::endl;
+    std::cout << "The parameters of the first run have been read in.\n\n";
+
+    if (interactiveRun()) {
+        m_tracer = std::make_unique<Tracer>(m_params, m_random);
+        run();
+    }
 }
 
 
@@ -217,13 +212,15 @@ bool Simulator::interactiveRun()
 {
     char command{ '\0' };
     std::string string;
-    bool exit_to_menu;
+    bool start_sim;
 
-    std::cout << "Any changes to the input parameters? (Y/N)";
+    std::cout << "Any changes to the input parameters? (Y/N) ";
     do {
         std::cin.get(command);
         command = std::toupper(command);
     } while (command != 'Y' && command != 'N');
+
+    std::cin.ignore(max_size, '\n');
 
     bool cont = true;
     while (cont) {
@@ -235,15 +232,16 @@ bool Simulator::interactiveRun()
                 command = std::toupper(command);
             } while (command == '\0' || command == '\n');
 
-            exit_to_menu = editMenu(command);
+            std::cin.ignore(max_size, '\n');
+            start_sim = editMenu(command);
 
             // 'X' or 'Q'
-            if (exit_to_menu) {
+            if (start_sim) {
                 break;
             }
         } while (true);
 
-        std::cout << "Do you want to save the input to a file? (Y/N)";
+        std::cout << "Do you want to save the input to a file? (Y/N) ";
         do {
             std::cin.get(command);
         } while (command == '\0' || command == '\n');
@@ -260,17 +258,8 @@ bool Simulator::interactiveRun()
             m_writer->WriteParams(file, m_params);
         }
 
-        if (exit_to_menu) {
-            m_params.mediums.clear();
-            m_params.layers.clear();
-            return false;
-        }
-
         // Quit change menu and start simulation
-        if (validateParams()) {
-            return true;
-        }
-        else {
+        if (start_sim && !validateParams()) {
             std::cout << "Change input or exit to main menu (C/X): ";
             do {
                 std::cin.get(command);
@@ -435,27 +424,21 @@ void Simulator::reportResult()
     m_writer->WriteResults(file, m_params, *m_tracer, m_random);
 }
 
-std::string Simulator::promptFileName()
+std::string Simulator::promptFileName(std::string file_type)
 {
     std::string buf;
-    while (true) {
-        std::cout << "Specify filename (or . to quit to main menu):";
+    while (buf.empty()) {
+        std::cout << "Specify path to " << file_type << " file (or Q to quit to main menu): ";
 
         // Read input buffer
         std::getline(std::cin, buf);
 
         if (!buf.empty()) {
-            // Return if '.' entered
-            if (buf.size() == 1 && buf[0] == '.') {
-                break; // Break from loop
+            // Terminate with letter Q
+            if (buf.size() == 1 && std::toupper(buf[0]) == 'Q') {
+                return {};
             }
-            break;
         }
-    }
-
-    // Return to main menu
-    if (buf.size() == 1 && buf[0] == '.') {
-        return {};
     }
 
     return buf;
@@ -471,6 +454,7 @@ bool Simulator::promptEdit()
         ch = std::toupper(ch);
     } while (ch != 'Y' && ch != 'N');
 
+    std::cin.ignore(max_size, '\n');
     return ch == 'Y';
 }
 

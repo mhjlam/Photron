@@ -28,7 +28,6 @@ class Random;
 class Reader
 {
 public:
-    Reader(std::istream& input);
     Reader(std::string filename, std::string_view version = MCI_VERSION);
     ~Reader() = default;
 
@@ -72,10 +71,27 @@ public:
     // Read and restore the status of random number generater from previous output.
     void ReadRandomizer(std::istream& input, std::shared_ptr<Random>& random);
 
-
     // Read result back from a output file.
     Radiance ReadRadiance(std::istream& input, RunParams& params, std::shared_ptr<Random>& random);
 
+    void SkipLine(std::istream& input, std::size_t num_lines = 1);
+
+
+protected:
+    // Skip space or comment lines and return a data line.
+    std::string readNextLine(std::istream& input);
+
+    std::vector<double_or_string> extract(const std::string& input,
+                                          const std::vector<double_or_string>& expected,
+                                          std::string parse_err, bool allow_opt = false);
+
+    // Check consistancy of input parameters.
+    bool checkInputParams(RunParams& params);
+
+    // Return string as uppercase
+    std::string& toUpperCase(std::string& string);
+
+private:
     // Diffuse reflectance per unit area, per unit solid angle, per unit time [1/(cm² sr ps)]
     vec3<double> ReadR_rat(std::istream& input, std::size_t Nr, std::size_t Na, std::size_t Nt);
 
@@ -139,22 +155,6 @@ public:
     // Ballistic absorption per unit depth [1/cm]
     vec1<double> ReadAb_z(std::istream& input, std::size_t Nz);
 
-
-protected:
-    // Skip space or comment lines and return a data line.
-    std::string readNextLine(std::istream& input);
-
-    std::vector<double_or_string> 
-        extract(const std::string& input, 
-                const std::vector<double_or_string>& expected, 
-                std::string parse_err, 
-                bool allow_opt = false);
-
-    // Check consistancy of input parameters.
-    bool checkInputParams(RunParams& params);
-
-    // Return string as uppercase
-    std::string& toUpperCase(std::string& string);
 
 public:
     operator std::istream& () { return *m_input; }

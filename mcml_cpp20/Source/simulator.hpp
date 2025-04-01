@@ -20,11 +20,11 @@ class Random;
 class Simulator
 {
 public:
-    Simulator(std::string in_file = {}, std::string out_file = {});
+    Simulator(std::string in_file = {});
     ~Simulator() = default;
 
     // Read input file and do number of runs
-    void Simulate(bool edit = false);
+    void Simulate();
 
     // Input results of previous simulation, add photons, and do one run
     void Resume();
@@ -57,7 +57,7 @@ private:
     // Report time, photon number traced, write results
     void reportResult();
 
-    std::string promptFileName();
+    std::string promptFileName(std::string file_type = ".mci");
 
     // Continue to change input parameters or quit.
     bool promptEdit();
@@ -80,6 +80,8 @@ private:
 
 
 private:
+    std::string m_mci;
+
     RunParams m_params;
 
     std::shared_ptr<Reader> m_reader;

@@ -9,11 +9,6 @@
 Tracer::Tracer(RunParams& params, std::shared_ptr<Random>& random) : 
     m_params{ params }, m_random { random }, m_radiance{}
 {
-    std::size_t nz = m_params.grid.num_z;
-    std::size_t nr = m_params.grid.num_r;
-    std::size_t na = m_params.grid.num_a;
-    std::size_t nt = m_params.grid.num_t;
-
     m_radiance.R_spec = 0.0;
     m_radiance.Rb_total = 0.0;
     m_radiance.R_total = 0.0;
@@ -39,6 +34,11 @@ Tracer::Tracer(RunParams& params, std::shared_ptr<Random>& random) :
         return vec1<double>(x, 0.0);
     };
 
+    std::size_t nz = m_params.grid.num_z;
+    std::size_t nr = m_params.grid.num_r;
+    std::size_t na = m_params.grid.num_a;
+    std::size_t nt = m_params.grid.num_t;
+
     // Reflectance
     if (m_params.record.R_rat) { m_radiance.R_rat = alloc3(nr, na, nt); }
     if (m_params.record.R_ra) { m_radiance.R_ra = alloc2(nr, na); }
@@ -63,6 +63,12 @@ Tracer::Tracer(RunParams& params, std::shared_ptr<Random>& random) :
     if (m_params.record.A_zt) { m_radiance.A_zt = alloc2(nz, nt); }
     if (m_params.record.A_z) { m_radiance.A_z = alloc1(nz); }
     if (m_params.record.A_t) { m_radiance.A_t = alloc1(nt); }
+}
+
+Tracer::Tracer(RunParams& params, std::shared_ptr<Random>& random, Radiance radiance) :
+    m_params{ params }, m_random{ random }, m_radiance{ radiance }
+{
+
 }
 
 void Tracer::Spin(Photon& photon, double g)

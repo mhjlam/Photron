@@ -27,27 +27,22 @@ static constexpr bool is_string(const double_or_string& v)
 }
 
 
-
-Reader::Reader(std::istream& input) : m_input{ std::make_unique<std::istream>(nullptr) }
-{
-    m_input = std::make_unique<std::istream>(input.rdbuf());
-}
-
 Reader::Reader(std::string filename, std::string_view version) : m_input{ std::make_unique<std::istream>(nullptr) }
 {
     if (filename.empty()) {
-        throw std::exception("No input file specified.");
+        m_input = std::make_unique<std::istream>(std::cin.rdbuf());
     }
+    else {
+        auto file_stream = std::make_unique<std::ifstream>(filename);
 
-    auto file_stream = std::make_unique<std::ifstream>(filename);
+        if (!file_stream->is_open()) {
+            throw std::runtime_error("Failed to open file: " + filename);
+        }
+        m_input = std::move(file_stream);
 
-    if (!file_stream->is_open()) {
-        throw std::runtime_error("Failed to open file: " + filename);
-    }
-    m_input = std::move(file_stream);
-
-    if (!ReadVersion(*m_input, version)) {
-        throw std::runtime_error("Invalid file version.");
+        if (!ReadVersion(*m_input, version)) {
+            throw std::runtime_error("Invalid file version.");
+        }
     }
 }
 
@@ -259,24 +254,29 @@ Record Reader::ReadRecord(std::istream& input, RunParams& params)
     do {
         iss >> string;
 
+        // Stop when comment is found
+        if (string.starts_with("#")) {
+            break;
+        }
+
         // Trim and uppercase
         string = std::format("{:}", string);
         string = toUpperCase(string);
 
-        if      (string == "RD_R"sv)    { record.R_r = true; }
-        else if (string == "RD_A"sv)    { record.R_a = true; }
-        else if (string == "RD_RA"sv)   { record.R_ra = true; }
-        else if (string == "RD_T"sv)    { record.R_t = true; }
-        else if (string == "RD_RT"sv)   { record.R_rt = true; }
-        else if (string == "RD_AT"sv)   { record.R_at = true; }
-        else if (string == "RD_RAT"sv)  { record.R_rat = true; }
-        else if (string == "TD_R"sv)    { record.T_r = true; }
-        else if (string == "TD_A"sv)    { record.T_a = true; }
-        else if (string == "TD_RA"sv)   { record.T_ra = true; }
-        else if (string == "TD_T"sv)    { record.T_t = true; }
-        else if (string == "TD_RT"sv)   { record.T_rt = true; }
-        else if (string == "TD_AT"sv)   { record.T_at = true; }
-        else if (string == "TD_RAT"sv)  { record.T_rat = true; }
+        if      (string == "R_R"sv)     { record.R_r = true; }
+        else if (string == "R_A"sv)     { record.R_a = true; }
+        else if (string == "R_RA"sv)    { record.R_ra = true; }
+        else if (string == "R_T"sv)     { record.R_t = true; }
+        else if (string == "R_RT"sv)    { record.R_rt = true; }
+        else if (string == "R_AT"sv)    { record.R_at = true; }
+        else if (string == "R_RAT"sv)   { record.R_rat = true; }
+        else if (string == "T_R"sv)     { record.T_r = true; }
+        else if (string == "T_A"sv)     { record.T_a = true; }
+        else if (string == "T_RA"sv)    { record.T_ra = true; }
+        else if (string == "T_T"sv)     { record.T_t = true; }
+        else if (string == "T_RT"sv)    { record.T_rt = true; }
+        else if (string == "T_AT"sv)    { record.T_at = true; }
+        else if (string == "T_RAT"sv)   { record.T_rat = true; }
         else if (string == "A_Z"sv)     { record.A_z = true; }
         else if (string == "A_RZ"sv)    { record.A_rz = true; }
         else if (string == "A_T"sv)     { record.A_t = true; }
@@ -471,7 +471,7 @@ vec1<Layer> Reader::ReadLayers(std::istream& input, RunParams& params)
 
 Target Reader::ReadTarget(std::istream& input, RunParams& params, bool add)
 {
-    Target target{};
+    Target target = params.target;
 
     std::string buf = readNextLine(input);
     auto extracted = extract(buf, { double{}, std::string{} }, "Error reading number of photons or time limit.", true);
@@ -536,7 +536,7 @@ Target Reader::ReadTarget(std::istream& input, RunParams& params, bool add)
             throw std::runtime_error("Invalid time limit format.");
         }
 
-        if (num_photons > 0 && (hours * 3600 + minutes * 60) > 0) {
+        if (num_photons > 0 && (hours * 3600 + minutes * 60) >= 0) {
             target.control_bit = ControlBit::Both;
 
             if (add) {
@@ -547,7 +547,6 @@ Target Reader::ReadTarget(std::istream& input, RunParams& params, bool add)
                 target.num_photons = num_photons;
                 target.time_limit = hours * 3600 + minutes * 60;
             }
-
         }
         else {
             throw std::runtime_error("Nonpositive number of photons or time limit.");
@@ -683,6 +682,209 @@ void Reader::ReadRandomizer(std::istream& input, std::shared_ptr<Random>& random
 
     // Restore the status
     random->restore_state(status);
+}
+
+Radiance Reader::ReadRadiance(std::istream& input, RunParams& params, std::shared_ptr<Random>& random)
+{
+    Radiance radiance;
+    ReadRandomizer(input, random);
+
+    // skip comment line
+    std::string buf = readNextLine(input);
+
+    buf = readNextLine(input);
+    std::istringstream iss(buf);
+    iss >> radiance.R_spec;
+
+    buf = readNextLine(input);
+    iss = std::istringstream(buf);
+    iss >> radiance.Rb_total >> radiance.Rb_error;
+
+    buf = readNextLine(input);
+    iss = std::istringstream(buf);
+    iss >> radiance.R_total >> radiance.R_error;
+
+    buf = readNextLine(input);
+    iss = std::istringstream(buf);
+    iss >> radiance.A_total >> radiance.A_error;
+
+    buf = readNextLine(input);
+    iss = std::istringstream(buf);
+    iss >> radiance.Tb_total >> radiance.Tb_error;
+
+    buf = readNextLine(input);
+    iss = std::istringstream(buf);
+    iss >> radiance.T_total >> radiance.T_error;
+
+
+    // Reflectance
+    if (params.record.R_rat) { radiance.R_rat = ReadR_rat(input, params.grid.num_r, params.grid.num_a, params.grid.num_t); }
+    if (params.record.R_ra) { radiance.R_ra = ReadR_ra(input, params.grid.num_r, params.grid.num_a); }
+    if (params.record.R_rt) { radiance.R_rt = ReadR_rt(input, params.grid.num_r, params.grid.num_t); }
+    if (params.record.R_at) { radiance.R_at = ReadR_at(input, params.grid.num_a, params.grid.num_t); }
+    if (params.record.R_r) { radiance.R_r = ReadR_r(input, params.grid.num_r); }
+    if (params.record.R_a) { radiance.R_a = ReadR_a(input, params.grid.num_a); }
+    if (params.record.R_t) { radiance.R_t = ReadR_t(input, params.grid.num_t); }
+
+    // Transmittance
+    if (params.record.T_rat) { radiance.T_rat = ReadT_rat(input, params.grid.num_r, params.grid.num_a, params.grid.num_t); }
+    if (params.record.T_ra) { radiance.T_ra = ReadT_ra(input, params.grid.num_r, params.grid.num_a); }
+    if (params.record.T_rt) { radiance.T_rt = ReadT_rt(input, params.grid.num_r, params.grid.num_t); }
+    if (params.record.T_at) { radiance.T_at = ReadT_at(input, params.grid.num_a, params.grid.num_t); }
+    if (params.record.T_r) { radiance.T_r = ReadT_r(input, params.grid.num_r); }
+    if (params.record.T_a) { radiance.T_a = ReadT_a(input, params.grid.num_a); }
+    if (params.record.T_t) { radiance.T_t = ReadT_t(input, params.grid.num_t); }
+
+    // Absorption
+    if (params.record.A_rzt) {
+        radiance.Ab_zt = ReadAb_zt(input, params.grid.num_z, params.grid.num_t);
+        radiance.A_rzt = ReadA_rzt(input, params.grid.num_r, params.grid.num_z, params.grid.num_t);
+    }
+    if (params.record.A_rz) {
+        radiance.Ab_z = ReadAb_z(input, params.grid.num_z);
+        radiance.A_rz = ReadA_rz(input, params.grid.num_r, params.grid.num_z);
+    }
+    if (params.record.A_zt) { radiance.A_zt = ReadA_zt(input, params.grid.num_z, params.grid.num_t); }
+    if (params.record.A_z) { radiance.A_z = ReadA_z(input, params.grid.num_z); }
+    if (params.record.A_t) { radiance.A_t = ReadA_t(input, params.grid.num_t); }
+
+    return radiance;
+}
+
+void Reader::SkipLine(std::istream& input, std::size_t num_lines)
+{
+    for (std::size_t i = 0; i < num_lines; i++) {
+        readNextLine(input);
+    }
+}
+
+
+std::string Reader::readNextLine(std::istream& input)
+{
+    std::string line;
+    while (std::getline(input, line)) {
+        // Find first non-whitespace character
+        auto it = std::ranges::find_if(line, [](char c) {
+            return !std::isspace(c);
+        });
+
+        // Skip whitespace-only lines
+        if (it == line.end()) {
+            continue;
+        }
+
+        // Skip comment lines
+        if (*it == '#') {
+            continue;
+        }
+
+        // Return data line
+        return line;
+    }
+
+    // No datalines found
+    throw std::runtime_error("No data line found");
+}
+
+bool Reader::checkInputParams(RunParams& params)
+{
+    for (int i = 0; i <= params.num_layers + 1; i++) {
+        // Find index of the medium name in the medium list.
+        auto it = std::ranges::find_if(params.mediums, [&](const Layer& m) {
+            return std::ranges::any_of(params.layers, [&](const Layer& l) {
+                return l.name == m.name;
+            });
+        });
+
+        if (it == params.mediums.end()) {
+            return std::cerr << "Invalid medium name of layer " << i << ".\n", 0;
+        }
+
+        std::size_t index = std::distance(params.mediums.begin(), it);
+        params.layers[i].eta = params.mediums[index].eta;
+        params.layers[i].mu_a = params.mediums[index].mu_a;
+        params.layers[i].mu_s = params.mediums[index].mu_s;
+        params.layers[i].g = params.mediums[index].g;
+    }
+
+    if ((params.source.beam == BeamType::Isotropic) && (params.source.z == 0.0)) {
+        return std::cerr << "Can not put isotropic source in upper ambient medium.\n", 0;
+    }
+
+    // Find the index of the layer according to the z coordinate.
+    if (params.source.z < 0.0) {
+        return std::cerr << "Nonpositive z coordinate.\n", false;
+    }
+    else if (params.source.z > params.layers.back().z1) {
+        return std::cerr << "Source is outside of the last layer.\n", false;
+    }
+    else {
+        params.source.layer_index =
+            std::ranges::lower_bound(params.layers, params.source.z, {}, &Layer::z1) -
+            params.layers.begin();
+    }
+
+    // Check the medium name and z coordinate of the source.
+    if (params.source.medium_name[0] != '\0') {
+        if (params.layers[params.source.layer_index].name == params.source.medium_name) {
+            if ((std::abs(params.source.z - params.layers[params.source.layer_index].z1) < std::numeric_limits<double>::epsilon()) &&
+                (params.layers[params.source.layer_index + 1].name == params.source.medium_name)) {
+                params.source.layer_index++;
+            }
+            else {
+                std::cerr << "Medium name and z coordinate do not match." << std::endl;
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+std::vector<double_or_string> Reader::extract(const std::string& input, const std::vector<double_or_string>& expected, std::string parse_err, bool allow_opt)
+{
+    auto parse = [&](const std::string& str, const double_or_string& type) -> opt_double_or_string {
+        std::istringstream iss(str);
+        if (is_double(type)) {
+            double value;
+            if (iss >> value) { return value; }
+        }
+        else if (is_string(type)) {
+            return str;
+        }
+        return std::nullopt;
+    };
+
+    std::vector<double_or_string> results;
+    std::istringstream iss(input);
+    std::string token;
+
+    for (const auto& type : expected) {
+        if (!(iss >> token)) { break; }
+        opt_double_or_string value = parse(token, type);
+        if (value.has_value()) {
+            results.push_back(value.value());
+        }
+        else if (allow_opt) {
+            continue;
+        }
+        else {
+            throw std::runtime_error(parse_err);
+        }
+    }
+
+    if (!allow_opt && results.size() != expected.size()) {
+        throw std::runtime_error(parse_err);
+    }
+
+    return results;
+}
+
+std::string& Reader::toUpperCase(std::string& string)
+{
+    std::ranges::transform(string, string.begin(), [](unsigned char ch) {
+        return std::toupper(ch);
+    });
+    return string;
 }
 
 
@@ -955,198 +1157,4 @@ vec1<double> Reader::ReadAb_z(std::istream& input, std::size_t Nz)
         input >> Ab_z[iz];
     }
     return Ab_z;
-}
-
-
-Radiance Reader::ReadRadiance(std::istream& input, RunParams& params, std::shared_ptr<Random>& random)
-{
-    Radiance rat;
-    ReadRandomizer(input, random);
-
-    // skip comment line
-    std::string buf = readNextLine(input);
-
-    buf = readNextLine(input);
-    std::istringstream iss(buf);
-    iss >> rat.R_spec;
-
-    buf = readNextLine(input);
-    iss = std::istringstream(buf);
-    iss >> rat.Rb_total >> rat.Rb_error;
-
-    buf = readNextLine(input);
-    iss = std::istringstream(buf);
-    iss >> rat.R_total >> rat.R_error;
-
-    buf = readNextLine(input);
-    iss = std::istringstream(buf);
-    iss >> rat.A_total >> rat.A_error;
-
-    buf = readNextLine(input);
-    iss = std::istringstream(buf);
-    iss >> rat.Tb_total >> rat.Tb_error;
-
-    buf = readNextLine(input);
-    iss = std::istringstream(buf);
-    iss >> rat.T_total >> rat.T_error;
-
-
-    // Reflectance
-    if (params.record.R_rat)    { rat.R_rat = ReadR_rat(input, params.grid.num_r, params.grid.num_a, params.grid.num_t); }
-    if (params.record.R_ra)     { rat.R_ra = ReadR_ra(input, params.grid.num_r, params.grid.num_a); }
-    if (params.record.R_rt)     { rat.R_rt = ReadR_rt(input, params.grid.num_r, params.grid.num_t); }
-    if (params.record.R_at)     { rat.R_at = ReadR_at(input, params.grid.num_a, params.grid.num_t); }
-    if (params.record.R_r)      { rat.R_r = ReadR_r(input, params.grid.num_r); }
-    if (params.record.R_a)      { rat.R_a = ReadR_a(input, params.grid.num_a); }
-    if (params.record.R_t)      { rat.R_t = ReadR_t(input, params.grid.num_t); }
-
-    // Transmittance
-    if (params.record.T_rat)    { rat.T_rat = ReadT_rat(input, params.grid.num_r, params.grid.num_a, params.grid.num_t); }
-    if (params.record.T_ra)     { rat.T_ra = ReadT_ra(input, params.grid.num_r, params.grid.num_a); }
-    if (params.record.T_rt)     { rat.T_rt = ReadT_rt(input, params.grid.num_r, params.grid.num_t); }
-    if (params.record.T_at)     { rat.T_at = ReadT_at(input, params.grid.num_a, params.grid.num_t); }
-    if (params.record.T_r)      { rat.T_r = ReadT_r(input, params.grid.num_r); }
-    if (params.record.T_a)      { rat.T_a = ReadT_a(input, params.grid.num_a); }
-    if (params.record.T_t)      { rat.T_t = ReadT_t(input, params.grid.num_t); }
-
-    // Absorption
-    if (params.record.A_rzt)    { rat.Ab_zt = ReadAb_zt(input, params.grid.num_z, params.grid.num_t);
-                                  rat.A_rzt = ReadA_rzt(input, params.grid.num_r, params.grid.num_z, params.grid.num_t); }
-    if (params.record.A_rz)     { rat.Ab_z = ReadAb_z(input, params.grid.num_z); 
-                                  rat.A_rz = ReadA_rz(input, params.grid.num_r, params.grid.num_z); }
-    if (params.record.A_zt)     { rat.A_zt = ReadA_zt(input, params.grid.num_z, params.grid.num_t); }
-    if (params.record.A_z)      { rat.A_z = ReadA_z(input, params.grid.num_z); }
-    if (params.record.A_t)      { rat.A_t = ReadA_t(input, params.grid.num_t); }
-
-    return rat;
-}
-
-
-std::string Reader::readNextLine(std::istream& input)
-{
-    std::string line;
-    while (std::getline(input, line)) {
-        // Find first non-whitespace character
-        auto it = std::ranges::find_if(line, [](char c) {
-            return !std::isspace(c);
-        });
-
-        // Skip whitespace-only lines
-        if (it == line.end()) {
-            continue;
-        }
-
-        // Skip comment lines
-        if (*it == '#') {
-            continue;
-        }
-
-        // Return data line
-        return line;
-    }
-
-    // No datalines found
-    throw std::runtime_error("No data line found");
-}
-
-bool Reader::checkInputParams(RunParams& params)
-{
-    for (int i = 0; i <= params.num_layers + 1; i++) {
-        // Find index of the medium name in the medium list.
-        auto it = std::ranges::find_if(params.mediums, [&](const Layer& m) {
-            return std::ranges::any_of(params.layers, [&](const Layer& l) {
-                return l.name == m.name;
-            });
-        });
-
-        if (it == params.mediums.end()) {
-            return std::cerr << "Invalid medium name of layer " << i << ".\n", 0;
-        }
-
-        std::size_t index = std::distance(params.mediums.begin(), it);
-        params.layers[i].eta = params.mediums[index].eta;
-        params.layers[i].mu_a = params.mediums[index].mu_a;
-        params.layers[i].mu_s = params.mediums[index].mu_s;
-        params.layers[i].g = params.mediums[index].g;
-    }
-
-    if ((params.source.beam == BeamType::Isotropic) && (params.source.z == 0.0)) {
-        return std::cerr << "Can not put isotropic source in upper ambient medium.\n", 0;
-    }
-
-    // Find the index of the layer according to the z coordinate.
-    if (params.source.z < 0.0) {
-        return std::cerr << "Nonpositive z coordinate.\n", false;
-    }
-    else if (params.source.z > params.layers.back().z1) {
-        return std::cerr << "Source is outside of the last layer.\n", false;
-    }
-    else {
-        params.source.layer_index =
-            std::ranges::lower_bound(params.layers, params.source.z, {}, &Layer::z1) -
-            params.layers.begin();
-    }
-
-    // Check the medium name and z coordinate of the source.
-    if (params.source.medium_name[0] != '\0') {
-        if (params.layers[params.source.layer_index].name == params.source.medium_name) {
-            if ((std::abs(params.source.z - params.layers[params.source.layer_index].z1) < std::numeric_limits<double>::epsilon()) &&
-                (params.layers[params.source.layer_index + 1].name == params.source.medium_name)) {
-                params.source.layer_index++;
-            }
-            else {
-                std::cerr << "Medium name and z coordinate do not match." << std::endl;
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
-std::vector<double_or_string> Reader::extract(const std::string& input, const std::vector<double_or_string>& expected, std::string parse_err, bool allow_opt)
-{
-    auto parse = [&](const std::string& str, const double_or_string& type) -> opt_double_or_string {
-        std::istringstream iss(str);
-        if (is_double(type)) {
-            double value;
-            if (iss >> value) { return value; }
-        }
-        else if (is_string(type)) {
-            return str;
-        }
-        return std::nullopt;
-    };
-
-    std::vector<double_or_string> results;
-    std::istringstream iss(input);
-    std::string token;
-
-    for (const auto& type : expected) {
-        if (!(iss >> token)) { break; }
-        opt_double_or_string value = parse(token, type);
-        if (value.has_value()) {
-            results.push_back(value.value());
-        }
-        else if (allow_opt)
-        {
-            continue;
-        }
-        else {
-            throw std::runtime_error(parse_err);
-        }
-    }
-
-    if (!allow_opt && results.size() != expected.size()) {
-        throw std::runtime_error(parse_err);
-    }
-
-    return results;
-}
-
-std::string& Reader::toUpperCase(std::string& string)
-{
-    std::ranges::transform(string, string.begin(), [](unsigned char ch) {
-        return std::toupper(ch);
-    });
-    return string;
 }

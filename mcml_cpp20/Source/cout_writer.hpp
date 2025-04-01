@@ -9,7 +9,7 @@
 class CoutWriter : public Writer
 {
 public:
-    CoutWriter() : Writer({})
+    CoutWriter() : Writer()
     {
         m_output.reset(&std::cout);
     }

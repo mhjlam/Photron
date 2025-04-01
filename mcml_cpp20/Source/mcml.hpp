@@ -76,6 +76,7 @@
 
 #include "random.hpp"
 
+#include <limits>
 #include <random>
 #include <string>
 #include <vector>
@@ -89,6 +90,8 @@ template <typename T> using vec2 = std::vector<std::vector<T>>;
 template <typename T> using vec3 = std::vector<std::vector<std::vector<T>>>;
 
 using unique_str = std::unordered_set<std::string>;
+
+constexpr std::streamsize max_size = std::numeric_limits<std::streamsize>::max();
 
 
 // Roulette survival chance

@@ -102,18 +102,22 @@ int main(int argc, char* argv[])
             std::shared_ptr<Simulator> simulator = std::make_shared<Simulator>();
 
             char command = '\0';
-            while (command != 'Q') {
+            while (true) {
                 std::cout << std::endl << "> Main menu (H for help) => ";
 
                 do {
+                    // Read input
                     std::cin.get(command);
                     command = std::toupper(command);
                 } while (command == '\0' || command == '\n');
 
+                // Clear buffer
+                std::cin.ignore(max_size, '\n');
+
                 switch (command) {
                     case 'A': { about(); break; }
                     case 'R': { simulator->Simulate(); break; }
-                    case 'M': { simulator->Interactive(); break; }
+                    case 'M': { simulator->InteractiveEdit(); break; }
                     case 'I': { simulator->Interactive(); break; }
                     case 'C': { simulator->Resume(); break; }
                     case 'H': { help(); break; }

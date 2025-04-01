@@ -7,7 +7,7 @@
 #include <algorithm>
 
 
-CinReader::CinReader() : Reader{ std::cin }
+CinReader::CinReader() : Reader{""}
 {
 }
 
@@ -116,26 +116,29 @@ vec1<Layer> CinReader::ReadMediums(std::istream& input)
 std::string CinReader::ReadOutput(std::istream& input)
 {
     std::string file_name;
-    std::string file_mode;
+    char file_mode;
 
     do {
         std::cout << "Specify output filename with extension .mco: ";
+        
         std::getline(std::cin, file_name);
-        file_mode[0] = 'w';
+        file_mode = 'w';
 
-        // input exists.
+        // Input exists
         std::ifstream file(file_name, std::ios::in);
-        if (!file.is_open()) {
+
+        if (file.is_open()) {
             std::cout << "File " << file_name << " exists, w=overwrite, n=new filename: ";
 
-            // avoid null line.
+            // Avoid null line
             do {
-                std::getline(std::cin, file_mode);
-            } while (file_mode.empty());
+                std::cin.ignore(max_size, '\n');
+                std::cin.get(file_mode);
+            } while (file_mode == '\0' || file_mode == '\n');
 
             file.close();
         }
-    } while (file_mode[0] != 'w');
+    } while (file_mode != 'w');
 
     std::cout << std::endl;
 
@@ -370,7 +373,7 @@ Record CinReader::ReadRecord(std::istream& input, RunParams& params)
     std::cout << "\tR_r\tR_a\tR_t\tT_r\tT_a\tT_t\tA_z\tA_t" << std::endl;
 
     Record record = Reader::ReadRecord(input, params);
-    
+
     std::cout << std::endl;
     
     return record;
@@ -389,6 +392,7 @@ Target CinReader::ReadTarget(std::istream& input, RunParams& params, bool add)
     }
 
     Target target = Reader::ReadTarget(input, params, add);
+
     std::cout << std::endl;
 
     return target;
