@@ -67,7 +67,7 @@ pencil
 	3		3		3		4
 
 # Scored data categories 
-A_z A_t Td_r Td_a Td_t Rd_r Rd_a Rd_t
+A_z A_t T_r T_a T_t R_r R_a R_t
 
 ######################
 # Simulation control #

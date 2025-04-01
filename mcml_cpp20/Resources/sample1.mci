@@ -6,9 +6,9 @@
 # Use 8-space tab stops.
 #
 # Data catagories: 
-#	Rd_r		Rd_a		Rd_ra	Rd_t	Rd_rt	Rd_at	Rd_rat
-#	Td_r		Td_a		Td_ra	Td_t	Td_rt	Td_at	Td_rat
-#	A_z	A_rz	A_t	A_zt	A_rzt
+#	R_r		R_a		R_ra	R_t		R_rt	R_at	R_rat
+#	T_r		T_a		T_ra	T_t		T_rt	T_at	T_rat
+#	A_z		A_rz	A_t		A_zt	A_rzt
 #
 #
 # SAMPLE 1
@@ -67,7 +67,7 @@ pencil
 	1	1	1	30
 
 # Scored data categories 
-Rd_a
+R_a
 
 ######################
 # Simulation Control #
@@ -122,7 +122,7 @@ pencil
 	50	50	1	1
 
 # scored data categories 
-Rd_r A_z
+R_r A_z
 
 ######################
 # Simulation Control #
