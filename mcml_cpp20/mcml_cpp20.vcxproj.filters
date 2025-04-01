@@ -9,34 +9,37 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Headers">
+      <UniqueIdentifier>{ff292582-0784-434d-9df3-bfa5d67150f8}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Source\mcml.hpp">
-      <Filter>Source</Filter>
-    </ClInclude>
-    <ClInclude Include="Source\random.hpp">
-      <Filter>Source</Filter>
-    </ClInclude>
-    <ClInclude Include="Source\timer.hpp">
-      <Filter>Source</Filter>
-    </ClInclude>
-    <ClInclude Include="Source\simulator.hpp">
-      <Filter>Source</Filter>
-    </ClInclude>
-    <ClInclude Include="Source\tracer.hpp">
-      <Filter>Source</Filter>
-    </ClInclude>
-    <ClInclude Include="Source\reader.hpp">
-      <Filter>Source</Filter>
-    </ClInclude>
-    <ClInclude Include="Source\writer.hpp">
-      <Filter>Source</Filter>
-    </ClInclude>
     <ClInclude Include="Source\cin_reader.hpp">
-      <Filter>Source</Filter>
+      <Filter>Headers</Filter>
     </ClInclude>
     <ClInclude Include="Source\cout_writer.hpp">
-      <Filter>Source</Filter>
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\mcml.hpp">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\random.hpp">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\reader.hpp">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\simulator.hpp">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\timer.hpp">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\tracer.hpp">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\writer.hpp">
+      <Filter>Headers</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

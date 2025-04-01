@@ -23,26 +23,35 @@ static void about()
     std::cout << "Monte Carlo Simulation of Light Transport in Multi-Layered Turbid Media" << std::endl;
 
     std::cout << std::endl;
+    
     std::cout << "Lihong Wang, Ph.D." << std::endl;
     std::cout << "Bioengineering Program, Texas A&M University" << std::endl;
     std::cout << "College Station, Texas, USA" << std::endl;
-
+    
+    std::cout << std::endl;
+    
     std::cout << "Liqiong Zheng, B.S." << std::endl;
     std::cout << "Dept. of Computer Science," << std::endl;
     std::cout << "University of Houston, Texas, USA." << std::endl;
-
+    
+    std::cout << std::endl;
+    
     std::cout << "Steven L. Jacques, Ph.D." << std::endl;
     std::cout << "Oregon Medical Laser Center, Providence/St. Vincent Hospital" << std::endl;
     std::cout << "Portland, Oregon, USA" << std::endl;
+
+    std::cout << std::endl;
 
     std::cout << "M.H.J. Lam, MSc." << std::endl;
     std::cout << "Utrecht University" << std::endl;
     std::cout << "Utrecht, Netherlands" << std::endl;
 
     std::cout << std::endl;
+
     std::cout << "Obtain the original program from omlc.org/software/mc" << std::endl;
 
     std::cout << std::endl;
+
     std::cout << "Please cite the following article in your publications:" << std::endl;
     std::cout << "\tL.-H. Wang, S. L. Jacques, and L.-Q. Zheng, MCML - Monte " << std::endl;
     std::cout << "\tCarlo modeling of photon transport in multi-layered" << std::endl;
