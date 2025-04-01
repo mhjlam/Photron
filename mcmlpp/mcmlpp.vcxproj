@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -153,14 +153,23 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="Source\cin_reader.hpp" />
+    <ClInclude Include="Source\cout_writer.hpp" />
     <ClInclude Include="Source\mcml.hpp" />
     <ClInclude Include="Source\random.hpp" />
+    <ClInclude Include="Source\reader.hpp" />
+    <ClInclude Include="Source\simulator.hpp" />
     <ClInclude Include="Source\timer.hpp" />
+    <ClInclude Include="Source\tracer.hpp" />
+    <ClInclude Include="Source\writer.hpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Source\go.cpp" />
-    <ClCompile Include="Source\io.cpp" />
+    <ClCompile Include="Source\cin_reader.cpp" />
     <ClCompile Include="Source\main.cpp" />
+    <ClCompile Include="Source\reader.cpp" />
+    <ClCompile Include="Source\simulator.cpp" />
+    <ClCompile Include="Source\tracer.cpp" />
+    <ClCompile Include="Source\writer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <CopyFileToFolders Include="Resources\sample1.mci">

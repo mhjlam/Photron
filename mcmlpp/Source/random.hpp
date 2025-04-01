@@ -18,9 +18,9 @@ public:
     Random(long seed = 0) : rng(seed), dist(0.0, 1.0) {}
 
     // Re-seed the generator
-    void seed(long newSeed)
+    void seed(long new_seed)
     {
-        rng.seed(newSeed);
+        rng.seed(new_seed);
     }
 
     // Generate a random number in [0,1)
@@ -45,7 +45,7 @@ public:
     }
 
     // Restore generator state
-    void state(const std::vector<std::uint32_t>& status)
+    void restore_state(const std::vector<std::uint32_t>& status)
     {
         std::ostringstream oss;
         for (std::uint32_t value : status) {

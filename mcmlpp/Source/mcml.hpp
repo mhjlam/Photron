@@ -72,6 +72,7 @@
  *
  ****/
 
+#pragma once
 
 #include "random.hpp"
 
@@ -172,17 +173,23 @@ struct Vector3
  ****/
 struct Photon
 {
-    bool    alive{};		            //  Photon alive/terminated
-    long    num_scatters{};	            //  Number of scatterings
-    short   current_layer{};	        //  Index to layer where photon currently is
+    bool        alive{};		        //  Photon alive/terminated
+    long        num_scatters{};	        //  Number of scatterings
+    std::size_t current_layer{};	    //  Index to layer where photon currently is
 
-    Vector3 position;		            //  Cartesian coordinates [cm]
-    Vector3 direction;		            //  Directional cosines of a photon
+    Vector3     position;		        //  Cartesian coordinates [cm]
+    Vector3     direction;		        //  Directional cosines of a photon
 
-    double  weight{};		            //  Weight
-    double  step_size{};		        //  Current step size [cm]
-    double  step_size_left{};	        //  Step size left. dimensionless [-]
-    double  flight_time{};	            //  Flight time [picosec]
+    double      weight{};		        //  Weight
+    double      step_size{};		    //  Current step size [cm]
+    double      step_size_left{};	    //  Step size left. dimensionless [-]
+    double      flight_time{};	        //  Flight time [picosec]
+
+    double      R_i{};	                // Photon diffuse reflectance
+    double      Rb_i{};	                // Photon ballistic reflectance
+    double      T_i{};	                // Photon diffuse transmittance
+    double      Tb_i{};	                // Photon ballistic transmittance
+    double      A_i{};		            // Photon absorption
 };
 
 /*******************************************************************************
@@ -198,15 +205,16 @@ struct Photon
  ****/
 struct Layer
 {
+    std::size_t index{};                // Index of the layer
     std::string name{};                 // Name of the layer
-
-    double      z0{};                   // Top z coordinate [cm]
-    double      z1{};                   // Bottom z coordinate [cm]
 
     double      eta{};	                // Refractive index
     double      mu_a{};	                // Absorption coefficient [1/cm]
     double      mu_s{};	                // Scattering coefficient [1/cm]
     double      g{};	                // Henyey-Greenstein asymmetry factor
+
+    double      z0{};                   // Top z coordinate [cm]
+    double      z1{};                   // Bottom z coordinate [cm]
 
     double      cos_theta_c0{};         // Cosine of the top critical angle
     double      cos_theta_c1{};         // Cosine of the bottom critical angle
@@ -217,60 +225,40 @@ struct LightSource
     double      z{};		            // Z coordinate of light source
     BeamType    beam{};	                // Beam type
 
-    short       layer_index{};		    // Put source in this layer
+    std::size_t layer_index{};		    // Put source in this layer
     std::string medium_name{};          // Medium name of source layer
 };
 
-/*******************************************************************************
- *	Input parameters for each independent run.
- *
- *	z and r are for the cylindrical coordinate system. [cm]
- *	alpha denotes the angle between the photon exiting direction and the surface
- *  normal. [radian]
- *
- *	Member layers will point to an array of structures which store parameters of
- *  each layer. This array has (number_layers + 2) elements; one for each layer.
- *	The first and last layers are the top and bottom ambient layers respectively.
- ****/
-struct RunParams
+struct Grid
 {
-    std::string output_filename{};      // Output file name
-    unique_str  unique_output_filenames;// Unique output file names
-
-    FileFormat  output_file_format{};   // Output file format
-    ControlBit  control_bit{};          // Control of simulation termination.
-
-    std::size_t num_runs{};		        // Number of runs
-    std::size_t num_layers{};           // Number of intermediate layers
-
-    long        seed{};		            // Random number seed (unused)
-    double      weight_treshold{};		// Play roulette if photon weight is less than this threshold
-
-    std::size_t num_photons{};	        // Number of photons to be traced
-    std::size_t add_num_photons{};	    // Additional photon number
-
-    long        time_limit{};	        // Computation time limit [sec]
-    long        add_time_limit{};	    // Additional computation time
-
-    double      grid_z{};		        // Z grid line separation [cm]
-    double      grid_r{};		        // R grid line separation [cm]
-    double      grid_a{};		        // Alpha grid line separation [rad]
-    double      grid_t{};		        // g_time grid line separation [ps]
+    double step_z{};		            // Z grid line separation [cm]
+    double step_r{};		            // R grid line separation [cm]
+    double step_a{};		            // Alpha grid line separation [rad]
+    double step_t{};		            // Time grid line separation [ps]
 
     std::size_t num_z{};		        // Number of Z grid lines
     std::size_t num_r{};		        // Number of R grid lines
-    std::size_t num_a{};		        // Number of alpha grid lines
     std::size_t num_t{};		        // Number of time grid lines
+    std::size_t num_a{};		        // Number of alpha grid lines
 
-    double      max_z{};		        // Maximum z [cm]
-    double      max_r{};		        // Maximum r [cm]
-    double      max_alpha{};		    // Maximum alpha [rad]
-    double      max_time{};		        // Maximum time [ps]
+    double max_z{};		                // Maximum z [cm]
+    double max_r{};		                // Maximum r [cm]
+    double max_a{};		            // Maximum alpha [rad]
+    double max_t{};		            // Maximum time [ps]
+};
 
-    LightSource source;                 // Light source parameters
-    vec1<Layer> layers;                 // Layer parameters
-    vec1<Layer> mediums;                // Medium parameters
+struct Target
+{
+    std::size_t num_photons{};	        // Number of photons to be traced
+    long        time_limit{};	        // Computation time limit [sec]
+    ControlBit  control_bit{};          // Control of simulation termination.
 
+    std::size_t add_num_photons{};	    // Additional photon number
+    long        add_time_limit{};	    // Additional computation time
+};
+
+struct Record
+{
     // Specify which quantity / quantities should be scored.
     // rat: Reflected photon density per unit area, per unit solid angle, per unit time
     // r:   radial distance from the light source
@@ -302,9 +290,40 @@ struct RunParams
 };
 
 /*******************************************************************************
+ *	Input parameters for each independent run.
+ *
+ *	z and r are for the cylindrical coordinate system. [cm]
+ *	alpha denotes the angle between the photon exiting direction and the surface
+ *  normal. [radian]
+ *
+ *	Member layers will point to an array of structures which store parameters of
+ *  each layer. This array has (number_layers + 2) elements; one for each layer.
+ *	The first and last layers are the top and bottom ambient layers respectively.
+ ****/
+struct RunParams
+{
+    std::string output_filename{};      // Output file name
+    unique_str  unique_output_filenames;// Unique output file names
+
+    std::size_t num_runs{};		        // Number of runs
+    std::size_t num_layers{};           // Number of intermediate layers
+
+    long        seed{};		            // Random number seed (unused)
+    double      weight_threshold{};		// Play roulette if photon weight is less than this threshold
+
+    Grid        grid;                   // Grid parameters
+    Target      target;                 // Target parameters
+    LightSource source;                 // Light source parameters
+    vec1<Layer> layers;                 // Layer parameters
+    vec1<Layer> mediums;                // Medium parameters
+
+    Record      record;                 // Quantities to be scored
+};
+
+/*******************************************************************************
  *	Structures for scoring physical quantities.
  ****/
-struct Tracer
+struct Radiance
 {
     /* Reflectance */
 
@@ -319,11 +338,9 @@ struct Tracer
     double R_total{};	// Total diffuse reflectance
     double R_spec{};	// Specular reflectance
     double R_error{};	// Standard error of diffuse reflectance
-    double R_i{};	    // Diffuse reflectance of the i-th photon
 
     double Rb_total{};	// Total ballistic reflectance
     double Rb_error{};	// Standard error for ballistic reflectance
-    double Rb_i{};	    // Ballistic reflectance of the i-th photon
 
     /* Transmittance */
 
@@ -337,11 +354,9 @@ struct Tracer
 
     double T_total{};	// Total diffuse transmittance
     double T_error{};	// Standard error for diffuse transmittance
-    double T_i{};	    // Diffuse transmittance of the i-th photon
 
     double Tb_total{};	// Ballistic transmittance
     double Tb_error{};	// Standard error for ballistic transmission
-    double Tb_i{};	    // Ballistic transmittance of the i-th photon
 
     /* Absorption */
 
@@ -353,15 +368,7 @@ struct Tracer
 
     double A_total{};	// Total absorption
     double A_error{};	// Standard error for absorption
-    double A_i{};		// Absorption of the i-th photon
 
     vec2<double> Ab_zt;	// Ballistic absorption per unit depth, per unit time [1/(cm ps)]
     vec1<double> Ab_z;	// Ballistic absorption per unit depth [1/cm]
 };
-
-
-class Random;
-extern Random g_rand;
-
-class Timer;
-extern Timer g_timer;
