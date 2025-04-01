@@ -14,7 +14,7 @@ class Writer
 {
 public:
     Writer(std::string filename);
-    ~Writer() = default;
+    ~Writer();
 
     void WriteMediums(std::ostream& output, RunParams& params);
     void WriteFilename(std::ostream& output, RunParams& params);
@@ -31,9 +31,10 @@ public:
     void WriteVersion(std::ostream& output, const std::string_view& version);
     void WriteRandomizer(std::ostream& output, std::shared_ptr<Random> random);
 
-    // Write result to a output file.
+    // Write result of tracer to an output file.
     void WriteResults(std::ostream& output, RunParams& params, Radiance& radiance, std::shared_ptr<Random> random);
 
+    // Write RAT totals to an output file.
     void WriteRadiance(std::ostream& output, Radiance& radiance);
 
     // Ballistic absorption per unit depth, per unit time [1/(cm ps)]

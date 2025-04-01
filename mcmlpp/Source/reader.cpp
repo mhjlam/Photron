@@ -165,7 +165,7 @@ vec1<Layer> Reader::ReadMediums(std::istream& input)
     input.seekg(file_pos, std::ios::beg);
 
     vec1<Layer> mediums;
-    mediums.reserve(num_mediums);
+    mediums.resize(num_mediums);
 
     for (std::size_t i = 0; i < num_mediums; i++) {
         std::string buf = readNextLine(input);
@@ -372,9 +372,13 @@ vec1<Layer> Reader::ReadLayers(std::istream& input, RunParams& params)
     std::size_t num_layers = 0;
 
     // While "end" has not been found
-    while (buf.find("end") == std::string::npos) {
+    do {
         try {
             buf = readNextLine(input);
+
+            if (buf.find("end") != std::string::npos) {
+                break;
+            }
         }
         catch (...) {
             throw std::runtime_error("No layers found.");
@@ -385,10 +389,10 @@ vec1<Layer> Reader::ReadLayers(std::istream& input, RunParams& params)
         }
         else {
             // Read layer name
-            extract(buf, { double{} }, "Error reading layer name.");
+            extract(buf, { std::string{} }, "Error reading layer name.");
             num_layers++;
         }
-    }
+    } while (true);
 
     if (num_layers < 3) {
         throw std::runtime_error("No layers found.");
@@ -470,7 +474,7 @@ Target Reader::ReadTarget(std::istream& input, RunParams& params, bool add)
     Target target{};
 
     std::string buf = readNextLine(input);
-    auto extracted = extract(buf, { std::string{}, double{} }, "Error reading number of photons or time limit.", true);
+    auto extracted = extract(buf, { double{}, std::string{} }, "Error reading number of photons or time limit.", true);
 
     if (extracted.size() == 1 && is_double(extracted[0])) {
         int num_photons = static_cast<int>(std::get<double>(extracted[0]));
@@ -637,7 +641,6 @@ void Reader::ReadRunParams(std::istream& input, RunParams& params)
 {
     try {
         params.output_filename = ReadOutput(input);
-        params.unique_output_filenames.insert(params.output_filename);
         params.layers = ReadLayers(input, params);
         params.num_layers = params.layers.size() - 2;
         params.source = ReadSource(input, params);
@@ -1104,13 +1107,11 @@ std::vector<double_or_string> Reader::extract(const std::string& input, const st
 {
     auto parse = [&](const std::string& str, const double_or_string& type) -> opt_double_or_string {
         std::istringstream iss(str);
-        if (std::holds_alternative<double>(type)) {
+        if (is_double(type)) {
             double value;
-            if (iss >> value) {
-                return value;
-            }
+            if (iss >> value) { return value; }
         }
-        else if (std::holds_alternative<std::string>(type)) {
+        else if (is_string(type)) {
             return str;
         }
         return std::nullopt;
@@ -1135,7 +1136,7 @@ std::vector<double_or_string> Reader::extract(const std::string& input, const st
         }
     }
 
-    if (results.size() != expected.size()) {
+    if (!allow_opt && results.size() != expected.size()) {
         throw std::runtime_error(parse_err);
     }
 

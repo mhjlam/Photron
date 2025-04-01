@@ -23,6 +23,11 @@ Writer::Writer(std::string filename) : m_output{ std::make_unique<std::ostream>(
     }
 }
 
+Writer::~Writer()
+{
+    m_output.reset();
+}
+
 
 void Writer::WriteMediums(std::ostream& output, RunParams& params)
 {
@@ -218,397 +223,6 @@ void Writer::WriteRandomizer(std::ostream& output, std::shared_ptr<Random> rando
     output << std::endl << std::endl;
 }
 
-void Writer::WriteRadiance(std::ostream& output, Radiance& radiance)
-{
-    double Rb_rel_error = (radiance.Rb_total) ? radiance.Rb_error / radiance.Rb_total * 100 : 0;
-    double R_rel_error = (radiance.R_total) ? radiance.R_error / radiance.R_total * 100 : 0;
-    double Tb_rel_error = (radiance.Tb_total) ? radiance.Tb_error / radiance.Tb_total * 100 : 0;
-    double T_rel_error = (radiance.T_total) ? radiance.T_error / radiance.T_total * 100 : 0;
-    double A_rel_error = (radiance.A_total) ? radiance.A_error / radiance.A_total * 100 : 0;
-
-    output << "RAT # Reflectance, Absorption & Transmittance:\n\n";
-    output << std::format("# {:<12} {:<18} {:<16}\n", "Average", "Standard Error", "Relative Error");
-
-    output << std::format("{:<14.9f} {:<18} {:<16} {}\n", radiance.R_spec, "", "", "# Rs: Specular reflectance");
-    output << std::format("{:<14.9f} {:<18.9f} {:<16.2f} {}\n", radiance.Rb_total, radiance.Rb_error, Rb_rel_error, "# Rb: Ballistic reflectance");
-    output << std::format("{:<14.9f} {:<18.9f} {:<16.2f} {}\n", radiance.R_total, radiance.R_error, R_rel_error, "# Rd: Diffuse reflectance");
-    output << std::format("{:<14.9f} {:<18.9f} {:<16.2f} {}\n", radiance.Tb_total, radiance.Tb_error, Tb_rel_error, "# Tb: Ballistic transmittance");
-    output << std::format("{:<14.9f} {:<18.9f} {:<16.2f} {}\n", radiance.T_total, radiance.T_error, T_rel_error, "# Td: Diffuse transmittance");
-    output << std::format("{:<14.9f} {:<18.9f} {:<16.2f} {}\n", radiance.A_total, radiance.A_error, A_rel_error, "# A:  Absorbed fraction");
-    output << std::endl;
-}
-
-
-void Writer::WriteAb_zt(std::ostream& output, std::size_t Nz, std::size_t Nt, Radiance& radiance)
-{
-    output << "# Ab[z][t]. [1/(cm ps)]\n"
-        "# Ab[0][0], [0][1],..[0][nt-1]\n"
-        "# Ab[1][0], [1][1],..[1][nt-1]\n"
-        "# ...\n"
-        "# Ab[nz-1][0], [nz-1][1],..[nz-1][nt-1]\n"
-        "Ab_zt";
-
-    std::size_t i = 0;
-    for (std::size_t iz = 0; iz < Nz; iz++) {
-        for (std::size_t it = 0; it < Nt; it++) {
-            output << std::format("{:12.9f} ", radiance.A_zt[iz][it]);
-            if (++i % 5 == 0) {
-                output << std::endl;
-            }
-        }
-    }
-
-    output << std::endl << std::endl;
-}
-
-void Writer::WriteA_rzt(std::ostream& output, std::size_t Nr, std::size_t Nz, std::size_t Nt, Radiance& radiance)
-{
-    WriteA_zt(output, Nz, Nt, radiance);
-
-    output << "# A[r][z][t]. [1/(cm³ ps)]\n"
-        "# A[0][0][0], [0][0][1],..[0][0][nt-1]\n"
-        "# A[0][1][0], [0][1][1],..[0][1][nt-1]\n"
-        "# ...\n"
-        "# A[nr-1][nz-1][0], [nr-1][nz-1][1],..[nr-1][nz-1][nt-1]\n"
-        "A_rzt\n";
-
-    std::size_t i = 0;
-    for (std::size_t ir = 0; ir < Nr; ir++) {
-        for (std::size_t iz = 0; iz < Nz; iz++) {
-            for (std::size_t it = 0; it < Nt; it++) {
-                output << std::format("{:12.9f} ", radiance.A_rzt[ir][iz][it]);
-                if (++i % 5 == 0) {
-                    output << std::endl;
-                }
-            }
-        }
-    }
-
-    output << std::endl << std::endl;
-}
-
-void Writer::WriteAb_z(std::ostream& output, std::size_t Nz, Radiance& radiance)
-{
-    output << "Ab_z # Ab[0], [1],..Ab[nz-1]. [1/cm]\n";
-
-    for (std::size_t iz = 0; iz < Nz; iz++) {
-        output << std::format("{:12.9f}\n", radiance.Ab_z[iz]);
-    }
-
-    output << std::endl;
-}
-
-void Writer::WriteA_rz(std::ostream& output, std::size_t Nr, std::size_t Nz, Radiance& radiance)
-{
-    WriteA_z(output, Nz, radiance);
-
-    output << "# A[r][z]. [1/cm³]\n"
-        "# A[0][0], [0][1],..[0][nz-1]\n"
-        "# ...\n"
-        "# A[nr-1][0], [nr-1][1],..[nr-1][nz-1]\n"
-        "A_rz\n";
-
-    std::size_t i = 0;
-    for (std::size_t ir = 0; ir < Nr; ir++) {
-        for (std::size_t iz = 0; iz < Nz; iz++) {
-            output << std::format("{:12.9f} ", radiance.A_rz[ir][iz]);
-            if (++i % 5 == 0) {
-                output << std::endl;
-            }
-        }
-    }
-
-    output << std::endl << std::endl;
-}
-
-void Writer::WriteA_zt(std::ostream& output, std::size_t Nz, std::size_t Nt, Radiance& radiance)
-{
-    output << "# A[z][t]. [1/(cm ps)]\n"
-        "# A[0][0], [0][1],..[0][nt-1]\n"
-        "# A[1][0], [1][1],..[1][nt-1]\n"
-        "# ...\n"
-        "# A[nz-1][0], [nz-1][1],..[nz-1][nt-1]\n"
-        "A_zt\n";
-
-    std::size_t i = 0;
-    for (std::size_t iz = 0; iz < Nz; iz++) {
-        for (std::size_t it = 0; it < Nt; it++) {
-            output << std::format("{:12.9f} ", radiance.A_zt[iz][it]);
-            if (++i % 5 == 0) {
-                output << std::endl;
-            }
-        }
-    }
-
-    output << std::endl << std::endl;
-}
-
-void Writer::WriteA_z(std::ostream& output, std::size_t Nz, Radiance& radiance)
-{
-    output << "A_z # A[0], [1],..A[nz-1]. [1/cm]\n";
-
-    for (std::size_t iz = 0; iz < Nz; iz++) {
-        output << std::format("{:12.9f}\n", radiance.A_z[iz]);
-    }
-
-    output << std::endl;
-}
-
-void Writer::WriteA_t(std::ostream& output, std::size_t Nt, Radiance& radiance)
-{
-    output << "A_t # A[0], [1],..A[nt-1]. [1/ps]\n";
-
-    for (std::size_t it = 0; it < Nt; it++) {
-        output << std::format("{:12.9f}\n", radiance.A_t[it]);
-    }
-
-    output << std::endl;
-}
-
-void Writer::WriteR_rat(std::ostream& output, std::size_t Nr, std::size_t Na, std::size_t Nt, Radiance& radiance)
-{
-    output << "# Rd[r][a][t]. [1/(cm² sr ps)]\n"
-        "# Rd[0][0][0], [0][0][1],..[0][0][nt-1]\n"
-        "# Rd[0][1][0], [0][1][1],..[0][1][nt-1]\n"
-        "# ...\n"
-        "# Rd[nr-1][na-1][0], [nr-1][na-1][1],..[nr-1][na-1][nt-1]\n"
-        "R_rat\n";
-
-    std::size_t i = 0;
-    for (std::size_t ir = 0; ir < Nr; ir++) {
-        for (std::size_t ia = 0; ia < Na; ia++) {
-            for (std::size_t it = 0; it < Nt; it++) {
-                output << std::format("{:12.9f} ", radiance.R_rat[ir][ia][it]);
-                if (++i % 5 == 0) {
-                    output << std::endl;
-                }
-            }
-        }
-    }
-
-    output << std::endl << std::endl;
-}
-
-void Writer::WriteR_ra(std::ostream& output, std::size_t Nr, std::size_t Na, Radiance& radiance)
-{
-    output << "# Rd[r][angle]. [1/(cm² sr)].\n"
-        "# Rd[0][0], [0][1],..[0][na-1]\n"
-        "# Rd[1][0], [1][1],..[1][na-1]\n"
-        "# ...\n"
-        "# Rd[nr-1][0], [nr-1][1],..[nr-1][na-1]\n"
-        "R_ra\n";
-
-    for (std::size_t ir = 0; ir < Nr; ir++) {
-        for (std::size_t ia = 0; ia < Na; ia++) {
-            output << std::format("{:12.9f} ", radiance.R_ra[ir][ia]);
-            if ((ir * Na + ia + 1) % 5 == 0) {
-                output << std::format("\n");
-            }
-        }
-    }
-
-    output << std::endl << std::endl;
-}
-
-void Writer::WriteR_rt(std::ostream& output, std::size_t Nr, std::size_t Nt, Radiance& radiance)
-{
-    output << "# Rd[r][t]. [1/(cm² ps)]\n"
-        "# Rd[0][0], [0][1],..[0][nt-1]\n"
-        "# Rd[0][0], [0][1],..[0][nt-1]\n"
-        "# ...\n"
-        "# Rd[nr-1][0], [nr-1][1],..[nr-1][nt-1]\n"
-        "R_rt\n";
-
-    std::size_t i = 0;
-    for (std::size_t ir = 0; ir < Nr; ir++) {
-        for (std::size_t it = 0; it < Nt; it++) {
-            output << std::format("{:12.9f} ", radiance.R_rt[ir][it]);
-            if (++i % 5 == 0) {
-                output << std::format("\n");
-            }
-        }
-    }
-
-    output << std::endl << std::endl;
-}
-
-void Writer::WriteR_at(std::ostream& output, std::size_t Na, std::size_t Nt, Radiance& radiance)
-{
-    output << "# Rd[a][t]. [1/(sr ps)]\n"
-        "# Rd[0][0], [0][1],..[0][nt-1]\n"
-        "# Rd[1][0], [1][1],..[1][nt-1]\n"
-        "# ...\n"
-        "# Rd[na-1][0], [na-1][1],..[na-1][nt-1]\n"
-        "R_at\n";
-
-    std::size_t i = 0;
-    for (std::size_t ia = 0; ia < Na; ia++) {
-        for (std::size_t it = 0; it < Nt; it++) {
-            output << std::format("{:12.9f} ", radiance.R_at[ia][it]);
-            if (++i % 5 == 0) {
-                output << std::format("\n");
-            }
-        }
-    }
-
-    output << std::endl << std::endl;
-}
-
-void Writer::WriteR_r(std::ostream& output, std::size_t Nr, Radiance& radiance)
-{
-    output << "R_r # Rd[0], [1],..Rd[nr-1]. [1/cm²]\n";
-
-    for (std::size_t ir = 0; ir < Nr; ir++) {
-        output << std::format("{:12.9f}\n", radiance.R_r[ir]);
-    }
-
-    output << std::endl;
-}
-
-void Writer::WriteR_a(std::ostream& output, std::size_t Na, Radiance& radiance)
-{
-    output << "Rd_a # Rd[0], [1],..Rd[na-1]. [1/sr]\n";
-
-    for (std::size_t ia = 0; ia < Na; ia++) {
-        output << std::format("{:12.9f}\n", radiance.R_a[ia]);
-    }
-
-    output << std::endl;
-}
-
-void Writer::WriteR_t(std::ostream& output, std::size_t Nt, Radiance& radiance)
-{
-    output << "R_t # Rd[0], [1],..Rd[nt-1]. [1/ps]\n";
-
-    for (std::size_t it = 0; it < Nt; it++) {
-        output << std::format("{:12.9f}\n", radiance.R_t[it]);
-    }
-
-    output << std::endl;
-}
-
-void Writer::WriteT_rat(std::ostream& output, std::size_t Nr, std::size_t Na, std::size_t Nt, Radiance& radiance)
-{
-    output << "# Td[r][a][t]. [1/(cm² sr ps)]\n"
-        "# Td[0][0][0], [0][0][1],..[0][0][nt-1]\n"
-        "# Td[0][1][0], [0][1][1],..[0][1][nt-1]\n"
-        "# ...\n"
-        "# Td[nr-1][na-1][0], [nr-1][na-1][1],..[nr-1][na-1][nt-1]\n"
-        "T_rat\n";
-
-    std::size_t i = 0;
-    for (std::size_t ir = 0; ir < Nr; ir++) {
-        for (std::size_t ia = 0; ia < Na; ia++) {
-            for (std::size_t it = 0; it < Nt; it++) {
-                output << std::format("{:12.9f} ", radiance.T_rat[ir][ia][it]);
-                if (++i % 5 == 0) {
-                    output << std::format("\n");
-                }
-            }
-        }
-    }
-
-    output << std::endl << std::endl;
-}
-
-void Writer::WriteT_ra(std::ostream& output, std::size_t Nr, std::size_t Na, Radiance& radiance)
-{
-    output << "# Td[r][angle]. [1/(cm² sr)].\n",
-        "# Td[0][0], [0][1],..[0][na-1]\n",
-        "# Td[1][0], [1][1],..[1][na-1]\n",
-        "# ...\n",
-        "# Td[nr-1][0], [nr-1][1],..[nr-1][na-1]\n",
-        "T_ra\n";
-
-    for (std::size_t ir = 0; ir < Nr; ir++) {
-        for (std::size_t ia = 0; ia < Na; ia++) {
-            output << std::format("{:12.9f} ", radiance.T_ra[ir][ia]);
-            if ((ir * Na + ia + 1) % 5 == 0) {
-                output << std::format("\n");
-            }
-        }
-    }
-
-    output << std::endl << std::endl;
-}
-
-void Writer::WriteT_rt(std::ostream& output, std::size_t Nr, std::size_t Nt, Radiance& radiance)
-{
-    output << "# Td[r][t]. [1/(cm² ps)]\n"
-        "# Td[0][0], [0][1],..[0][nt-1]\n"
-        "# Td[0][0], [0][1],..[0][nt-1]\n"
-        "# ...\n"
-        "# Td[nr-1][0], [nr-1][1],..[nr-1][nt-1]\n"
-        "T_rt\n";
-
-    std::size_t i = 0;
-    for (std::size_t ir = 0; ir < Nr; ir++) {
-        for (std::size_t it = 0; it < Nt; it++) {
-            output << std::format("{:12.9f} ", radiance.T_rt[ir][it]);
-            if (++i % 5 == 0) {
-                output << std::format("\n");
-            }
-        }
-    }
-
-    output << std::endl << std::endl;
-}
-
-void Writer::WriteT_at(std::ostream& output, std::size_t Na, std::size_t Nt, Radiance& radiance)
-{
-    output << "# Td[a][t]. [1/(sr ps)]\n"
-        "# Td[0][0], [0][1],..[0][nt-1]\n"
-        "# Td[1][0], [1][1],..[1][nt-1]\n"
-        "# ...\n"
-        "# Td[na-1][0], [na-1][1],..[na-1][nt-1]\n"
-        "T_at\n";
-
-    std::size_t i = 0;
-    for (std::size_t ia = 0; ia < Na; ia++) {
-        for (std::size_t it = 0; it < Nt; it++) {
-            output << std::format("{:12.9f} ", radiance.T_at[ia][it]);
-            if (++i % 5 == 0) {
-                output << std::format("\n");
-            }
-        }
-    }
-
-    output << std::endl << std::endl;
-}
-
-void Writer::WriteT_r(std::ostream& output, std::size_t Nr, Radiance& radiance)
-{
-    output << "T_r # Td[0], [1],..Td[nr-1]. [1/cm²]\n";
-
-    for (std::size_t ir = 0; ir < Nr; ir++) {
-        output << std::format("{:12.9f}\n", radiance.T_r[ir]);
-    }
-
-    output << std::endl;
-}
-
-void Writer::WriteT_a(std::ostream& output, std::size_t Na, Radiance& radiance)
-{
-    output << "T_a # Td[0], [1],..Td[na-1]. [1/sr]\n";
-
-    for (std::size_t ia = 0; ia < Na; ia++) {
-        output << std::format("{:12.9f}\n", radiance.T_a[ia]);
-    }
-
-    output << std::endl;
-}
-
-void Writer::WriteT_t(std::ostream& output, std::size_t Nt, Radiance& radiance)
-{
-    output << "T_t # Rd[0], [1],..Td[nt-1]. [1/ps]\n";
-
-    for (std::size_t it = 0; it < Nt; it++) {
-        output << std::format("{:12.9f}\n", radiance.T_t[it]);
-    }
-
-    output << std::endl;
-}
-
 void Writer::WriteResults(std::ostream& output, RunParams& params, Radiance& radiance, std::shared_ptr<Random> random)
 {
     WriteVersion(output, MCO_VERSION);
@@ -647,4 +261,395 @@ void Writer::WriteResults(std::ostream& output, RunParams& params, Radiance& rad
     if (file && file.is_open()) {  // If cast succeeds, it's an fstream
         file.close();
     }
+}
+
+void Writer::WriteRadiance(std::ostream& output, Radiance& radiance)
+{
+    double Rb_rel_error = (radiance.Rb_total) ? radiance.Rb_error / radiance.Rb_total * 100 : 0;
+    double R_rel_error = (radiance.R_total) ? radiance.R_error / radiance.R_total * 100 : 0;
+    double Tb_rel_error = (radiance.Tb_total) ? radiance.Tb_error / radiance.Tb_total * 100 : 0;
+    double T_rel_error = (radiance.T_total) ? radiance.T_error / radiance.T_total * 100 : 0;
+    double A_rel_error = (radiance.A_total) ? radiance.A_error / radiance.A_total * 100 : 0;
+
+    output << "RAT # Reflectance, Absorption & Transmittance:\n\n";
+    output << std::format("# {:<12} {:<18} {:<16}\n", "Average", "Standard Error", "Relative Error");
+
+    output << std::format("{:<14.9f} {:<18} {:<16} {}\n", radiance.R_spec, "", "", "# Rs: Specular reflectance");
+    output << std::format("{:<14.9f} {:<18.9f} {:<16.2f} {}\n", radiance.Rb_total, radiance.Rb_error, Rb_rel_error, "# Rb: Ballistic reflectance");
+    output << std::format("{:<14.9f} {:<18.9f} {:<16.2f} {}\n", radiance.R_total, radiance.R_error, R_rel_error, "# Rd: Diffuse reflectance");
+    output << std::format("{:<14.9f} {:<18.9f} {:<16.2f} {}\n", radiance.Tb_total, radiance.Tb_error, Tb_rel_error, "# Tb: Ballistic transmittance");
+    output << std::format("{:<14.9f} {:<18.9f} {:<16.2f} {}\n", radiance.T_total, radiance.T_error, T_rel_error, "# Td: Diffuse transmittance");
+    output << std::format("{:<14.9f} {:<18.9f} {:<16.2f} {}\n", radiance.A_total, radiance.A_error, A_rel_error, "# A:  Absorbed fraction");
+    output << std::endl;
+}
+
+void Writer::WriteAb_zt(std::ostream& output, std::size_t Nz, std::size_t Nt, Radiance& radiance)
+{
+    output << "# Ab[z][t]. [1/(cm ps)]\n"
+        "# Ab[0][0], [0][1],..[0][nt-1]\n"
+        "# Ab[1][0], [1][1],..[1][nt-1]\n"
+        "# ...\n"
+        "# Ab[nz-1][0], [nz-1][1],..[nz-1][nt-1]\n"
+        "Ab_zt";
+
+    std::size_t i = 0;
+    for (std::size_t iz = 0; iz < Nz; iz++) {
+        for (std::size_t it = 0; it < Nt; it++) {
+            output << std::format("{:{}.10f} ", radiance.A_zt[iz][it], 15);
+            if (++i % 5 == 0) {
+                output << std::endl;
+            }
+        }
+    }
+
+    output << std::endl << std::endl;
+}
+
+void Writer::WriteA_rzt(std::ostream& output, std::size_t Nr, std::size_t Nz, std::size_t Nt, Radiance& radiance)
+{
+    WriteA_zt(output, Nz, Nt, radiance);
+
+    output << "# A[r][z][t]. [1/(cm³ ps)]\n"
+        "# A[0][0][0], [0][0][1],..[0][0][nt-1]\n"
+        "# A[0][1][0], [0][1][1],..[0][1][nt-1]\n"
+        "# ...\n"
+        "# A[nr-1][nz-1][0], [nr-1][nz-1][1],..[nr-1][nz-1][nt-1]\n"
+        "A_rzt\n";
+
+    std::size_t i = 0;
+    for (std::size_t ir = 0; ir < Nr; ir++) {
+        for (std::size_t iz = 0; iz < Nz; iz++) {
+            for (std::size_t it = 0; it < Nt; it++) {
+                output << std::format("{:{}.10f} ", radiance.A_rzt[ir][iz][it], 15);
+                if (++i % 5 == 0) {
+                    output << std::endl;
+                }
+            }
+        }
+    }
+
+    output << std::endl << std::endl;
+}
+
+void Writer::WriteAb_z(std::ostream& output, std::size_t Nz, Radiance& radiance)
+{
+    output << "Ab_z # Ab[0], [1],..Ab[nz-1]. [1/cm]\n";
+
+    for (std::size_t iz = 0; iz < Nz; iz++) {
+        output << std::format("{:{}.10f}\n", radiance.Ab_z[iz], 15);
+    }
+
+    output << std::endl;
+}
+
+void Writer::WriteA_rz(std::ostream& output, std::size_t Nr, std::size_t Nz, Radiance& radiance)
+{
+    WriteA_z(output, Nz, radiance);
+
+    output << "# A[r][z]. [1/cm³]\n"
+        "# A[0][0], [0][1],..[0][nz-1]\n"
+        "# ...\n"
+        "# A[nr-1][0], [nr-1][1],..[nr-1][nz-1]\n"
+        "A_rz\n";
+
+    std::size_t i = 0;
+    for (std::size_t ir = 0; ir < Nr; ir++) {
+        for (std::size_t iz = 0; iz < Nz; iz++) {
+            output << std::format("{:{}.10f} ", radiance.A_rz[ir][iz], 15);
+            if (++i % 5 == 0) {
+                output << std::endl;
+            }
+        }
+    }
+
+    output << std::endl << std::endl;
+}
+
+void Writer::WriteA_zt(std::ostream& output, std::size_t Nz, std::size_t Nt, Radiance& radiance)
+{
+    output << "# A[z][t]. [1/(cm ps)]\n"
+        "# A[0][0], [0][1],..[0][nt-1]\n"
+        "# A[1][0], [1][1],..[1][nt-1]\n"
+        "# ...\n"
+        "# A[nz-1][0], [nz-1][1],..[nz-1][nt-1]\n"
+        "A_zt\n";
+
+    std::size_t i = 0;
+    for (std::size_t iz = 0; iz < Nz; iz++) {
+        for (std::size_t it = 0; it < Nt; it++) {
+            output << std::format("{:{}.10f} ", radiance.A_zt[iz][it], 15);
+            if (++i % 5 == 0) {
+                output << std::endl;
+            }
+        }
+    }
+
+    output << std::endl << std::endl;
+}
+
+void Writer::WriteA_z(std::ostream& output, std::size_t Nz, Radiance& radiance)
+{
+    output << "A_z # A[0], [1],..A[nz-1]. [1/cm]\n";
+
+    for (std::size_t iz = 0; iz < Nz; iz++) {
+        output << std::format("{:{}.10f}\n", radiance.A_z[iz], 15);
+    }
+
+    output << std::endl;
+}
+
+void Writer::WriteA_t(std::ostream& output, std::size_t Nt, Radiance& radiance)
+{
+    output << "A_t # A[0], [1],..A[nt-1]. [1/ps]\n";
+
+    for (std::size_t it = 0; it < Nt; it++) {
+        output << std::format("{:{}.10f}\n", radiance.A_t[it], 15);
+    }
+
+    output << std::endl;
+}
+
+void Writer::WriteR_rat(std::ostream& output, std::size_t Nr, std::size_t Na, std::size_t Nt, Radiance& radiance)
+{
+    output << "# Rd[r][a][t]. [1/(cm² sr ps)]\n"
+        "# Rd[0][0][0], [0][0][1],..[0][0][nt-1]\n"
+        "# Rd[0][1][0], [0][1][1],..[0][1][nt-1]\n"
+        "# ...\n"
+        "# Rd[nr-1][na-1][0], [nr-1][na-1][1],..[nr-1][na-1][nt-1]\n"
+        "R_rat\n";
+
+    std::size_t i = 0;
+    for (std::size_t ir = 0; ir < Nr; ir++) {
+        for (std::size_t ia = 0; ia < Na; ia++) {
+            for (std::size_t it = 0; it < Nt; it++) {
+                output << std::format("{:{}.10f} ", radiance.R_rat[ir][ia][it], 15);
+                if (++i % 5 == 0) {
+                    output << std::endl;
+                }
+            }
+        }
+    }
+
+    output << std::endl << std::endl;
+}
+
+void Writer::WriteR_ra(std::ostream& output, std::size_t Nr, std::size_t Na, Radiance& radiance)
+{
+    output << "# Rd[r][angle]. [1/(cm² sr)].\n"
+        "# Rd[0][0], [0][1],..[0][na-1]\n"
+        "# Rd[1][0], [1][1],..[1][na-1]\n"
+        "# ...\n"
+        "# Rd[nr-1][0], [nr-1][1],..[nr-1][na-1]\n"
+        "R_ra\n";
+
+    for (std::size_t ir = 0; ir < Nr; ir++) {
+        for (std::size_t ia = 0; ia < Na; ia++) {
+            output << std::format("{:{}.10f} ", radiance.R_ra[ir][ia], 15);
+            if ((ir * Na + ia + 1) % 5 == 0) {
+                output << std::format("\n");
+            }
+        }
+    }
+
+    output << std::endl << std::endl;
+}
+
+void Writer::WriteR_rt(std::ostream& output, std::size_t Nr, std::size_t Nt, Radiance& radiance)
+{
+    output << "# Rd[r][t]. [1/(cm² ps)]\n"
+        "# Rd[0][0], [0][1],..[0][nt-1]\n"
+        "# Rd[0][0], [0][1],..[0][nt-1]\n"
+        "# ...\n"
+        "# Rd[nr-1][0], [nr-1][1],..[nr-1][nt-1]\n"
+        "R_rt\n";
+
+    std::size_t i = 0;
+    for (std::size_t ir = 0; ir < Nr; ir++) {
+        for (std::size_t it = 0; it < Nt; it++) {
+            output << std::format("{:{}.10f} ", radiance.R_rt[ir][it], 15);
+            if (++i % 5 == 0) {
+                output << std::format("\n");
+            }
+        }
+    }
+
+    output << std::endl << std::endl;
+}
+
+void Writer::WriteR_at(std::ostream& output, std::size_t Na, std::size_t Nt, Radiance& radiance)
+{
+    output << "# Rd[a][t]. [1/(sr ps)]\n"
+        "# Rd[0][0], [0][1],..[0][nt-1]\n"
+        "# Rd[1][0], [1][1],..[1][nt-1]\n"
+        "# ...\n"
+        "# Rd[na-1][0], [na-1][1],..[na-1][nt-1]\n"
+        "R_at\n";
+
+    std::size_t i = 0;
+    for (std::size_t ia = 0; ia < Na; ia++) {
+        for (std::size_t it = 0; it < Nt; it++) {
+            output << std::format("{:{}.10f} ", radiance.R_at[ia][it], 15);
+            if (++i % 5 == 0) {
+                output << std::format("\n");
+            }
+        }
+    }
+
+    output << std::endl << std::endl;
+}
+
+void Writer::WriteR_r(std::ostream& output, std::size_t Nr, Radiance& radiance)
+{
+    output << "R_r # Rd[0], [1],..Rd[nr-1]. [1/cm²]\n";
+
+    for (std::size_t ir = 0; ir < Nr; ir++) {
+        //output << std::format("{:{}.10f}\n", radiance.R_r[ir], 15);
+        output << std::format("{:{}.10f}\n", radiance.R_r[ir], 15);
+    }
+
+    output << std::endl;
+}
+
+void Writer::WriteR_a(std::ostream& output, std::size_t Na, Radiance& radiance)
+{
+    output << "Rd_a # Rd[0], [1],..Rd[na-1]. [1/sr]\n";
+
+    for (std::size_t ia = 0; ia < Na; ia++) {
+        output << std::format("{:{}.10f}\n", radiance.R_a[ia], 15);
+    }
+
+    output << std::endl;
+}
+
+void Writer::WriteR_t(std::ostream& output, std::size_t Nt, Radiance& radiance)
+{
+    output << "R_t # Rd[0], [1],..Rd[nt-1]. [1/ps]\n";
+
+    for (std::size_t it = 0; it < Nt; it++) {
+        output << std::format("{:{}.10f}\n", radiance.R_t[it], 15);
+    }
+
+    output << std::endl;
+}
+
+void Writer::WriteT_rat(std::ostream& output, std::size_t Nr, std::size_t Na, std::size_t Nt, Radiance& radiance)
+{
+    output << "# Td[r][a][t]. [1/(cm² sr ps)]\n"
+        "# Td[0][0][0], [0][0][1],..[0][0][nt-1]\n"
+        "# Td[0][1][0], [0][1][1],..[0][1][nt-1]\n"
+        "# ...\n"
+        "# Td[nr-1][na-1][0], [nr-1][na-1][1],..[nr-1][na-1][nt-1]\n"
+        "T_rat\n";
+
+    std::size_t i = 0;
+    for (std::size_t ir = 0; ir < Nr; ir++) {
+        for (std::size_t ia = 0; ia < Na; ia++) {
+            for (std::size_t it = 0; it < Nt; it++) {
+                output << std::format("{:{}.10f} ", radiance.T_rat[ir][ia][it], 15);
+                if (++i % 5 == 0) {
+                    output << std::format("\n");
+                }
+            }
+        }
+    }
+
+    output << std::endl << std::endl;
+}
+
+void Writer::WriteT_ra(std::ostream& output, std::size_t Nr, std::size_t Na, Radiance& radiance)
+{
+    output << "# Td[r][angle]. [1/(cm² sr)].\n",
+        "# Td[0][0], [0][1],..[0][na-1]\n",
+        "# Td[1][0], [1][1],..[1][na-1]\n",
+        "# ...\n",
+        "# Td[nr-1][0], [nr-1][1],..[nr-1][na-1]\n",
+        "T_ra\n";
+
+    for (std::size_t ir = 0; ir < Nr; ir++) {
+        for (std::size_t ia = 0; ia < Na; ia++) {
+            output << std::format("{:{}.10f} ", radiance.T_ra[ir][ia], 15);
+            if ((ir * Na + ia + 1) % 5 == 0) {
+                output << std::format("\n");
+            }
+        }
+    }
+
+    output << std::endl << std::endl;
+}
+
+void Writer::WriteT_rt(std::ostream& output, std::size_t Nr, std::size_t Nt, Radiance& radiance)
+{
+    output << "# Td[r][t]. [1/(cm² ps)]\n"
+        "# Td[0][0], [0][1],..[0][nt-1]\n"
+        "# Td[0][0], [0][1],..[0][nt-1]\n"
+        "# ...\n"
+        "# Td[nr-1][0], [nr-1][1],..[nr-1][nt-1]\n"
+        "T_rt\n";
+
+    std::size_t i = 0;
+    for (std::size_t ir = 0; ir < Nr; ir++) {
+        for (std::size_t it = 0; it < Nt; it++) {
+            output << std::format("{:{}.10f} ", radiance.T_rt[ir][it], 15);
+            if (++i % 5 == 0) {
+                output << std::format("\n");
+            }
+        }
+    }
+
+    output << std::endl << std::endl;
+}
+
+void Writer::WriteT_at(std::ostream& output, std::size_t Na, std::size_t Nt, Radiance& radiance)
+{
+    output << "# Td[a][t]. [1/(sr ps)]\n"
+        "# Td[0][0], [0][1],..[0][nt-1]\n"
+        "# Td[1][0], [1][1],..[1][nt-1]\n"
+        "# ...\n"
+        "# Td[na-1][0], [na-1][1],..[na-1][nt-1]\n"
+        "T_at\n";
+
+    std::size_t i = 0;
+    for (std::size_t ia = 0; ia < Na; ia++) {
+        for (std::size_t it = 0; it < Nt; it++) {
+            output << std::format("{:{}.10f} ", radiance.T_at[ia][it], 15);
+            if (++i % 5 == 0) {
+                output << std::format("\n");
+            }
+        }
+    }
+
+    output << std::endl << std::endl;
+}
+
+void Writer::WriteT_r(std::ostream& output, std::size_t Nr, Radiance& radiance)
+{
+    output << "T_r # Td[0], [1],..Td[nr-1]. [1/cm²]\n";
+
+    for (std::size_t ir = 0; ir < Nr; ir++) {
+        output << std::format("{:{}.10f}\n", radiance.T_r[ir], 15);
+    }
+
+    output << std::endl;
+}
+
+void Writer::WriteT_a(std::ostream& output, std::size_t Na, Radiance& radiance)
+{
+    output << "T_a # Td[0], [1],..Td[na-1]. [1/sr]\n";
+
+    for (std::size_t ia = 0; ia < Na; ia++) {
+        output << std::format("{:{}.10f}\n", radiance.T_a[ia], 15);
+    }
+
+    output << std::endl;
+}
+
+void Writer::WriteT_t(std::ostream& output, std::size_t Nt, Radiance& radiance)
+{
+    output << "T_t # Rd[0], [1],..Td[nt-1]. [1/ps]\n";
+
+    for (std::size_t it = 0; it < Nt; it++) {
+        output << std::format("{:{}.10f}\n", radiance.T_t[it], 15);
+    }
+
+    output << std::endl;
 }

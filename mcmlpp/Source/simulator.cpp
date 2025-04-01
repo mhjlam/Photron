@@ -52,7 +52,7 @@ void Simulator::Simulate(bool edit)
     m_reader->ReadParams(*m_reader, m_params);
 
     std::size_t run_i = 1;
-    while (m_params.num_runs - run_i >= 0) {
+    while (run_i <= m_params.num_runs) {
         m_reader->ReadRunParams(*m_reader, m_params);
         m_tracer = std::make_unique<Tracer>(m_params, m_random);
         run(run_i++);
@@ -596,10 +596,9 @@ void Simulator::scaleReflectance(Radiance& radiance, ScaleMode mode)
     * Scale Rd(a) and Td(a) by solid angle * num_photons.
     */
 
-    //std::function<double(double, double)> op = (mode == ScaleMode::Scale) ? std::multiplies<double>() : std::divides<double>();
-    auto op = (mode == ScaleMode::Scale)
-        ? [](double x, double y) { return x * y; }
-    : [](double x, double y) { return x / y; };
+    auto op = (mode == ScaleMode::Scale) ? 
+        [](double x, double y) { return x * y; } : 
+        [](double x, double y) { return x / y; };
 
     std::size_t nr = m_params.grid.num_r;
     std::size_t na = m_params.grid.num_a;
@@ -647,8 +646,8 @@ void Simulator::scaleReflectance(Radiance& radiance, ScaleMode mode)
     scale1 *= dt;
     if (m_params.record.R_rt) {
         for (std::size_t ir = 0; ir < nr; ir++) {
+            double scale2 = 1.0 / ((ir + 0.5) * scale1);
             for (std::size_t it = 0; it < nt; it++) {
-                double scale2 = 1.0 / ((ir + 0.5) * scale1);
                 radiance.R_rt[ir][it] = op(radiance.R_rt[ir][it], scale2);
             }
         }
@@ -713,9 +712,9 @@ void Simulator::scaleTransmittance(Radiance& radiance, ScaleMode mode)
     * Scale Rd(a) and Td(a) by solid angle * num_photons.
     */
 
-    auto op = (mode == ScaleMode::Scale)
-        ? [](double x, double y) { return x * y; }
-    : [](double x, double y) { return x / y; };
+    auto op = (mode == ScaleMode::Scale) ? 
+        [](double x, double y) { return x * y; } : 
+        [](double x, double y) { return x / y; };
 
     std::size_t nr = m_params.grid.num_r;
     std::size_t na = m_params.grid.num_a;
@@ -817,9 +816,9 @@ void Simulator::scaleTransmittance(Radiance& radiance, ScaleMode mode)
 
 void Simulator::scaleAbsorption(Radiance& radiance, ScaleMode mode)
 {
-    auto op = (mode == ScaleMode::Scale)
-        ? [](double x, double y) { return x * y; }
-    : [](double x, double y) { return x / y; };
+    auto op = (mode == ScaleMode::Scale) ? 
+        [](double x, double y) { return x / y; } : 
+        [](double x, double y) { return x * y; };
 
     std::size_t nz = m_params.grid.num_z;
     std::size_t nr = m_params.grid.num_r;

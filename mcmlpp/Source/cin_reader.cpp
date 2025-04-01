@@ -66,7 +66,7 @@ vec1<Layer> CinReader::ReadMediums(std::istream& input)
 
     // Allocate space for the layer parameters.
     vec1<Layer> mediums;
-    mediums.reserve(num_media);
+    mediums.resize(num_media);
 
     for (std::size_t i = 0; i < num_media; i++) {
         std::string name;
@@ -185,7 +185,7 @@ vec1<Layer> CinReader::ReadLayers(std::istream& input, RunParams& params)
 
 
     vec1<Layer> layers;
-    layers.reserve(num_layers);
+    layers.resize(num_layers);
 
     // z coordinate of the current layer
     double z{ 0.0 };

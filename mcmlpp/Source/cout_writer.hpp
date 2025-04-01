@@ -13,4 +13,8 @@ public:
     {
         m_output.reset(&std::cout);
     }
+    ~CoutWriter()
+    {
+        m_output.release();
+    }
 };
