@@ -1,4 +1,5 @@
 #include "reader.hpp"
+#include "reader.tpp"
 
 #include <format>
 #include <limits>
@@ -11,23 +12,13 @@
 
 #include "mcml.hpp"
 #include "random.hpp"
+#include "exception.hpp"
 
 
 using namespace std::literals;
 
 
-static constexpr bool is_double(const double_or_string& v)
-{
-    return std::holds_alternative<double>(v);
-}
-
-static constexpr bool is_string(const double_or_string& v)
-{
-    return std::holds_alternative<std::string>(v);
-}
-
-
-Reader::Reader(std::string filename, std::string_view version) : m_input{ std::make_unique<std::istream>(nullptr) }
+Reader::Reader(std::string filename, std::string_view version) : m_filename(filename), m_input{ std::make_unique<std::istream>(nullptr) }
 {
     if (filename.empty()) {
         m_input = std::make_unique<std::istream>(std::cin.rdbuf());
@@ -36,19 +27,21 @@ Reader::Reader(std::string filename, std::string_view version) : m_input{ std::m
         auto file_stream = std::make_unique<std::ifstream>(filename);
 
         if (!file_stream->is_open()) {
-            throw std::runtime_error("Failed to open file: " + filename);
+            throw Exception("Failed to open file: " + filename, true);
         }
         m_input = std::move(file_stream);
 
         if (!ReadVersion(*m_input, version)) {
-            throw std::runtime_error("Invalid file version.");
+            throw Exception("Invalid file version.");
         }
     }
 }
 
 
-void Reader::ReadParams(std::istream& input, RunParams& params)
+bool Reader::ReadParams(std::istream& input, RunParams& params)
 {
+    std::cout << std::format("Reading parameters from {}.", m_filename) << std::endl;
+
     auto endOfRuns = [&]() {
         // Found end of runs
         bool end_found = false;
@@ -56,7 +49,8 @@ void Reader::ReadParams(std::istream& input, RunParams& params)
         // Record input position
         std::streampos file_pos = input.tellg();
 
-        std::string buf = readNextLine(input);
+        std::string buf = nextDataLine(input);
+
         if (buf.empty()) {
             end_found = true;
             std::cout << "Missing end." << std::endl;
@@ -71,7 +65,9 @@ void Reader::ReadParams(std::istream& input, RunParams& params)
     };
 
     // Read list of mediums
-    params.mediums = ReadMediums(input);
+    if (!ReadMediums(input, params.mediums)) {
+        return false;
+    }
 
     // Save current position in input file.
     std::streampos file_pos = input.tellg();
@@ -82,12 +78,15 @@ void Reader::ReadParams(std::istream& input, RunParams& params)
         std::cout << "Checking input data for run " << run_index << std::endl;
 
         // Read the input parameters for one run
-        ReadRunParams(input, params);
+        if (!ReadRunParams(input, params)) {
+            std::cerr << "Error reading input parameters." << std::endl;
+            return false;
+        }
 
         // Attempt insert and detect duplicate output filenames
         if (!params.unique_output_filenames.insert(params.output_filename).second) {
-            throw std::runtime_error("File name " + params.output_filename + " duplicated.");
-            std::exit(1);
+            std::cout << "File name " + params.output_filename + " duplicated." << std::endl;
+            return false;
         }
     } while (!endOfRuns());
 
@@ -95,12 +94,13 @@ void Reader::ReadParams(std::istream& input, RunParams& params)
 
     // Restore file position
     input.seekg(file_pos, std::ios::beg);
+    return true;
 }
 
 bool Reader::ReadVersion(std::istream& input, const std::string_view& version)
 {
     // Find next data line
-    std::string line = readNextLine(input);
+    std::string line = nextDataLine(input);
 
     if (line.find(version) == std::string::npos) {
         std::cerr << "Invalid file version.";
@@ -109,143 +109,114 @@ bool Reader::ReadVersion(std::istream& input, const std::string_view& version)
     return true;
 }
 
-vec1<Layer> Reader::ReadMediums(std::istream& input)
+bool Reader::ReadMediums(std::istream& input, vec1<Layer>& out)
 {
+    vec1<Layer> mediums;
+
     // Get current output position
     std::streampos file_pos = input.tellg();
 
     // Find number of mediums
     std::size_t num_mediums = 0;
 
-    std::string buf;
-    while (buf.find("end") == std::string::npos) {
-        try {
-            buf = readNextLine(input);
-        }
-        catch (...) {
-            throw std::runtime_error("No media found.");
+    // Keep reading lines until the end of the mediums section
+    for (std::string buf = nextDataLine(input); buf.find("end") == std::string::npos; buf = nextDataLine(input)) {
+        if (buf.empty()) {
+            std::cerr << "Error: Missing end." << std::endl;
+            return false;
         }
 
-        if (buf.find("end") != std::string::npos) {
-            break;
-        }
-        else if (buf.empty()) {
-            throw std::runtime_error("Missing end.");
-        }
-        else {
-            num_mediums++;
+        std::string error = "Bad optical parameters in medium " + std::to_string(num_mediums);
+        auto [success, name, eta, mu_a, mu_s, g] = 
+            read_line<std::string, double, double, double, double>(buf, error, [](const std::tuple<std::string, double, double, double, double>& t) {
+                return (
+                    std::get<1>(t) > 0.0 && 
+                    std::get<2>(t) >= 0.0 && 
+                    std::get<3>(t) >= 0.0 && 
+                    std::get<4>(t) >= -1.0 && std::get<4>(t) <= 1.0);
+        });
 
-            auto extracted = extract(buf, 
-                { std::string{}, double{}, double{}, double{}, double{} }, 
-                "Error reading medium parameters.");
-
-            std::string name = std::get<std::string>(extracted[0]);
-            double n = std::get<double>(extracted[1]);
-            double mu_a = std::get<double>(extracted[2]);
-            double mu_s = std::get<double>(extracted[3]);
-            double g = std::get<double>(extracted[4]);
-
-            // Verify optical parameters
-            if (n <= 0.0 || mu_a < 0.0 || mu_s < 0.0 || g < -1.0 || g > 1.0) {
-                throw std::runtime_error("Bad optical parameters in " + name);
-            }
-        }
+        mediums.push_back(Layer{
+            .index = num_mediums,
+            .name = name,
+            .eta = eta,
+            .mu_a = mu_a,
+            .mu_s = mu_s,
+            .g = g
+        });
+        num_mediums++;
     }
 
     if (num_mediums < 1) {
-        throw std::runtime_error("No media found.");
+        std::cerr << "Error: No mediums found." << std::endl;
+        return false;
     }
 
-    // Seek to previous output position
-    input.seekg(file_pos, std::ios::beg);
+    std::for_each(mediums.begin(), mediums.end(), [&](Layer& medium) {
+        out.push_back(medium);
+    });
 
-    vec1<Layer> mediums;
-    mediums.resize(num_mediums);
-
-    for (std::size_t i = 0; i < num_mediums; i++) {
-        std::string buf = readNextLine(input);
-        auto extracted = extract(buf, { std::string{}, double{}, double{}, double{}, double{} }, "Error reading medium parameters.");
-
-        mediums[i].index = i;
-        mediums[i].name = std::get<std::string>(extracted[0]);
-        mediums[i].eta = std::get<double>(extracted[1]);
-        mediums[i].mu_a = std::get<double>(extracted[2]);
-        mediums[i].mu_s = std::get<double>(extracted[3]);
-        mediums[i].g = std::get<double>(extracted[4]);
-
-        if (mediums[i].eta <= 0.0 || 
-            mediums[i].mu_a < 0.0 || 
-            mediums[i].mu_s < 0.0 || 
-            mediums[i].g < -1.0 || 
-            mediums[i].g > 1.0) {
-            throw std::runtime_error("Bad optical parameters in " + mediums[i].name);
-        }
-    }
-
-    // Skip the signal end
-    readNextLine(input);
-
-    return mediums;
+    return true;
 }
 
-std::string Reader::ReadOutput(std::istream& input)
+bool Reader::ReadOutput(std::istream& in, std::string& out)
 {
-    std::string buf = readNextLine(input);
-    auto extracted = extract(buf, { std::string{} }, "Error reading file name.");
-    return std::get<std::string>(extracted[0]);
+    std::string buf = nextDataLine(in);
+
+    std::vector<alpha_num> extracted;
+    extract(buf, extracted, { std::string{} }, "Error reading file name.");
+    out = std::get<std::string>(extracted[0]);
+
+    return true;
 }
 
-Grid Reader::ReadGrid(std::istream& input)
+bool Reader::ReadGrid(std::istream& in, Grid& out)
 {
-    std::string buf = readNextLine(input);
-    auto extracted_step = extract(buf, { double{}, double{}, double{} }, "Error reading dz, dr, dt.");
+    using namespace std;
 
-    double step_z = std::get<double>(extracted_step[0]);
-    double step_r = std::get<double>(extracted_step[1]);
-    double step_t = std::get<double>(extracted_step[2]);
+    auto [s1, dz, dr, dt] = read<double, double, double>(in, "Invalid or non-positive dz, dr, dt", [](const std::tuple<double, double, double>& t) {
+        return (
+            std::get<0>(t) > 0.0 &&
+            std::get<1>(t) > 0.0 &&
+            std::get<2>(t) > 0.0);
+    });
+    if (!s1) { return false; }
 
-    if (step_z <= 0) { throw std::runtime_error("Nonpositive dz."); }
-    if (step_r <= 0) { throw std::runtime_error("Nonpositive dr."); }
-    if (step_t <= 0) { throw std::runtime_error("Nonpositive dt."); }
+    auto [s2, nz, nr, nt, na] = read<int, int, int, int>(in, "Invalid or non-positive nz, nr, nt, na", [](const std::tuple<int, int, int, int>& t) {
+        return (
+            std::get<0>(t) > 0 &&
+            std::get<1>(t) > 0 &&
+            std::get<2>(t) > 0 &&
+            std::get<3>(t) > 0);
+    });
+    if (!s2) { return false; }
 
-    buf = readNextLine(input);
-    auto extracted_d = extract(buf, { double{}, double{}, double{}, double{} }, "Error reading number of dz, dr, dt, da.");
+    double da = 0.5 * std::numbers::pi / na;
 
-    std::size_t num_z = static_cast<std::size_t>(std::get<double>(extracted_d[0]));
-    std::size_t num_r = static_cast<std::size_t>(std::get<double>(extracted_d[1]));
-    std::size_t num_t = static_cast<std::size_t>(std::get<double>(extracted_d[2]));
-    std::size_t num_a = static_cast<std::size_t>(std::get<double>(extracted_d[3]));
-
-    if (num_z <= 0) { throw std::runtime_error("Nonpositive number of dz."); }
-    if (num_r <= 0) { throw std::runtime_error("Nonpositive number of dr."); }
-    if (num_t <= 0) { throw std::runtime_error("Nonpositive number of dt."); }
-    if (num_a <= 0) { throw std::runtime_error("Nonpositive number of da."); }
-
-    double step_a = 0.5 * std::numbers::pi / num_a;
-
-    return Grid {
-        .step_z = step_z,
-        .step_r = step_r,
-        .step_a = step_a,
-        .step_t = step_t,
-        .num_z = num_z,
-        .num_r = num_r,
-        .num_t = num_t,
-        .num_a = num_a,
-        .max_z = step_z * num_z,
-        .max_r = step_r * num_r,
-        .max_a = step_a * num_a,
-        .max_t = step_t * num_t
+    out = Grid {
+        .step_z = dz,
+        .step_r = dr,
+        .step_a = da,
+        .step_t = dt,
+        .num_z = static_cast<size_t>(nz),
+        .num_r = static_cast<size_t>(nr),
+        .num_t = static_cast<size_t>(nt),
+        .num_a = static_cast<size_t>(na),
+        .max_z = dz * nz,
+        .max_r = dr * nr,
+        .max_a = da * na,
+        .max_t = dt * nt
     };
+
+    return true;
 }
 
-Record Reader::ReadRecord(std::istream& input, RunParams& params)
+bool Reader::ReadRecord(std::istream& input, RunParams& params, Record& record)
 {
-    Record record{};
-
-    std::string buf = readNextLine(input);
+    std::string buf = nextDataLine(input);
     if (buf.empty()) {
-        throw std::runtime_error("Error reading scored quantities.");
+        std::cerr << "Error: No scored quantities found." << std::endl;
+        return false;
     }
 
     std::string string;
@@ -261,7 +232,7 @@ Record Reader::ReadRecord(std::istream& input, RunParams& params)
 
         // Trim and uppercase
         string = std::format("{:}", string);
-        string = toUpperCase(string);
+        string = uppercase(string);
 
         if      (string == "R_R"sv)     { record.R_r = true; }
         else if (string == "R_A"sv)     { record.R_a = true; }
@@ -282,9 +253,9 @@ Record Reader::ReadRecord(std::istream& input, RunParams& params)
         else if (string == "A_T"sv)     { record.A_t = true; }
         else if (string == "A_ZT"sv)    { record.A_zt = true; }
         else if (string == "A_RZT"sv)   { record.A_rzt = true; }
-
         else {
-            throw std::runtime_error("Unknown quantity: "s + string);
+            std::cerr << "Unknown quantity: "s + string << std::endl;
+            return false;
         }
     } while (!iss.fail() && !string.empty());
 
@@ -326,38 +297,32 @@ Record Reader::ReadRecord(std::istream& input, RunParams& params)
         record.A_z = record.A_t = false;
     }
 
-    return record;
+    return true;
 }
 
-double Reader::ReadWeight(std::istream& input)
+bool Reader::ReadWeight(std::istream& in, double& out)
 {
-    std::string buf = readNextLine(input);
-    auto extracted = extract(buf, { double{} }, "Error reading threshold weight.");
+    auto [success, weight] = read<double>(in, "Invalid weight threshold", [](const double& w) {
+        return (w > 0.0 && w < 1.0);
+    });
+    if (!success) { return false; }
 
-    double weight = std::get<double>(extracted[0]);
-
-    if (weight < 0 || weight >= 1.0) {
-        throw std::runtime_error("Threshold weight out of range (0-1).");
-    }
-
-    return weight;
+    out = weight;
+    return true;
 }
 
-long Reader::ReadSeed(std::istream& input)
+bool Reader::ReadSeed(std::istream& in, long& out)
 {
-    std::string buf = readNextLine(input);
-    auto extracted = extract(buf, { double{} }, "Error reading seed value.");
+    auto [success, seed] = read<long>(in, "Invalid random number seed", [](const long& s) {
+        return (s > 0 && s < std::numeric_limits<long>::max());
+    });
+    if (!success) { return false; }
 
-    long seed = static_cast<long>(std::get<double>(extracted[0]));
-
-    if (seed < 0) {
-        throw std::runtime_error("Negative seed value.");
-    }
-
-    return seed;
+    out = seed;
+    return true;
 }
 
-vec1<Layer> Reader::ReadLayers(std::istream& input, RunParams& params)
+bool Reader::ReadLayers(std::istream& input, RunParams& params, vec1<Layer>& out)
 {
     std::string name;
     double thickness = 0.0;
@@ -365,135 +330,86 @@ vec1<Layer> Reader::ReadLayers(std::istream& input, RunParams& params)
     // Z coordinate of the current layer
     double z = 0.0;
 
-    // Save current output position
-    std::streampos file_pos = input.tellg();
-
-    std::string buf;
-    std::size_t num_layers = 0;
-
-    // While "end" has not been found
-    do {
-        try {
-            buf = readNextLine(input);
-
-            if (buf.find("end") != std::string::npos) {
-                break;
-            }
-        }
-        catch (...) {
-            throw std::runtime_error("No layers found.");
+    // Read layers line by line until "end" is found
+    for (std::string buf = nextDataLine(input); buf.find("end") == std::string::npos; buf = nextDataLine(input)) {
+        // Extract name and optionally thickness
+        std::vector<alpha_num> extracted;
+        if (!extract(buf, extracted, { std::string{}, double{} }, true)) {
+            std::cerr << "Error reading layer specifications." << std::endl;
+            return false;
         }
 
-        if (buf.empty()) {
-            throw std::runtime_error("Missing end.");
-        }
-        else {
-            // Read layer name
-            extract(buf, { std::string{} }, "Error reading layer name.");
-            num_layers++;
-        }
-    } while (true);
-
-    if (num_layers < 3) {
-        throw std::runtime_error("No layers found.");
-    }
-
-    // Seek to previous output position 
-    input.seekg(file_pos, std::ios::beg);
-
-    // First and last layers are for ambient
-    vec1<Layer> layers;
-    layers.resize(num_layers);
-
-    for (std::size_t i = 0; i < num_layers; ++i) {
-        std::string buf = readNextLine(input);
-
-        // Top and bottom layers (get only name)
-        if (i == 0 || i == num_layers-1) {
-            // Get name only
-            auto extracted = extract(buf, { std::string{} }, "Error reading layer specs.");
-            name = std::get<std::string>(extracted[0]);
-        }
-        else {
-            // Get name and thickness
-            auto extracted = extract(buf, { std::string{}, double{} }, "Error reading layer specs.");
-
-            name = std::get<std::string>(extracted[0]);
+        // Assign name and thickness
+        name = std::get<std::string>(extracted[0]);
+        if (extracted.size() > 1) {
             thickness = std::get<double>(extracted[1]);
-
             if (thickness <= 0.0) {
                 std::cerr << "Nonpositive layer thickness." << std::endl;
-                return {};
+                return false;
             }
         }
-
-        // Attempt to find medium by name
-        // TODO: Refactor
-        bool found = false;
-        int medium_i;
-        for (short i = 0; i < params.mediums.size(); i++) {
-            if (name == params.mediums[i].name) {
-                found = true;
-                medium_i = i;
-                break;
-            }
-        }
-
-        if (!found) {
-            std::cerr << "  Invalid medium name. " << std::endl;
-            return {};
-        }
-
-        layers[i].name = params.mediums[medium_i].name;
-        layers[i].eta = params.mediums[medium_i].eta;
-        layers[i].mu_a = params.mediums[medium_i].mu_a;
-        layers[i].mu_s = params.mediums[medium_i].mu_s;
-        layers[i].g = params.mediums[medium_i].g;
-
-        // Intermediate layers
-        if (i != 0 && i != (num_layers + 1)) {
-            layers[i].z0 = z;
-            z += thickness;
-            layers[i].z1 = z;
-        }
-        // Top and bottom layers
         else {
-            layers[i].z0 = z;
-            layers[i].z1 = z;
+            thickness = 0.0; // Ambient layers have no thickness
         }
+
+        // Find the medium by name in params.mediums
+        auto it = std::find_if(params.mediums.begin(), params.mediums.end(), [&](const Layer& medium) {
+            return medium.name == name;
+        });
+
+        if (it == params.mediums.end()) {
+            std::cerr << "Invalid medium name: " << name << std::endl;
+            return false;
+        }
+
+        // Create a new layer and assign parameters from the medium
+        Layer layer = Layer(*it);
+
+        // Assign z0 and z1 based on thickness
+        layer.z0 = z;
+        z += thickness; // if thickness is 0.0, nothing happens
+        layer.z1 = z;
+
+        // Add the layer to the output vector
+        out.push_back(layer);
     }
 
-    // Skip the signal "end" of layers.
-    readNextLine(input);
+    // Update the number of layers in params (excluding ambient layers)
+    params.num_layers = out.size() - 2;
 
-    return layers; // NOTE: num_layers = layers.size() - 2
+    return true;
 }
 
-Target Reader::ReadTarget(std::istream& input, RunParams& params, bool add)
+bool Reader::ReadTarget(std::istream& input, RunParams& params, Target& out, bool add)
 {
     Target target = params.target;
 
-    std::string buf = readNextLine(input);
-    auto extracted = extract(buf, { double{}, std::string{} }, "Error reading number of photons or time limit.", true);
+    std::vector<alpha_num> extracted;
+    std::string buf = nextDataLine(input);
+    if (!extract(buf, extracted, { double{}, std::string{} }, true)) {
+        std::cerr << "Error reading target." << std::endl;
+        return false;
+    }
 
-    if (extracted.size() == 1 && is_double(extracted[0])) {
+    if (extracted.size() == 1 && std::holds_alternative<double>(extracted[0])) {
         int num_photons = static_cast<int>(std::get<double>(extracted[0]));
 
         if (num_photons > 0) {
             target.control_bit = ControlBit::NumPhotons;
 
             if (add) {
-                target.add_num_photons = num_photons;
+                target.photons_remaining += num_photons;
             }
             else {
-                target.num_photons = num_photons;
+                target.photons_limit = num_photons;
             }
         }
         else {
-            throw std::runtime_error("Nonpositive number of photons.");
+            std::cerr << "Nonpositive number of photons." << std::endl;
+            return false;
         }
     }
-    else if (extracted.size() == 1 && is_string(extracted[0])) {
+    else if (extracted.size() == 1 && std::holds_alternative<std::string>(extracted[0])) {
         std::string time = std::get<std::string>(extracted[0]);
 
         int hours = 0;
@@ -504,24 +420,29 @@ Target Reader::ReadTarget(std::istream& input, RunParams& params, bool add)
         iss >> hours >> separator >> minutes;
 
         if (!iss || separator != ':') {
-            throw std::runtime_error("Invalid time limit format.");
+            std::cerr << "Invalid time limit format." << std::endl;
+            return false;
         }
 
         if ((hours * 3600 + minutes * 60) > 0) {
             target.control_bit = ControlBit::TimeLimit;
 
             if (add) {
-                target.add_time_limit = hours * 3600 + minutes * 60;
+                target.time_remaining += hours * 3600 + minutes * 60;
             }
             else {
                 target.time_limit = hours * 3600 + minutes * 60;
             }
         }
         else {
-            throw std::runtime_error("Nonpositive time limit.");
+            std::cerr << "Nonpositive time limit." << std::endl;
+            return false;
         }
     }
-    else if (extracted.size() == 2 && is_double(extracted[0]) && is_string(extracted[1])) {
+    else if (extracted.size() == 2 && 
+             std::holds_alternative<double>(extracted[0]) && 
+             std::holds_alternative<std::string>(extracted[1])) {
+
         int num_photons = static_cast<int>(std::get<double>(extracted[0]));
         std::string time = std::get<std::string>(extracted[1]);
 
@@ -533,33 +454,48 @@ Target Reader::ReadTarget(std::istream& input, RunParams& params, bool add)
         iss >> hours >> separator >> minutes;
 
         if (!iss || separator != ':') {
-            throw std::runtime_error("Invalid time limit format.");
+            std::cerr << "Invalid time limit format." << std::endl;
+            return false;
         }
 
         if (num_photons > 0 && (hours * 3600 + minutes * 60) >= 0) {
             target.control_bit = ControlBit::Both;
 
             if (add) {
-                target.add_num_photons = num_photons;
-                target.add_time_limit = hours * 3600 + minutes * 60;
+                target.photons_remaining += num_photons;
+                target.time_remaining += hours * 3600 + minutes * 60;
             }
             else {
-                target.num_photons = num_photons;
+                target.photons_limit = num_photons;
                 target.time_limit = hours * 3600 + minutes * 60;
             }
         }
         else {
-            throw std::runtime_error("Nonpositive number of photons or time limit.");
+            std::cerr << "Nonpositive number of photons or time limit." << std::endl;
         }
     }
     else {
-        throw std::runtime_error("Invalid number of photons or time limit.");
+        std::cerr << "Invalid number of photons or time limit." << std::endl;
     }
 
-    return target;
+    if (!add) {
+        target.photons_remaining = target.photons_limit;
+        target.time_remaining = target.time_limit;
+    }
+
+    // Set output values
+    out = Target{
+        .control_bit = target.control_bit,
+        .photons_limit = target.photons_limit,
+        .time_limit = target.time_limit,
+        .photons_remaining = target.photons_remaining,
+        .time_remaining = target.time_remaining
+    };
+
+    return true;
 }
 
-LightSource Reader::ReadSource(std::istream& input, RunParams& params)
+bool Reader::ReadSource(std::istream& input, RunParams& params, LightSource& out)
 {
     // Compute the index to layer according to the z coordinate. 
     // If the z is on an interface between layers, the returned index will point to the upper layer.
@@ -576,30 +512,40 @@ LightSource Reader::ReadSource(std::istream& input, RunParams& params)
 
     LightSource source{};
 
-    std::string buf = readNextLine(input);
-    auto extracted_source = extract(buf, { std::string{} }, "Error reading photon source type.");
+    std::string buf = nextDataLine(input);
+
+    std::vector<alpha_num> extracted_source;
+    if (!extract(buf, extracted_source, { std::string{} })) {
+        std::cerr << "Error reading photon source type." << std::endl;
+        return false;
+    }
 
     std::string source_type = std::get<std::string>(extracted_source[0]);
-
-    if (toUpperCase(source_type) == "PENCIL"sv) {
+    if (uppercase(source_type) == "PENCIL"sv) {
         source.beam = BeamType::Pencil;
     }
-    else if (toUpperCase(source_type) == "ISOTROPIC"sv) {
+    else if (uppercase(source_type) == "ISOTROPIC"sv) {
         source.beam = BeamType::Isotropic;
     }
     else {
-        throw std::runtime_error("Unknow photon source type.");
+        std::cerr << "Unknown photon source type." << std::endl;
+        return false;
     }
 
-    buf = readNextLine(input);
-    auto extracted_start = extract(buf, { double{}, std::string{} }, "Invalid starting position of photon source.", true);
+    buf = nextDataLine(input);
+    std::vector<alpha_num> extracted_start;
+    if (!extract(buf, extracted_start, { double{}, std::string{} }, true)) {
+        std::cerr << "Error reading starting position of photon source." << std::endl;
+        return false;
+    }
 
     if (extracted_start.size() == 1) {
         source.z = std::get<double>(extracted_start[0]);
         source.layer_index = layer_index(source.z, params);
 
         if (source.layer_index == std::numeric_limits<std::size_t>::max()) {
-            throw std::runtime_error("Invalid starting position of photon source.");
+            std::cerr << "Invalid starting position of photon source." << std::endl;
+            return false;
         }
     }
     else if (extracted_start.size() == 2) {
@@ -610,7 +556,8 @@ LightSource Reader::ReadSource(std::istream& input, RunParams& params)
             source.layer_index = layer_index(source.z, params);
 
             if (source.layer_index == std::numeric_limits<std::size_t>::max()) {
-                throw std::runtime_error("Invalid starting position of photon source.");
+                std::cerr << "Invalid starting position of photon source." << std::endl;
+                return false;
             }
 
             if (params.layers[source.layer_index].name == source.medium_name) {
@@ -618,11 +565,13 @@ LightSource Reader::ReadSource(std::istream& input, RunParams& params)
                     (params.layers[source.layer_index + 1].name == source.medium_name)) {
                     source.layer_index++;
                     if (source.layer_index > params.num_layers) {
-                        throw std::runtime_error("Source is outside of the last layer.");
+                        std::cerr << "Source is outside of the last layer." << std::endl;
+                        return false;
                     }
                 }
                 else {
-                    throw std::runtime_error("Medium name and z coordinate do not match.");
+                    std::cerr << "Medium name and z coordinate do not match." << std::endl;
+                    return false;
                 }
             }
 
@@ -630,44 +579,70 @@ LightSource Reader::ReadSource(std::istream& input, RunParams& params)
     }
 
     if (source.beam == BeamType::Isotropic && source.z == 0.0) {
-        throw std::runtime_error("Can not put isotropic source in upper ambient medium.");
+        std::cerr << "Can not put an isotropic source in upper ambient medium." << std::endl;
+        return false;
     }
 
-    return source;
+    return true;
 }
 
-void Reader::ReadRunParams(std::istream& input, RunParams& params)
+bool Reader::ReadRunParams(std::istream& input, RunParams& params)
 {
-    try {
-        params.output_filename = ReadOutput(input);
-        params.layers = ReadLayers(input, params);
-        params.num_layers = params.layers.size() - 2;
-        params.source = ReadSource(input, params);
-        params.grid = ReadGrid(input);
-        params.record = ReadRecord(input, params);
-        params.target = ReadTarget(input, params);
-        params.weight_threshold = ReadWeight(input);
-        params.seed = ReadSeed(input);
-
-        // Compute the critical angles for total internal reflection according to the 
-        // relative refractive index of the layer.
-        for (short i = 1; i <= params.num_layers; i++) {
-            double eta_0 = params.layers[i - 1].eta;
-            double eta_1 = params.layers[i].eta;
-            double eta_2 = params.layers[i + 1].eta;
-
-            params.layers[i].cos_theta_c0 = eta_1 > eta_0 ? std::sqrt(1.0 - eta_0 * eta_0 / (eta_1 * eta_1)) : 0.0;
-            params.layers[i].cos_theta_c1 = eta_1 > eta_2 ? std::sqrt(1.0 - eta_2 * eta_2 / (eta_1 * eta_1)) : 0.0;
-        }
-
+    if (!ReadOutput(input, params.output_filename)) {
+        std::cerr << "Error reading output file name." << std::endl;
+        return false;
     }
-    catch (const std::exception& e) {
-        std::cerr << e.what() << std::endl;
-        std::exit(1);
+
+    if (!ReadLayers(input, params, params.layers)) {
+        std::cerr << "Error reading layers." << std::endl;
+        return false;
     }
+
+    if (!ReadSource(input, params, params.source)) {
+        std::cerr << "Error reading source." << std::endl;
+        return false;
+    }
+
+    if (!ReadGrid(input, params.grid)) {
+        std::cerr << "Error reading grid." << std::endl;
+        return false;
+    }
+
+    if (!ReadRecord(input, params, params.record)) {
+        std::cerr << "Error reading record." << std::endl;
+        return false;
+    }
+
+    if (!ReadTarget(input, params, params.target)) {
+        std::cerr << "Error reading target." << std::endl;
+        return false;
+    }
+
+    if (!ReadWeight(input, params.weight_threshold)) {
+        std::cerr << "Error reading weight threshold." << std::endl;
+        return false;
+    }
+
+    if (!ReadSeed(input, params.seed)) {
+        std::cerr << "Error reading random number seed." << std::endl;
+        return false;
+    }
+
+    // Compute the critical angles for total internal reflection according to the 
+    // relative refractive index of the layer.
+    for (short i = 1; i <= params.num_layers; i++) {
+        double eta_0 = params.layers[i - 1].eta;
+        double eta_1 = params.layers[i].eta;
+        double eta_2 = params.layers[i + 1].eta;
+
+        params.layers[i].cos_theta_c0 = eta_1 > eta_0 ? std::sqrt(1.0 - eta_0 * eta_0 / (eta_1 * eta_1)) : 0.0;
+        params.layers[i].cos_theta_c1 = eta_1 > eta_2 ? std::sqrt(1.0 - eta_2 * eta_2 / (eta_1 * eta_1)) : 0.0;
+    }
+
+    return true;
 }
 
-void Reader::ReadRandomizer(std::istream& input, std::shared_ptr<Random>& random)
+bool Reader::ReadRandomizer(std::istream& input, std::shared_ptr<Random>& random)
 {
     std::string buf;
     std::vector<std::mt19937::result_type> status(624);
@@ -682,37 +657,38 @@ void Reader::ReadRandomizer(std::istream& input, std::shared_ptr<Random>& random
 
     // Restore the status
     random->restore_state(status);
+
+    return true;
 }
 
-Radiance Reader::ReadRadiance(std::istream& input, RunParams& params, std::shared_ptr<Random>& random)
+bool Reader::ReadRadiance(std::istream& input, RunParams& params, std::shared_ptr<Random>& random, Radiance& radiance)
 {
-    Radiance radiance;
     ReadRandomizer(input, random);
 
-    // skip comment line
-    std::string buf = readNextLine(input);
+    // Skip comment line
+    std::string buf = nextDataLine(input);
 
-    buf = readNextLine(input);
+    buf = nextDataLine(input);
     std::istringstream iss(buf);
     iss >> radiance.R_spec;
 
-    buf = readNextLine(input);
+    buf = nextDataLine(input);
     iss = std::istringstream(buf);
     iss >> radiance.Rb_total >> radiance.Rb_error;
 
-    buf = readNextLine(input);
+    buf = nextDataLine(input);
     iss = std::istringstream(buf);
     iss >> radiance.R_total >> radiance.R_error;
 
-    buf = readNextLine(input);
+    buf = nextDataLine(input);
     iss = std::istringstream(buf);
     iss >> radiance.A_total >> radiance.A_error;
 
-    buf = readNextLine(input);
+    buf = nextDataLine(input);
     iss = std::istringstream(buf);
     iss >> radiance.Tb_total >> radiance.Tb_error;
 
-    buf = readNextLine(input);
+    buf = nextDataLine(input);
     iss = std::istringstream(buf);
     iss >> radiance.T_total >> radiance.T_error;
 
@@ -748,21 +724,25 @@ Radiance Reader::ReadRadiance(std::istream& input, RunParams& params, std::share
     if (params.record.A_z) { radiance.A_z = ReadA_z(input, params.grid.num_z); }
     if (params.record.A_t) { radiance.A_t = ReadA_t(input, params.grid.num_t); }
 
-    return radiance;
+
+    return true;
 }
 
 void Reader::SkipLine(std::istream& input, std::size_t num_lines)
 {
     for (std::size_t i = 0; i < num_lines; i++) {
-        readNextLine(input);
+        auto line = nextDataLine(input);
+        if (line.empty()) {
+            break;
+        }
     }
 }
 
 
-std::string Reader::readNextLine(std::istream& input)
+std::string Reader::nextDataLine(std::istream& in)
 {
     std::string line;
-    while (std::getline(input, line)) {
+    while (std::getline(in, line)) {
         // Find first non-whitespace character
         auto it = std::ranges::find_if(line, [](char c) {
             return !std::isspace(c);
@@ -778,12 +758,12 @@ std::string Reader::readNextLine(std::istream& input)
             continue;
         }
 
-        // Return data line
-        return line;
+        return { line, false };
     }
 
-    // No datalines found
-    throw std::runtime_error("No data line found");
+    // Return empty string if no valid lines found
+    std::cerr << "Error: No valid data line found." << std::endl;
+    return { {}, false };
 }
 
 bool Reader::checkInputParams(RunParams& params)
@@ -840,57 +820,10 @@ bool Reader::checkInputParams(RunParams& params)
     return true;
 }
 
-std::vector<double_or_string> Reader::extract(const std::string& input, const std::vector<double_or_string>& expected, std::string parse_err, bool allow_opt)
-{
-    auto parse = [&](const std::string& str, const double_or_string& type) -> opt_double_or_string {
-        std::istringstream iss(str);
-        if (is_double(type)) {
-            double value;
-            if (iss >> value) { return value; }
-        }
-        else if (is_string(type)) {
-            return str;
-        }
-        return std::nullopt;
-    };
-
-    std::vector<double_or_string> results;
-    std::istringstream iss(input);
-    std::string token;
-
-    for (const auto& type : expected) {
-        if (!(iss >> token)) { break; }
-        opt_double_or_string value = parse(token, type);
-        if (value.has_value()) {
-            results.push_back(value.value());
-        }
-        else if (allow_opt) {
-            continue;
-        }
-        else {
-            throw std::runtime_error(parse_err);
-        }
-    }
-
-    if (!allow_opt && results.size() != expected.size()) {
-        throw std::runtime_error(parse_err);
-    }
-
-    return results;
-}
-
-std::string& Reader::toUpperCase(std::string& string)
-{
-    std::ranges::transform(string, string.begin(), [](unsigned char ch) {
-        return std::toupper(ch);
-    });
-    return string;
-}
-
 
 vec3<double> Reader::ReadR_rat(std::istream& input, std::size_t Nr, std::size_t Na, std::size_t Nt)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec3<double> R_rat(Nr, vec2<double>(Na, vec1<double>(Nt)));
 
     std::size_t i = 0;
@@ -906,7 +839,7 @@ vec3<double> Reader::ReadR_rat(std::istream& input, std::size_t Nr, std::size_t 
 
 vec2<double> Reader::ReadR_ra(std::istream& input, std::size_t Nr, std::size_t Na)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec2<double> R_ra(Nr, vec1<double>(Na));
 
     for (std::size_t ir = 0; ir < Nr; ir++) {
@@ -919,7 +852,7 @@ vec2<double> Reader::ReadR_ra(std::istream& input, std::size_t Nr, std::size_t N
 
 vec2<double> Reader::ReadR_rt(std::istream& input, std::size_t Nr, std::size_t Nt)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec2<double> R_rt(Nr, vec1<double>(Nt));
 
     std::size_t i = 0;
@@ -933,7 +866,7 @@ vec2<double> Reader::ReadR_rt(std::istream& input, std::size_t Nr, std::size_t N
 
 vec2<double> Reader::ReadR_at(std::istream& input, std::size_t Na, std::size_t Nt)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec2<double> R_at(Na, vec1<double>(Nt));
 
     std::size_t i = 0;
@@ -947,7 +880,7 @@ vec2<double> Reader::ReadR_at(std::istream& input, std::size_t Na, std::size_t N
 
 vec1<double> Reader::ReadR_r(std::istream& input, std::size_t Nr)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec1<double> R_r(Nr);
 
     for (std::size_t ir = 0; ir < Nr; ir++) {
@@ -958,7 +891,7 @@ vec1<double> Reader::ReadR_r(std::istream& input, std::size_t Nr)
 
 vec1<double> Reader::ReadR_a(std::istream& input, std::size_t Na)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec1<double> R_a(Na);
 
     for (std::size_t ia = 0; ia < Na; ia++) {
@@ -969,7 +902,7 @@ vec1<double> Reader::ReadR_a(std::istream& input, std::size_t Na)
 
 vec1<double> Reader::ReadR_t(std::istream& input, std::size_t Nt)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec1<double> R_t(Nt);
 
     for (std::size_t it = 0; it < Nt; it++) {
@@ -980,7 +913,7 @@ vec1<double> Reader::ReadR_t(std::istream& input, std::size_t Nt)
 
 vec3<double> Reader::ReadT_rat(std::istream& input, std::size_t Nr, std::size_t Na, std::size_t Nt)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec3<double> T_rat(Nr, vec2<double>(Na, vec1<double>(Nt)));
 
     std::size_t i = 0;
@@ -996,7 +929,7 @@ vec3<double> Reader::ReadT_rat(std::istream& input, std::size_t Nr, std::size_t 
 
 vec2<double> Reader::ReadT_ra(std::istream& input, std::size_t Nr, std::size_t Na)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec2<double> T_ra(Nr, vec1<double>(Na));
 
     for (std::size_t ir = 0; ir < Nr; ir++) {
@@ -1009,7 +942,7 @@ vec2<double> Reader::ReadT_ra(std::istream& input, std::size_t Nr, std::size_t N
 
 vec2<double> Reader::ReadT_rt(std::istream& input, std::size_t Nr, std::size_t Nt)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec2<double> T_rt(Nr, vec1<double>(Nt));
 
     std::size_t i = 0;
@@ -1023,7 +956,7 @@ vec2<double> Reader::ReadT_rt(std::istream& input, std::size_t Nr, std::size_t N
 
 vec2<double> Reader::ReadT_at(std::istream& input, std::size_t Na, std::size_t Nt)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec2<double> T_at(Na, vec1<double>(Nt));
 
     std::size_t i = 0;
@@ -1037,7 +970,7 @@ vec2<double> Reader::ReadT_at(std::istream& input, std::size_t Na, std::size_t N
 
 vec1<double> Reader::ReadT_r(std::istream& input, std::size_t Nr)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec1<double> T_r(Nr);
 
     for (std::size_t ir = 0; ir < Nr; ir++) {
@@ -1048,7 +981,7 @@ vec1<double> Reader::ReadT_r(std::istream& input, std::size_t Nr)
 
 vec1<double> Reader::ReadT_a(std::istream& input, std::size_t Na)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec1<double> T_a(Na);
 
     for (std::size_t ia = 0; ia < Na; ia++) {
@@ -1059,7 +992,7 @@ vec1<double> Reader::ReadT_a(std::istream& input, std::size_t Na)
 
 vec1<double> Reader::ReadT_t(std::istream& input, std::size_t Nt)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec1<double> T_t(Nt);
 
     for (std::size_t it = 0; it < Nt; it++) {
@@ -1070,7 +1003,7 @@ vec1<double> Reader::ReadT_t(std::istream& input, std::size_t Nt)
 
 vec3<double> Reader::ReadA_rzt(std::istream& input, std::size_t Nr, std::size_t Nz, std::size_t Nt)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec3<double> A_rzt(Nr, vec2<double>(Nz, vec1<double>(Nt)));
 
     std::size_t i = 0;
@@ -1086,7 +1019,7 @@ vec3<double> Reader::ReadA_rzt(std::istream& input, std::size_t Nr, std::size_t 
 
 vec2<double> Reader::ReadA_rz(std::istream& input, std::size_t Nr, std::size_t Nz)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec2<double> A_rz(Nr, vec1<double>(Nz));
 
     std::size_t i = 0;
@@ -1100,7 +1033,7 @@ vec2<double> Reader::ReadA_rz(std::istream& input, std::size_t Nr, std::size_t N
 
 vec2<double> Reader::ReadA_zt(std::istream& input, std::size_t Nz, std::size_t Nt)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec2<double> A_zt(Nz, vec1<double>(Nt));
 
     std::size_t i = 0;
@@ -1114,7 +1047,7 @@ vec2<double> Reader::ReadA_zt(std::istream& input, std::size_t Nz, std::size_t N
 
 vec1<double> Reader::ReadA_z(std::istream& input, std::size_t Nz)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec1<double> A_z(Nz);
 
     for (std::size_t iz = 0; iz < Nz; iz++) {
@@ -1125,7 +1058,7 @@ vec1<double> Reader::ReadA_z(std::istream& input, std::size_t Nz)
 
 vec1<double> Reader::ReadA_t(std::istream& input, std::size_t Nt)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec1<double> A_t(Nt);
 
     for (std::size_t it = 0; it < Nt; it++) {
@@ -1136,7 +1069,7 @@ vec1<double> Reader::ReadA_t(std::istream& input, std::size_t Nt)
 
 vec2<double> Reader::ReadAb_zt(std::istream& input, std::size_t Nz, std::size_t Nt)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec2<double> Ab_zt(Nz, vec1<double>(Nt));
 
     std::size_t i = 0;
@@ -1150,7 +1083,7 @@ vec2<double> Reader::ReadAb_zt(std::istream& input, std::size_t Nz, std::size_t 
 
 vec1<double> Reader::ReadAb_z(std::istream& input, std::size_t Nz)
 {
-    readNextLine(input);
+    nextDataLine(input);
     vec1<double> Ab_z(Nz);
 
     for (std::size_t iz = 0; iz < Nz; iz++) {

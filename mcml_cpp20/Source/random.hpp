@@ -15,7 +15,7 @@ private:
 
 public:
     // Initializes with a seed
-    Random(long seed = 0) : rng(seed), dist(0.0, 1.0) {}
+    explicit Random(long seed = 0) : rng(seed), dist(0.0, 1.0) {}
 
     // Re-seed the generator
     void seed(long new_seed)

@@ -156,9 +156,11 @@
   <ItemGroup>
     <ClInclude Include="Source\cin_reader.hpp" />
     <ClInclude Include="Source\cout_writer.hpp" />
+    <ClInclude Include="Source\exception.hpp" />
     <ClInclude Include="Source\mcml.hpp" />
     <ClInclude Include="Source\random.hpp" />
     <ClInclude Include="Source\reader.hpp" />
+    <ClInclude Include="Source\reader_util.hpp" />
     <ClInclude Include="Source\simulator.hpp" />
     <ClInclude Include="Source\timer.hpp" />
     <ClInclude Include="Source\tracer.hpp" />
@@ -168,6 +170,7 @@
     <ClCompile Include="Source\cin_reader.cpp" />
     <ClCompile Include="Source\main.cpp" />
     <ClCompile Include="Source\reader.cpp" />
+    <ClCompile Include="Source\reader_util.cpp" />
     <ClCompile Include="Source\simulator.cpp" />
     <ClCompile Include="Source\tracer.cpp" />
     <ClCompile Include="Source\writer.cpp" />
@@ -215,6 +218,8 @@
       <DestinationFolders Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(OutDir)</DestinationFolders>
       <DestinationFolders Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(OutDir)</DestinationFolders>
     </CopyFileToFolders>
+    <None Include="Source\cin_reader.tpp" />
+    <None Include="Source\reader.tpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

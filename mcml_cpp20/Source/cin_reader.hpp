@@ -1,45 +1,43 @@
 #pragma once
 
-#include <tuple>
 #include <string>
+#include <istream>
 
 #include "mcml.hpp"
 #include "reader.hpp"
 
 class CinReader : public Reader
 {
+
 public:
-    CinReader();
+    CinReader() : Reader{ {} } {}
     ~CinReader() = default;
 
     // Read the input parameters for all runs and count number of runs.
-    void ReadParams(std::istream& input, RunParams& params) override;
+    bool ReadParams(std::istream& in, RunParams& params) override;
 
     // Read the mediums list.
-    vec1<Layer> ReadMediums(std::istream& input) override;
+    bool ReadMediums(std::istream& in, vec1<Layer>& out) override;
 
     // Read the input name and the input format.
-    std::string ReadOutput(std::istream& input) override;
+    bool ReadOutput(std::istream& in, std::string& out) override;
 
     // Read the parameters of all layers.
-    vec1<Layer> ReadLayers(std::istream& input, RunParams& params) override;
+    bool ReadLayers(std::istream& in, RunParams& params, vec1<Layer>& out) override;
 
     // Read the beam source type (Pencil or Isotropic) and starting position.
-    LightSource ReadSource(std::istream& input, RunParams& params) override;
+    bool ReadSource(std::istream& in, RunParams& params, LightSource& out) override;
 
     // Read the grid separation parameters (z, r, t) and number of grid lines (z, r, t, and alpha).
-    Grid ReadGrid(std::istream& input) override;
+    bool ReadGrid(std::istream& in, Grid& out) override;
 
     // Read which quantity is to be scored.
-    Record ReadRecord(std::istream& input, RunParams& params) override;
+    bool ReadRecord(std::istream& in, RunParams& params, Record& out) override;
 
     // Read the number of photons and computation time limit.
-    Target ReadTarget(std::istream& input, RunParams& params, bool add = false) override;
+    bool ReadTarget(std::istream& in, RunParams& params, Target& out, bool add = false) override;
 
     // Read the weight threshold.
-    double ReadWeight(std::istream& input) override;
+    bool ReadWeight(std::istream& in, double& out) override;
 
-protected:
-    template <typename T> T read(std::istream& input, std::string err_msg);
-    template <typename T, typename U> std::tuple<T, U> read(std::istream& input, std::string err_msg);
 };

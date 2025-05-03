@@ -41,6 +41,12 @@
     <ClInclude Include="Source\writer.hpp">
       <Filter>Headers</Filter>
     </ClInclude>
+    <ClInclude Include="Source\exception.hpp">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\reader_util.hpp">
+      <Filter>Source</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Source\main.cpp">
@@ -59,6 +65,9 @@
       <Filter>Source</Filter>
     </ClCompile>
     <ClCompile Include="Source\cin_reader.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\reader_util.cpp">
       <Filter>Source</Filter>
     </ClCompile>
   </ItemGroup>
@@ -82,6 +91,12 @@
     </None>
     <None Include="Resources\sample2.mco">
       <Filter>Resources</Filter>
+    </None>
+    <None Include="Source\cin_reader.tpp">
+      <Filter>Source</Filter>
+    </None>
+    <None Include="Source\reader.tpp">
+      <Filter>Source</Filter>
     </None>
   </ItemGroup>
 </Project>

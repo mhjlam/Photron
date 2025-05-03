@@ -75,6 +75,7 @@
 #pragma once
 
 #include "random.hpp"
+#include "exception.hpp"
 
 #include <limits>
 #include <random>
@@ -252,12 +253,13 @@ struct Grid
 
 struct Target
 {
-    std::size_t num_photons{};	        // Number of photons to be traced
-    long        time_limit{};	        // Computation time limit [sec]
     ControlBit  control_bit{};          // Control of simulation termination.
+    
+    std::size_t photons_limit{};	    // Number of photons to be traced
+    long        time_limit{};	        // Computation time limit [sec]
 
-    std::size_t add_num_photons{};	    // Additional photon number
-    long        add_time_limit{};	    // Additional computation time
+    std::size_t photons_remaining{};    // Remaining photons to be traced
+    long        time_remaining{};       // Computation time remaining
 };
 
 struct Record

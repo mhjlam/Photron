@@ -57,7 +57,7 @@ private:
     // Report time, photon number traced, write results
     void reportResult();
 
-    std::string promptFileName(std::string file_type = ".mci");
+    bool promptFileName(std::string& result, std::string file_type = ".mci");
 
     // Continue to change input parameters or quit.
     bool promptEdit();

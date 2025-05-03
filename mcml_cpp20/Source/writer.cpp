@@ -46,21 +46,28 @@ void Writer::WriteMediums(std::ostream& output, RunParams& params)
 
 void Writer::WriteFilename(std::ostream& output, RunParams& params)
 {
-    output << std::format("{:<50} # output file name", params.output_filename) << std::endl;
+    output << "# output file name\n";
+    output << params.output_filename << std::endl;
 }
 
 void Writer::WriteGridParams(std::ostream& output, RunParams& params)
 {
-    output << std::format("{:<50} # dz, dr, dt", std::format("{:<8.2f} {:<8.2f} {:<8.2f}", params.grid.step_z, params.grid.step_r, params.grid.step_t)) << std::endl;
+    output << std::format("{:<8} {:<8} {:<8}", "# step_z", "step_r", "step_t") << std::endl;
+    output << std::format("{:<8.2f} {:<8.2f} {:<8.2f}", params.grid.step_z, params.grid.step_r, params.grid.step_t) << std::endl;
+    output << std::endl;
 }
 
 void Writer::WriteGridSize(std::ostream& output, RunParams& params)
 {
-    output << std::format("{:<50} # nz, nr, nt, na", std::format("{:<8} {:<8} {:<8} {:<8}", params.grid.num_z, params.grid.num_r, params.grid.num_t, params.grid.num_a)) << std::endl;
+    output << std::format("{:<8} {:<8} {:<8} {:<8}", "# num_z", "num_r", "num_t", "num_a") << std::endl;
+    output << std::format("{:<8} {:<8} {:<8} {:<8}", params.grid.num_z, params.grid.num_r, params.grid.num_t, params.grid.num_a) << std::endl;
+    output << std::endl;
 }
 
 void Writer::WriteRecord(std::ostream& output, RunParams& params)
 {
+    output << "# scored quantities\n";
+
     std::vector<std::string> quantities;
 
     if (params.record.R_r) { quantities.push_back("R_r"); }
@@ -90,17 +97,21 @@ void Writer::WriteRecord(std::ostream& output, RunParams& params)
         format += std::format("{}{}", q, (&q == &quantities.back() ? "" : " "));
     }
 
-    output << std::format("{:<50} # scored quantities\n", format);
+    output << format << std::endl;
 }
 
 void Writer::WriteWeight(std::ostream& output, RunParams& params)
 {
-    output << std::format("{:<50} # weight threshold", std::format("{:.6f}", params.weight_threshold)) << std::endl;
+    output << "# weight threshold\n";
+    output << std::format("{:.6f}", params.weight_threshold) << std::endl;
+    output << std::endl;
 }
 
 void Writer::WriteRandomSeed(std::ostream& output, RunParams& params)
 {
-    output << std::format("{:<50} # random number generator seed", params.seed) << std::endl;
+    output << "# random number generator seed\n";
+    output << params.seed << std::endl;
+    output << std::endl;
 }
 
 void Writer::WriteLayers(std::ostream& output, RunParams& params)
@@ -126,39 +137,23 @@ void Writer::WriteLayers(std::ostream& output, RunParams& params)
 
 void Writer::WriteEndCriteria(std::ostream& output, RunParams& params)
 {
-    if (params.target.control_bit == ControlBit::NumPhotons) {
-        output << std::format("{:<50} # photon limit", params.target.num_photons) << std::endl;
-    }
-    else if (params.target.control_bit == ControlBit::TimeLimit) {
-        auto duration = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::seconds(params.target.time_limit));
-        output << std::format("{:<50} # time limit", std::format("{:%H:%M:%S}", duration)) << std::endl;
-    }
-    else {
-        auto duration = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::seconds(params.target.time_limit));
-        output << std::format("{:<50} # photon / time limit",
-                              std::format("{:<12} {:%H:%M:%S}", params.target.num_photons, duration)) << std::endl;
-    }
+    auto duration = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::seconds(params.target.time_limit));
+    output << std::format("{:<12} time limit", "# photons") << std::endl;
+    output << std::format("{:<12} {:%H:%M:%S}", params.target.photons_limit, duration) << std::endl;
+    output << std::endl;
 }
 
 void Writer::WriteSourceType(std::ostream& output, RunParams& params)
 {
-    if (params.source.beam == BeamType::Pencil) {
-        output << std::format("{:<50} # beam type", "pencil") << std::endl;
-    }
-    else {
-        output << std::format("{:<50} # beam type", "isotropic") << std::endl;
-    }
+    output << "# beam type\n";
+    output << ((params.source.beam == BeamType::Pencil) ? "pencil" : "isotropic") << std::endl;
+    output << std::endl;
 }
 
 void Writer::WritePhotonSource(std::ostream& output, RunParams& params)
 {
-    if (!params.source.medium_name.empty()) {
-        output << std::format("{:<50} # starting position of source",
-                              std::format("{:8.2f} {:<20}", params.source.z, params.source.medium_name)) << std::endl;
-    }
-    else {
-        output << std::format("{:<50.2f} # starting position of source", params.source.z) << std::endl;
-    }
+    output << "# starting position of source\n";
+    output << std::format("{:<8.2f} {:<20}", params.source.z, params.source.medium_name) << std::endl;
 }
 
 /*******************************************************************************
@@ -166,11 +161,12 @@ void Writer::WritePhotonSource(std::ostream& output, RunParams& params)
  ****/
 void Writer::WriteParams(std::ostream& output, RunParams& params)
 {
-    output << std::format("{:<50} # input file version", MCI_VERSION) << std::endl << std::endl;
+    output << "# input file version\n";
+    output << std::format("{:<50}", MCI_VERSION) << std::endl << std::endl;
 
     WriteMediums(output, params);
 
-    output << "\n# Run parameters\n";
+    output << "\n# Run parameters\n\n";
 
     WriteFilename(output, params);
 
@@ -203,7 +199,8 @@ void Writer::WriteParams(std::ostream& output, RunParams& params)
 
 void Writer::WriteVersion(std::ostream& output, const std::string_view& version)
 {
-    output << std::format("{:<50} # output file version\n", version);
+    output << "# output file version\n";
+    output << version;
 }
 
 void Writer::WriteRandomizer(std::ostream& output, std::shared_ptr<Random> random)
@@ -263,7 +260,7 @@ void Writer::WriteResults(std::ostream& output, RunParams& params, Radiance& rad
         file.close();
     }
 
-    std::cout << "Results written to file " << params.output_filename << std::endl;
+    std::cout << "Results written to file " << params.output_filename << ".\n";
 }
 
 void Writer::WriteRadiance(std::ostream& output, Radiance& radiance)

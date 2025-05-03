@@ -5,7 +5,7 @@
 #include <fstream>
 #include <numbers>
 #include <iostream>
-
+#include <filesystem>
 
 #include "reader.hpp"
 #include "cin_reader.hpp"
@@ -16,6 +16,10 @@
 #include "timer.hpp"
 #include "random.hpp"
 #include "tracer.hpp"
+#include "exception.hpp"
+
+
+using namespace std::chrono;
 
 
 Simulator::Simulator(std::string in_file) :
@@ -33,11 +37,14 @@ Simulator::Simulator(std::string in_file) :
 
 void Simulator::Simulate()
 {
-    m_mci = promptFileName();
-    if (m_mci.empty()) {
-        return;
-    }
-
+    bool retry = false;
+    do {
+        retry = !promptFileName(m_mci);
+        if (m_mci == "Q") {
+            return;
+        }
+    } while (retry);
+    
     m_reader = std::make_shared<Reader>(m_mci);
     m_reader->ReadParams(*m_reader, m_params);
 
@@ -53,17 +60,21 @@ void Simulator::Resume()
 {
     std::cout << "Specify the output file name of a previous simulation. " << std::endl;
 
-    std::string mco_filename = promptFileName(".mco");
-    if (mco_filename.empty()) {
-        return;
-    }
+    std::string filename;
+    bool retry = false;
+    do {
+        retry = promptFileName(filename, ".mco");
+        if (filename == "Q") {
+            return;
+        }
+    } while (retry);
 
     try {
-        auto file_reader = std::make_unique<Reader>(mco_filename, MCO_VERSION);
+        auto file_reader = std::make_unique<Reader>(filename, MCO_VERSION);
 
         // Skip file version number
         file_reader->SkipLine(*file_reader);
-        m_params.mediums = file_reader->ReadMediums(*file_reader);
+        file_reader->ReadMediums(*file_reader, m_params.mediums);
 
         if (m_params.mediums.empty()) {
             throw std::runtime_error("No mediums found in file.");
@@ -72,17 +83,15 @@ void Simulator::Resume()
         file_reader->ReadRunParams(*file_reader, m_params);
 
         // Add photons / time limit
-        m_params.target = m_cin_reader->ReadTarget(*m_cin_reader, m_params, true);
+        m_cin_reader->ReadTarget(*m_cin_reader, m_params, m_params.target, true);
 
-        Radiance radiance = file_reader->ReadRadiance(*file_reader, m_params, m_random);
+        Radiance radiance;
+        file_reader->ReadRadiance(*file_reader, m_params, m_random, radiance);
         m_tracer = std::make_shared<Tracer>(m_params, m_random, radiance);
 
         scaleReflectance(*m_tracer, ScaleMode::Unscale);
         scaleTransmittance(*m_tracer, ScaleMode::Unscale);
         scaleAbsorption(*m_tracer, ScaleMode::Unscale);
-
-        std::swap(m_params.target.num_photons, m_params.target.add_num_photons);
-        std::swap(m_params.target.time_limit, m_params.target.add_time_limit);
 
         run();
 
@@ -128,14 +137,19 @@ void Simulator::Interactive()
 void Simulator::InteractiveEdit()
 {
     // Read mci file
-    std::string mci_filename = promptFileName();
-    if (mci_filename.empty()) {
-        return;
-    }
+    bool retry = false;
+    std::string filename;
 
+    do {
+        retry = !promptFileName(filename);
+        if (filename == "Q") {
+            return;
+        }
+    } while (retry);
+    
     // Read mediums and params from input file
-    auto file_reader = std::make_unique<Reader>(mci_filename);
-    m_params.mediums = file_reader->ReadMediums(*file_reader);
+    auto file_reader = std::make_unique<Reader>(filename);
+    file_reader->ReadMediums(*file_reader, m_params.mediums);
     file_reader->ReadRunParams(*file_reader, m_params);
     std::cout << "The parameters of the first run have been read in.\n\n";
 
@@ -166,23 +180,23 @@ void Simulator::run(std::size_t run_index, bool start_new)
     reportTarget(m_params.num_runs - run_index);
 
     bool exit = false;
-    std::size_t photon_i = 1;
+    std::size_t photon_traced = 1;
     std::size_t tens = 10;
 
     do {
         Photon photon = m_tracer->Launch();
         m_tracer->Trace(photon);
 
-        if (photon_i == tens) {
+        if (photon_traced == tens) {
             tens *= 10;
-            reportProgress(photon_i);
+            reportProgress(photon_traced);
         }
-        photon_i++;
+        photon_traced++;
 
         switch (m_params.target.control_bit) {
             case ControlBit::NumPhotons:
             {
-                exit = photon_i > m_params.target.num_photons;
+                exit = photon_traced > m_params.target.photons_limit;
                 break;
             }
             case ControlBit::TimeLimit:
@@ -192,15 +206,15 @@ void Simulator::run(std::size_t run_index, bool start_new)
             }
             case ControlBit::Both:
             {
-                exit = (photon_i > m_params.target.num_photons) || (m_timer->punch() >= m_params.target.time_limit);
+                exit = (photon_traced > m_params.target.photons_limit) || (m_timer->punch() >= m_params.target.time_limit);
                 break;
             }
         }
     } while (!exit);
 
-    m_params.target.num_photons = m_params.target.add_num_photons + photon_i - 1;
-    m_params.target.time_limit = m_params.target.add_time_limit + static_cast<long>(m_timer->punch());
-    m_params.target.control_bit = ControlBit::Both;
+    // Update remaining photons and time
+    m_params.target.photons_remaining = m_params.target.photons_limit - photon_traced;
+    m_params.target.time_remaining = m_params.target.time_limit - static_cast<long>(m_timer->punch());
 
     reportResult();
 
@@ -221,6 +235,11 @@ bool Simulator::interactiveRun()
     } while (command != 'Y' && command != 'N');
 
     std::cin.ignore(max_size, '\n');
+
+    // No changes, return true and start simulation
+    if (command == 'N') {
+        return true;
+    }
 
     bool cont = true;
     while (cont) {
@@ -248,6 +267,7 @@ bool Simulator::interactiveRun()
 
         if (std::toupper(command) == 'Y') {
             std::cout << "Give the file name to save input: ( .mci): ";
+            std::cin.ignore(max_size, '\n');
             std::getline(std::cin, string);
 
             std::ofstream file(string, std::ios::out);
@@ -293,7 +313,7 @@ bool Simulator::editMenu(char command)
         case 'S': { editSource(); break; }
         case 'H': { showEditMenuHelp(); break; }
         case 'Q': { return true; }
-        default: { std::cout << "...Unknown command" << std::endl; }
+        default: { std::cout << "Unknown command." << std::endl; }
     }
     return false;
 }
@@ -354,58 +374,51 @@ bool Simulator::validateParams()
 
 void Simulator::reportTarget(std::size_t runs_remaining)
 {
+    using namespace std::chrono;
+    auto [h, m, s] = Timer::time_point_hms(m_params.target.time_limit);
+
     std::cout << std::endl << "Starting run #" << m_params.num_runs - runs_remaining << ". ";
     switch (m_params.target.control_bit) {
         case ControlBit::NumPhotons:
-        {
-            std::cout << "Tracing " << m_params.target.num_photons << " photons." << std::endl << std::endl;
-            std::cout << "\tPhotons Done" << std::endl;
-            std::cout << "\t------------" << std::endl;
+            std::cout << "Tracing " << m_params.target.photons_limit << " photons.\n\n";
+            std::cout << "\tPhotons traced\n";
+            std::cout << "\t--------------\n";
             break;
-        }
+
         case ControlBit::TimeLimit:
-        {
-            auto date = std::format("{:%H:%M on %Y/%m/%d}",
-                                    std::chrono::system_clock::now() +
-                                    std::chrono::seconds(m_params.target.time_limit) -
-                                    std::chrono::seconds(m_timer->punch()));
-
-            std::cout << "The simulation will terminate on " << date << "." << std::endl << std::endl;
-            std::cout << "\tPhotons Done" << std::endl;
-            std::cout << "\t------------" << std::endl;
+            std::cout << "Tracing photons until the deadline in ";
+            std::cout << Timer::format_hms(h, m, s);
+            std::cout << Timer::format_datetime(m_params.target.time_limit) << ".\n\n";
+            std::cout << "\tPhotons traced\n";
+            std::cout << "\t--------------\n";
             break;
-        }
+
         case ControlBit::Both:
-        {
-            auto date = std::format("{:%H:%M on %Y/%m/%d}",
-                                    std::chrono::system_clock::now() +
-                                    std::chrono::seconds(m_params.target.time_limit) -
-                                    std::chrono::seconds(m_timer->punch()));
-
-            std::cout << "Tracing " << m_params.target.num_photons << " photons ";
-            std::cout << "with a deadline at " << date << "." << std::endl << std::endl;
-            std::cout << "\tPhotons Done" << std::endl;
-            std::cout << "\t------------" << std::endl;
+            std::cout << "Tracing " << m_params.target.photons_limit << " photons with a deadline in ";
+            std::cout << Timer::format_hms(h, m, s);
+            std::cout << Timer::format_datetime(m_params.target.time_limit) << ".\n\n";
+            std::cout << "\tPhotons traced\n";
+            std::cout << "\t--------------\n";
             break;
-        }
     }
 }
 
 void Simulator::reportProgress(std::size_t photons_done)
 {
     if (m_params.target.control_bit == ControlBit::TimeLimit) {
-        std::cout << std::format("\t{:>12}\t", photons_done) << std::endl;
+        std::cout << std::format("\t{:<13}\t", photons_done) << std::endl;
     }
     else {
-        std::cout << std::format("{:>11} ({:6.2f}%)\t", photons_done, (float)photons_done * 100 / m_params.target.num_photons) << std::endl;
+        std::cout << std::format("{:>12} ({:6.2f}%)\t", photons_done, (float)photons_done * 100 / m_params.target.photons_limit) << std::endl;
     }
 }
 
 void Simulator::reportResult()
 {
-    std::string time_report = m_timer->hoursMinSec(m_timer->punch());
-    std::cout << std::endl << "Finished tracing " << m_params.target.num_photons
-        << " photons. This took " << time_report << "." << std::endl;
+    auto [h, m, s] = Timer::time_point_hms(m_timer->punch());
+
+    std::cout << "\nFinished tracing " << m_params.target.photons_limit << " photons. ";
+    std::cout << "This took " << Timer::format_hms(h, m, s) << ".\n";
 
     // Scale results
     Radiance& radiance = *m_tracer;
@@ -424,9 +437,10 @@ void Simulator::reportResult()
     m_writer->WriteResults(file, m_params, *m_tracer, m_random);
 }
 
-std::string Simulator::promptFileName(std::string file_type)
+bool Simulator::promptFileName(std::string& result, std::string file_type)
 {
     std::string buf;
+
     while (buf.empty()) {
         std::cout << "Specify path to " << file_type << " file (or Q to quit to main menu): ";
 
@@ -436,18 +450,26 @@ std::string Simulator::promptFileName(std::string file_type)
         if (!buf.empty()) {
             // Terminate with letter Q
             if (buf.size() == 1 && std::toupper(buf[0]) == 'Q') {
-                return {};
+                result = "Q";
+                return true;
             }
+        }
+
+        // Check if file exists
+        if (!std::filesystem::exists(buf)) {
+            std::cout << "File does not exist." << std::endl;
+            return false;
         }
     }
 
-    return buf;
+    result = buf;
+    return true;
 }
 
 
 bool Simulator::promptEdit()
 {
-    char ch{'\0'};
+    char ch{ '\0' };
     std::cout << "Do you want to change them? (Y/N): ";
     do {
         std::cin.get(ch);
@@ -466,7 +488,7 @@ void Simulator::editMediums()
 
     if (promptEdit()) {
         m_params.mediums.clear();
-        m_params.mediums = m_cin_reader->ReadMediums(*m_cin_reader);
+        m_cin_reader->ReadMediums(*m_cin_reader, m_params.mediums);
     }
 }
 
@@ -476,7 +498,7 @@ void Simulator::editOutput()
     m_cout_writer->WriteFilename(*m_cout_writer, m_params);
     std::cout << std::endl;
 
-    m_params.output_filename = m_cin_reader->ReadOutput(*m_cin_reader);
+    m_cin_reader->ReadOutput(*m_cin_reader, m_params.output_filename);
 }
 
 void Simulator::editGrid()
@@ -489,7 +511,7 @@ void Simulator::editGrid()
     m_cout_writer->WriteGridParams(*m_cout_writer, m_params);
     std::cout << std::endl;
 
-    m_params.grid = m_cin_reader->ReadGrid(*m_cin_reader);
+    m_cin_reader->ReadGrid(*m_cin_reader, m_params.grid);
 }
 
 void Simulator::editRecord()
@@ -498,7 +520,7 @@ void Simulator::editRecord()
     std::cout << std::endl;
 
     if (promptEdit()) {
-        m_params.record = m_cin_reader->ReadRecord(*m_cin_reader, m_params);
+        m_cin_reader->ReadRecord(*m_cin_reader, m_params, m_params.record);
     }
 }
 
@@ -507,8 +529,8 @@ void Simulator::editWeight()
     std::cout << "Current threshold weight: " << std::endl;
     m_cout_writer->WriteWeight(*m_cout_writer, m_params);
     std::cout << std::endl;
-    
-    m_params.weight_threshold = m_cin_reader->ReadWeight(*m_cin_reader);
+
+    m_cin_reader->ReadWeight(*m_cin_reader, m_params.weight_threshold);
 }
 
 void Simulator::editLayers()
@@ -518,7 +540,7 @@ void Simulator::editLayers()
     std::cout << std::endl;
 
     if (promptEdit()) {
-        m_params.layers = m_cin_reader->ReadLayers(*m_cin_reader, m_params);
+        m_cin_reader->ReadLayers(*m_cin_reader, m_params, m_params.layers);
         m_params.num_layers = m_params.layers.size() - 2;
     }
 }
@@ -529,7 +551,7 @@ void Simulator::editTarget()
     m_cout_writer->WriteEndCriteria(*m_cout_writer, m_params);
     std::cout << std::endl;
 
-    m_params.target = m_cin_reader->ReadTarget(*m_cin_reader, m_params);
+    m_cin_reader->ReadTarget(*m_cin_reader, m_params, m_params.target);
 }
 
 void Simulator::editSource()
@@ -537,16 +559,16 @@ void Simulator::editSource()
     std::cout << "Current source type: " << std::endl;
     m_cout_writer->WriteSourceType(*m_cout_writer, m_params);
     std::cout << std::endl;
-    
+
     std::cout << "Layer Specification: " << std::endl;
     m_cout_writer->WriteLayers(*m_cout_writer, m_params);
     std::cout << std::endl;
-    
+
     std::cout << "Current starting position: " << std::endl;
     m_cout_writer->WritePhotonSource(*m_cout_writer, m_params);
     std::cout << std::endl;
 
-    m_params.source = m_cin_reader->ReadSource(*m_cin_reader, m_params);
+    m_cin_reader->ReadSource(*m_cin_reader, m_params, m_params.source);
 }
 
 void Simulator::showEditMenuHelp()
@@ -580,8 +602,8 @@ void Simulator::scaleReflectance(Radiance& radiance, ScaleMode mode)
     * Scale Rd(a) and Td(a) by solid angle * num_photons.
     */
 
-    auto op = (mode == ScaleMode::Scale) ? 
-        [](double x, double y) { return x * y; } : 
+    auto op = (mode == ScaleMode::Scale) ?
+        [](double x, double y) { return x * y; } :
         [](double x, double y) { return x / y; };
 
     std::size_t nr = m_params.grid.num_r;
@@ -592,7 +614,7 @@ void Simulator::scaleReflectance(Radiance& radiance, ScaleMode mode)
     double da = m_params.grid.step_a;
     double dt = m_params.grid.step_t;
 
-    double scale1 = (double)m_params.target.num_photons;
+    double scale1 = (double)m_params.target.photons_limit;
 
 
     if (mode == ScaleMode::Scale) {
@@ -610,14 +632,14 @@ void Simulator::scaleReflectance(Radiance& radiance, ScaleMode mode)
         radiance.Rb_error = (scale1 * radiance.Rb_error) * (scale1 * radiance.Rb_error) + 1 / scale1 * radiance.Rb_total * radiance.Rb_total;
     }
 
-    scale1 = dt * m_params.target.num_photons;
+    scale1 = dt * m_params.target.photons_limit;
     if (m_params.record.R_t) {
         for (std::size_t it = 0; it < nt; it++) {
             radiance.R_t[it] = op(radiance.R_t[it], scale1);
         }
     }
 
-    scale1 = 2.0 * std::numbers::pi * dr * dr * m_params.target.num_photons;
+    scale1 = 2.0 * std::numbers::pi * dr * dr * m_params.target.photons_limit;
     // area is 2*PI*[(ir+0.5)*grid_r]*grid_r.  ir + 0.5 to be added.
 
     if (m_params.record.R_r) {
@@ -637,7 +659,7 @@ void Simulator::scaleReflectance(Radiance& radiance, ScaleMode mode)
         }
     }
 
-    scale1 = std::numbers::pi * da * m_params.target.num_photons;
+    scale1 = std::numbers::pi * da * m_params.target.photons_limit;
 
     // Solid angle times cos(a) is PI*sin(2a)*grid_a. sin(2a) to be added.
     if (m_params.record.R_a) {
@@ -657,7 +679,7 @@ void Simulator::scaleReflectance(Radiance& radiance, ScaleMode mode)
         }
     }
 
-    scale1 = 2.0 * std::numbers::pi * dr * dr * std::numbers::pi * da * m_params.target.num_photons;
+    scale1 = 2.0 * std::numbers::pi * dr * dr * std::numbers::pi * da * m_params.target.photons_limit;
     if (m_params.record.R_ra) {
         for (std::size_t ir = 0; ir < nr; ir++) {
             for (std::size_t ia = 0; ia < na; ia++) {
@@ -696,8 +718,8 @@ void Simulator::scaleTransmittance(Radiance& radiance, ScaleMode mode)
     * Scale Rd(a) and Td(a) by solid angle * num_photons.
     */
 
-    auto op = (mode == ScaleMode::Scale) ? 
-        [](double x, double y) { return x * y; } : 
+    auto op = (mode == ScaleMode::Scale) ?
+        [](double x, double y) { return x * y; } :
         [](double x, double y) { return x / y; };
 
     std::size_t nr = m_params.grid.num_r;
@@ -708,7 +730,7 @@ void Simulator::scaleTransmittance(Radiance& radiance, ScaleMode mode)
     double da = m_params.grid.step_a;
     double dt = m_params.grid.step_t;
 
-    double scale1 = (double)m_params.target.num_photons;
+    double scale1 = (double)m_params.target.photons_limit;
 
     if (mode == ScaleMode::Scale) {
         radiance.T_error = 1 / scale1 * sqrt(radiance.T_error - radiance.T_total * radiance.T_total / scale1);
@@ -725,7 +747,7 @@ void Simulator::scaleTransmittance(Radiance& radiance, ScaleMode mode)
         radiance.Tb_error = (scale1 * radiance.Tb_error) * (scale1 * radiance.Tb_error) + 1 / scale1 * radiance.Tb_total * radiance.Tb_total;
     }
 
-    scale1 = dt * m_params.target.num_photons;
+    scale1 = dt * m_params.target.photons_limit;
 
     if (m_params.record.T_t) {
         for (std::size_t it = 0; it < nt; it++) {
@@ -734,7 +756,7 @@ void Simulator::scaleTransmittance(Radiance& radiance, ScaleMode mode)
     }
 
     // area is 2*PI*[(ir+0.5)*grid_r]*grid_r. ir + 0.5 to be added.
-    scale1 = 2.0 * std::numbers::pi * dr * dr * m_params.target.num_photons;
+    scale1 = 2.0 * std::numbers::pi * dr * dr * m_params.target.photons_limit;
 
     if (m_params.record.T_r) {
         for (std::size_t ir = 0; ir < nr; ir++) {
@@ -754,7 +776,7 @@ void Simulator::scaleTransmittance(Radiance& radiance, ScaleMode mode)
         }
     }
 
-    scale1 = std::numbers::pi * da * m_params.target.num_photons;
+    scale1 = std::numbers::pi * da * m_params.target.photons_limit;
 
     // Solid angle times cos(a) is PI*sin(2a)*grid_a. sin(2a) to be added.
     if (m_params.record.T_a) {
@@ -774,7 +796,7 @@ void Simulator::scaleTransmittance(Radiance& radiance, ScaleMode mode)
         }
     }
 
-    scale1 = 2.0 * std::numbers::pi * dr * dr * std::numbers::pi * da * m_params.target.num_photons;
+    scale1 = 2.0 * std::numbers::pi * dr * dr * std::numbers::pi * da * m_params.target.photons_limit;
     if (m_params.record.T_ra) {
         for (std::size_t ir = 0; ir < nr; ir++) {
             for (std::size_t ia = 0; ia < na; ia++) {
@@ -800,8 +822,8 @@ void Simulator::scaleTransmittance(Radiance& radiance, ScaleMode mode)
 
 void Simulator::scaleAbsorption(Radiance& radiance, ScaleMode mode)
 {
-    auto op = (mode == ScaleMode::Scale) ? 
-        [](double x, double y) { return x / y; } : 
+    auto op = (mode == ScaleMode::Scale) ?
+        [](double x, double y) { return x / y; } :
         [](double x, double y) { return x * y; };
 
     std::size_t nz = m_params.grid.num_z;
@@ -812,7 +834,7 @@ void Simulator::scaleAbsorption(Radiance& radiance, ScaleMode mode)
     double dr = m_params.grid.step_r;
     double dt = m_params.grid.step_t;
 
-    double scale1 = (double)m_params.target.num_photons;
+    double scale1 = (double)m_params.target.photons_limit;
 
     // scale A
     if (mode == ScaleMode::Scale) {
@@ -862,7 +884,7 @@ void Simulator::scaleAbsorption(Radiance& radiance, ScaleMode mode)
         }
     }
 
-    scale1 = 2.0 * std::numbers::pi * dr * dr * dz * m_params.target.num_photons;
+    scale1 = 2.0 * std::numbers::pi * dr * dr * dz * m_params.target.photons_limit;
     if (m_params.record.A_rz) {
         for (std::size_t ir = 0; ir < nr; ir++) {
             for (std::size_t iz = 0; iz < nz; iz++) {

@@ -53,10 +53,9 @@ static void about()
     std::cout << std::endl;
 
     std::cout << "Please cite the following article in your publications:" << std::endl;
-    std::cout << "\tL.-H. Wang, S. L. Jacques, and L.-Q. Zheng, MCML - Monte " << std::endl;
-    std::cout << "\tCarlo modeling of photon transport in multi-layered" << std::endl;
-    std::cout << "\ttissues, Computer Methods and Programs in Biomedicine, 47," << std::endl;
-    std::cout << "\t131-146 (1995)" << std::endl;
+    std::cout << "  L.-H. Wang, S. L. Jacques, and L.-Q. Zheng," << std::endl;
+    std::cout << "  MCML - Monte Carlo modeling of photon transport in multi-layered tissues," << std::endl;
+    std::cout << "  Computer Methods and Programs in Biomedicine, 47, 131-146 (1995)" << std::endl;
 }
 
 static void help()
@@ -122,7 +121,7 @@ int main(int argc, char* argv[])
                     case 'C': { simulator->Resume(); break; }
                     case 'H': { help(); break; }
                     case 'Q': { quit(); break; }
-                    default: { std::cerr << "...Unknown command" << std::endl; }
+                    default: { std::cerr << "Unknown command." << std::endl; }
                 }
             }
         }

@@ -1,173 +1,189 @@
 #include "cin_reader.hpp"
+#include "cin_reader.tpp"
 
+#include <regex>
 #include <format>
 #include <fstream>
 #include <numbers>
 #include <iostream>
 #include <algorithm>
+#include <filesystem>
 
 
-CinReader::CinReader() : Reader{""}
+bool CinReader::ReadParams(std::istream& input, RunParams& params)
 {
+    if (!ReadMediums(*m_input, params.mediums)) {
+        std::cerr << "Error: Failed to read mediums." << std::endl;
+        return false;
+    }
+    
+    if (!ReadOutput(*m_input, params.output_filename)) {
+        std::cerr << "Error: Failed to read output filename." << std::endl;
+        return false;
+    }
+    
+    if (!ReadLayers(*m_input, params, params.layers)) {
+        std::cerr << "Error: Failed to read layers." << std::endl;
+        return false;
+    }
+    
+    if (!ReadSource(*m_input, params, params.source)) {
+        std::cerr << "Error: Failed to read source." << std::endl;
+        return false;
+    }
+    
+    if (!ReadGrid(*m_input, params.grid)) {
+        std::cerr << "Error: Failed to read grid parameters." << std::endl;
+        return false;
+    }
+    
+    if (!ReadRecord(*m_input, params, params.record)) {
+        std::cerr << "Error: Failed to read record." << std::endl;
+        return false;
+    }
+    
+    if (!ReadTarget(*m_input, params, params.target)) {
+        std::cerr << "Error: Failed to read target." << std::endl;
+        return false;
+    }
+    
+    if (!ReadWeight(*m_input, params.weight_threshold)) {
+        std::cerr << "Error: Failed to read weight threshold." << std::endl;
+        return false;
+    }
+
+    return true;
 }
 
-
-void CinReader::ReadParams(std::istream& input, RunParams& params)
+bool CinReader::ReadMediums(std::istream& in, vec1<Layer>& out)
 {
-    params.mediums = ReadMediums(*m_input);
-    params.output_filename = ReadOutput(*m_input);
-    params.layers = ReadLayers(*m_input, params);
-    params.source = ReadSource(*m_input, params);
-    params.grid = ReadGrid(*m_input);
-    params.record = ReadRecord(*m_input, params);
-    params.target = ReadTarget(*m_input, params);
-    params.weight_threshold = ReadWeight(*m_input);
-}
+    std::string prompt = "Specify number of mediums (>= 1)";
+    std::string error = "Invalid number of mediums";
 
-template <typename T>
-T CinReader::read(std::istream& input, std::string err_msg)
-{
-    T value{};
-
-    do {
-        try {
-            std::string in = readNextLine(input);
-            auto extracted = extract(in, { T{} }, err_msg);
-            return std::get<T>(extracted[0]);
-        }
-        catch (const std::runtime_error& e) {
-            std::cerr << e.what() << std::endl;
-        }
-    } while (true);
-}
-
-template <typename T, typename U>
-std::tuple<T, U> CinReader::read(std::istream& input, std::string err_msg)
-{
-    std::tuple<T, U> values{};
-
-    do {
-        try {
-            std::string in = readNextLine(input);
-            auto extracted = extract(in, { T{}, U{} }, err_msg);
-            values = std::make_tuple(extracted[0], extracted[1]);
-        }
-        catch (const std::runtime_error& e) {
-            std::cerr << e.what() << std::endl;
-        }
-    } while (true);
-}
-
-vec1<Layer> CinReader::ReadMediums(std::istream& input)
-{
-    std::cout << "Specify medium list. Total number of mediums: ";
-
-    std::size_t num_media = static_cast<std::size_t>(read<double>(input, "Invalid number of mediums."));
+    auto [success, num_media] = read_in<int>(in, prompt, error, false, [](const int& num_media) {
+        return num_media >= 1;
+    });
+    if (!success) return false;
 
     // Allocate space for the layer parameters.
     vec1<Layer> mediums;
     mediums.resize(num_media);
 
     for (std::size_t i = 0; i < num_media; i++) {
-        std::string name;
-        double eta{};
-        double mua{};
-        double mus{};
-        double g{};
+        std::cout << std::format("Specify medium {}.\n", i + 1);
 
-        bool duplicate = false;
+        auto [s1, name] = read_in<std::string>(in, "  Name of medium", "Invalid medium name or duplicate", false, [&mediums](const std::string& name) {
+            return !name.empty() && std::ranges::none_of(mediums, [&](const Layer& l) { return l.name == name; });
+        });
+        if (!s1) return false;
 
-        std::cout << "Specify medium " << i + 1 << ": " << std::endl << "  Medium name: ";
-        do { // TODO: make conditional part of read function
-            name = read<std::string>(input, "Invalid medium name or duplicate.");
-            duplicate = std::ranges::any_of(mediums, [&](const Layer& l) {
-                return l.name == name;
-            });
-        } while (duplicate);
+        auto [s2, eta] = read_in<double>(in, "  Refractive index n (>= 1.0): ", {}, false, [&mediums](const double& value) { 
+            return value >= 1.0;
+        });
+        if (!s2) return false;
 
-        std::cout << "  Refractive index n (>= 1.0): ";
-        do {
-            eta = read<double>(input, "Invalid refractive index. Input again (>= 1.0): ");
-        } while (eta < 1.0);
+        auto [s3, mua] = read_in<double>(in, "  Absorption coefficient mua (>= 0.0 /cm): ", {}, false, [&mediums](const double& value) { 
+            return value >= 0.0;
+        });
+        if (!s3) return false;
 
-        std::cout << "  Absorption coefficient mua (>= 0.0 /cm): ";
-        do {
-            mua = read<double>(input, "Invalid absorption coefficient. Input again (>= 0.0): ");
-        } while (mua < 0.0);
+        auto [s4, mus] = read_in<double>(in, "  Scattering coefficient mus (>= 0.0 /cm): ", {}, false, [&mediums](const double& value) { 
+            return value >= 0.0;
+        });
+        if (!s4) return false;
 
-        std::cout << "  Scattering coefficient mus (>= 0.0 /cm): ";
-        do {
-            mus = read<double>(input, "Invalid scattering coefficient. Input again (>= 0.0): ");
-        } while (mus < 0.0);
-
-        std::cout << "  Anisotropy factor g (0.0 - 1.0): ";
-        do {
-            g = read<double>(input, "Invalid anisotropy factor. Input again (0.0 - 1.0): ");
-        } while (g < 0.0 && g > 1.0);
+        auto [s5, g] = read_in<double>(in, "  Anisotropy factor g (0.0 - 1.0): ", {}, false, [&mediums](const double& value) { 
+            return value >= 0.0 && value <= 1.0;
+        });
+        if (!s5) return false;
 
         mediums[i] = { i, name, eta, mua, mus, g };
-
         std::cout << std::endl;
     }
 
-    return mediums;
+    std::for_each(mediums.begin(), mediums.end(), [&](Layer& mediums) {
+        out.push_back(mediums);
+    });
+
+    return true;
 }
 
-std::string CinReader::ReadOutput(std::istream& input)
+bool CinReader::ReadOutput(std::istream& in, std::string& out)
 {
     std::string file_name;
-    char file_mode;
-
     do {
         std::cout << "Specify output filename with extension .mco: ";
-        
         std::getline(std::cin, file_name);
-        file_mode = 'w';
 
-        // Input exists
+        // Check if the extension is .mco
+        if (file_name.size() < 4 || file_name.substr(file_name.size() - 4) != ".mco") {
+            std::cerr << "Error: File must have a .mco extension." << std::endl;
+            file_name.clear();
+            continue;
+        }
+
+        // Check file existence and permissions
         std::ifstream file(file_name, std::ios::in);
 
-        if (file.is_open()) {
+        if (file.is_open()) { // File exists
             std::cout << "File " << file_name << " exists, w=overwrite, n=new filename: ";
 
-            // Avoid null line
+            // Avoid null line and get valid input
+            char file_mode;
             do {
-                std::cin.ignore(max_size, '\n');
+                std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
                 std::cin.get(file_mode);
-            } while (file_mode == '\0' || file_mode == '\n');
-
+            } while (file_mode != 'n' && file_mode != 'w');
+            
             file.close();
+
+            if (file_mode == 'n') {
+                file_name.clear();
+                continue;
+            }
         }
-    } while (file_mode != 'w');
+
+        // Check if path is valid
+        std::filesystem::path file_path(file_name);
+        if (!file_path.has_parent_path()) {
+            std::cerr << "Error: Invalid file path." << std::endl;
+            file_name.clear();
+            continue;
+        }
+
+        // Create file and report if it is writable
+        std::ofstream test_create(file_name, std::ios::app);
+        if (!test_create.is_open()) {
+            std::cerr << "Error: Unable to create or write to the file." << std::endl;
+            test_create.close();
+            file_name.clear();
+            continue;
+        }
+        test_create.close();
+    } while (file_name.empty());
 
     std::cout << std::endl;
 
-    return file_name;
+    out = file_name;
+    return true;
 }
 
-vec1<Layer> CinReader::ReadLayers(std::istream& input, RunParams& params)
+bool CinReader::ReadLayers(std::istream& in, RunParams& params, vec1<Layer>& out)
 {
-    auto make_layer = [&](double z0, double z1) -> Layer {
-        std::string name;
-        std::size_t index{};
+    auto make_layer = [&](std::size_t i, double z0, double z1) -> Layer {
         bool name_exists{ false };
 
-        do {
-            name = read<std::string>(input, "Invalid medium name. Input again: ");
-            name_exists = std::ranges::any_of(params.mediums, [&](const Layer& medium) {
-                if (medium.name == name) {
-                    index = medium.index;
-                }
-                return medium.name == name;
-            });
-        } while (!name_exists);
+        auto [success, name] = read_in<std::string>(in, {}, "Invalid or duplicate medium name", false, [&params](const std::string& name) {
+            return !name.empty() && std::ranges::none_of(params.mediums, [&](const Layer& l) { return l.name == name; });
+        });
+        if (!success) { throw std::runtime_error({}); }
 
-        return Layer{ index,
-            params.mediums[index].name,
-            params.mediums[index].eta,
-            params.mediums[index].mu_a,
-            params.mediums[index].mu_s,
-            params.mediums[index].g,
+        return Layer{ i,
+            params.mediums[i].name,
+            params.mediums[i].eta,
+            params.mediums[i].mu_a,
+            params.mediums[i].mu_s,
+            params.mediums[i].g,
             z0, z1, 0.0, 0.0
         };
     };
@@ -180,12 +196,10 @@ vec1<Layer> CinReader::ReadLayers(std::istream& input, RunParams& params)
         }
     }
 
-    std::size_t num_layers{};
-    std::cout << "  Total number of layers: ";
-    do {
-        num_layers = static_cast<std::size_t>(read<double>(input, "Invalid layer number. Input again: "));
-    } while (num_layers < 1);
-
+    auto [success, num_layers] = read_in<int>(in, "  Total number of layers: ", "Invalid layer number", false, [](const int& num_layers) {
+        return num_layers >= 1;
+    });
+    if (!success) { return false; }
 
     vec1<Layer> layers;
     layers.resize(num_layers);
@@ -199,18 +213,22 @@ vec1<Layer> CinReader::ReadLayers(std::istream& input, RunParams& params)
 
         if (i == 0) {
             std::cout << std::endl << "  Name of upper ambient medium: ";
-            layer = make_layer(0.0, 0.0);
+            try { layer = make_layer(i, 0.0, 0.0); }
+            catch (const std::exception&) { return false; }
         }
-        else if (i == num_layers-1) {
+        else if (i == num_layers - 1) {
             std::cout << std::endl << "  Name of lower ambient medium: ";
-            layer = make_layer(z, z);
+            try { layer = make_layer(i, z, z); }
+            catch (const std::exception&) { return false; }
         }
         else {
-            std::cout << "  Thickness of layer " << i << " (thickness > 0.0 cm): ";
-            double thickness = read<double>(input, "Invalid thickness. Input again (thickness > 0.0 cm): ");
+            auto [success, thickness] = read_in<double>(in, "  Thickness of layer (thickness > 0.0 cm): ", {}, false, [](const double& thickness) {
+                return thickness > 0.0;
+            });
+            if (!success) { return false; }
 
             std::cout << std::endl << "  Name of layer " << i << ": ";
-            layer = make_layer(z, z + thickness);
+            layer = make_layer(i, z, z + thickness);
 
             z += thickness;
         }
@@ -218,17 +236,19 @@ vec1<Layer> CinReader::ReadLayers(std::istream& input, RunParams& params)
         layers[i] = layer;
     }
 
-    std::cout << std::endl;
+    std::for_each(layers.begin(), layers.end(), [&](Layer& layer) {
+        out.push_back(layer);
+    });
 
-    return layers;
+    std::cout << std::endl;
+    return true;
 }
 
-LightSource CinReader::ReadSource(std::istream& input, RunParams& params)
+bool CinReader::ReadSource(std::istream& input, RunParams& params, LightSource& out)
 {
-    // Compute the index to layer according to the z coordinate. 
+    // Compute the index to layer according to the z coordinate.
     // If the z is on an interface between layers, the returned index will point to the upper layer.
-    // Layer 0 is the top ambient and layer num_layers+1 is the bottom ambient layer.
-    auto layer_index = [&](double z, RunParams& params) -> std::size_t {
+    auto layerIndex = [&](double z, RunParams& params) -> std::size_t {
         for (std::size_t i = 1; i <= params.num_layers; i++) {
             if (z >= params.layers[i].z0 && z <= params.layers[i].z1) {
                 return i;
@@ -237,152 +257,102 @@ LightSource CinReader::ReadSource(std::istream& input, RunParams& params)
         return std::numeric_limits<std::size_t>::max();
     };
 
-    LightSource source{};
+    std::size_t layer_index{};
 
-    std::cout << "Input source type (P = pencil / I = isotropic): ";
+    std::string prompt = "Input source type (P = pencil / I = isotropic)";
+    auto [s1, source_type] = read_in<char>(input, prompt, "Invalid source type", false, [](char source_type) {
+        return std::regex_match(std::string(1, source_type), std::regex("[PpIi]")); // P or I
+    });
+    if (!s1) { return false; }
 
-    char ch;
-    do {
-        std::cin.get(ch);
-        char ch_upper = std::toupper(ch);
+    BeamType beam_type = (std::toupper(source_type) == 'P') ? BeamType::Pencil : BeamType::Isotropic;
 
-        if (ch_upper == 'P') {
-            source.beam = BeamType::Pencil;
-            break;
+    prompt = std::format("Input source z-coordinate (0.0 - {} cm. ", params.layers[params.num_layers + 1].z1);
+    auto [s2, source_z] = read_in<double>(input, prompt, "Invalid starting position of photon source", true, 
+                                            [&params, &layer_index, layerIndex](const double& z) {
+        // Check if the source is on an interface
+        layer_index = layerIndex(z, params);
+        if (layer_index == std::numeric_limits<std::size_t>::max()) {
+            return false;
         }
-        else if (ch_upper == 'I') {
-            source.beam = BeamType::Isotropic;
-            break;
-        }
-        else {
-            std::cout << "Invalid type. Input again (P = pencil / I = isotropic): ";
-        }
-    } while (true);
+        return z >= 0.0 && z <= params.layers[params.num_layers + 1].z1;
+    });
+    if (!s2) { return false; }
 
-    std::cout << std::endl;
-
-    std::cout << "Input the z coordinate of source (0.0 - " << params.layers[params.num_layers-1].z1 << " cm) and the medium" << std::endl;
-    std::cout << "where the source is if the z is on an interface (e.g. 1.0 [air]): ";
-
-    try {
-        std::string in = readNextLine(input);
-        auto extracted = extract(in, { double{}, std::string{} }, "Invalid starting position of photon source.", true);
-
-        if (extracted.size() == 1) {
-            source.z = std::get<double>(extracted[0]);
-            source.layer_index = layer_index(source.z, params);
-
-            if (source.layer_index == std::numeric_limits<std::size_t>::max()) {
-                throw std::runtime_error("Invalid starting position of photon source.");
-            }
-        }
-        else if (extracted.size() == 2) {
-            source.z = std::get<double>(extracted[0]);
-            source.layer_index = layer_index(source.z, params);
-
-            if (source.layer_index == std::numeric_limits<std::size_t>::max()) {
-                throw std::runtime_error("Invalid starting position of photon source.");
-            }
-
-            source.medium_name = std::get<std::string>(extracted[1]);
-
-            if (params.layers[source.layer_index].name == source.medium_name) {
-                if ((std::fabs(source.z - params.layers[source.layer_index].z1) < std::numeric_limits<double>::epsilon()) && 
-                    (params.layers[source.layer_index + 1].name == source.medium_name)) {
-                    source.layer_index++;
-                    if (source.layer_index > params.num_layers) {
-                        throw std::runtime_error("Source is outside of the last layer.");
-                    }
-                }
-                else {
-                    throw std::runtime_error("Medium name and z coordinate do not match.");
-                }
-            }
-        }
-
-        if (params.source.beam == BeamType::Isotropic && source.z == 0.0) {
-            throw std::runtime_error("Can not put isotropic source in upper ambient medium.");
-        }
-    }
-    catch (const std::runtime_error& e) {
-        std::cerr << e.what() << std::endl;
+    // Check if the source is isotropic and in upper ambient medium
+    if (beam_type == BeamType::Isotropic && source_z == 0.0) {
+        std::cerr << "Can not put an isotropic source in upper ambient medium." << std::endl;
+        return false;
     }
 
-    std::cout << std::endl;
+    out.z = source_z;
+    out.beam = beam_type;
+    out.layer_index = layer_index;
+    out.medium_name = params.layers[layer_index].name;
 
-    return source;
+    std::cout << "Saved." << std::endl;
+    return true;
 }
 
-Grid CinReader::ReadGrid(std::istream& input)
+bool CinReader::ReadGrid(std::istream& in, Grid& out)
 {
-    std::cout << "Specify dz, dr, dt in one line (all > 0.0 cm, e.g., 0.1 0.1 0.1): ";
+    using namespace std;
 
-    std::string buf;
+    std::string prompt = "Specify dz, dr, dt in one line (all > 0.0 cm, e.g., 0.1 0.1 0.1)";
+    std::string error = "";
 
-    buf = readNextLine(input);
-    auto extracted_d = extract(buf, { double{}, double{}, double{} }, "Error reading dz, dr, dt.");
+    auto [s1, dz, dr, dt] = read_in<double, double, double>(in, prompt, error, false, [](const std::tuple<double, double, double>& t) {
+        return std::get<0>(t) > 0.0 && std::get<1>(t) > 0.0 && std::get<2>(t) > 0.0;
+    });
+    if (!s1) { return false; }
 
-    double step_z = std::get<double>(extracted_d[0]);
-    double step_r = std::get<double>(extracted_d[1]);
-    double step_t = std::get<double>(extracted_d[2]);
+    prompt = "Specify nz, nr, nt, na in one line (all > 0, e.g., 100 100 100 100)";
 
-    if (step_z <= 0) { throw std::runtime_error("Nonpositive dz."); }
-    if (step_r <= 0) { throw std::runtime_error("Nonpositive dr."); }
-    if (step_t <= 0) { throw std::runtime_error("Nonpositive dt."); }
+    auto [s2, nz, nr, nt, na] = read_in<int, int, int, int>(in, prompt, error, false, [](const std::tuple<int, int, int, int>& t) {
+        return std::get<0>(t) > 0 && std::get<1>(t) > 0 && std::get<2>(t) > 0 && std::get<3>(t) > 0;
+    });
+    if (!s2) { return false; }
 
-    std::cout << "Specify nz, nr, nt, na in one line (all > 0, e.g., 100 100 100 100): ";
+    double da = 0.5 * std::numbers::pi / na;
 
-    buf = readNextLine(input);
-    auto extracted_n = extract(buf, { double{}, double{}, double{}, double{} }, "Error reading number of dz, dr, dt, da.");
-
-    std::size_t num_z = static_cast<std::size_t>(std::get<double>(extracted_n[0]));
-    std::size_t num_r = static_cast<std::size_t>(std::get<double>(extracted_n[1]));
-    std::size_t num_t = static_cast<std::size_t>(std::get<double>(extracted_n[2]));
-    std::size_t num_a = static_cast<std::size_t>(std::get<double>(extracted_n[3]));
-
-    if (num_z <= 0) { throw std::runtime_error("Nonpositive number of dz."); }
-    if (num_r <= 0) { throw std::runtime_error("Nonpositive number of dr."); }
-    if (num_t <= 0) { throw std::runtime_error("Nonpositive number of dt."); }
-    if (num_a <= 0) { throw std::runtime_error("Nonpositive number of da."); }
-
-    double step_a = 0.5 * std::numbers::pi / num_a;
-
-    std::cout << std::endl;
-
-    return Grid{
-        .step_z = step_z,
-        .step_r = step_r,
-        .step_a = step_a,
-        .step_t = step_t,
-        .num_z = num_z,
-        .num_r = num_r,
-        .num_t = num_t,
-        .num_a = num_a,
-        .max_z = step_z * num_z,
-        .max_r = step_r * num_r,
-        .max_a = step_a * num_a,
-        .max_t = step_t * num_t
+    out = Grid{
+        .step_z = dz,
+        .step_r = dr,
+        .step_a = da,
+        .step_t = dt,
+        .num_z = static_cast<size_t>(nz),
+        .num_r = static_cast<size_t>(nr),
+        .num_t = static_cast<size_t>(nt),
+        .num_a = static_cast<size_t>(na),
+        .max_z = dz * nz,
+        .max_r = dr * nr,
+        .max_a = da * na,
+        .max_t = dt * nt
     };
+
+    return true;
 }
 
-Record CinReader::ReadRecord(std::istream& input, RunParams& params)
+bool CinReader::ReadRecord(std::istream& input, RunParams& params, Record& out)
 {
     std::cout << "Select scored quantities from the following data categories:" << std::endl;
     std::cout << "\tR_rat\t\t\tT_rat\t\t\tA_rzt" << std::endl;
     std::cout << "\tR_ra\tR_rt\tR_at\tT_ra\tT_rt\tR_at\tA_rz\tA_zt" << std::endl;
     std::cout << "\tR_r\tR_a\tR_t\tT_r\tT_a\tT_t\tA_z\tA_t" << std::endl;
 
-    Record record = Reader::ReadRecord(input, params);
+    if (!Reader::ReadRecord(input, params, out)) {
+        return false;
+    }
 
     std::cout << std::endl;
-    
-    return record;
+    return true;
 }
 
-Target CinReader::ReadTarget(std::istream& input, RunParams& params, bool add)
+bool CinReader::ReadTarget(std::istream& input, RunParams& params, Target& out, bool add)
 {
     if (add) {
-        std::cout << params.target.num_photons << " photons have been traced in the previous simulation.\n";
+        std::cout << params.target.photons_limit - params.target.photons_remaining;
+        std::cout << " photons have been traced in the previous simulation.\n";
         std::cout << "Specify additional photons or compution time in hh:mm format,\n";
         std::cout << "or both in one line (e.g. 10000 5:30): ";
     }
@@ -391,26 +361,22 @@ Target CinReader::ReadTarget(std::istream& input, RunParams& params, bool add)
         std::cout << "or both in one line (e.g. 10000 5:30): ";
     }
 
-    Target target = Reader::ReadTarget(input, params, add);
+    if (Reader::ReadTarget(input, params, out, add)) {
+        return false;
+    }
 
     std::cout << std::endl;
-
-    return target;
+    return true;
 }
 
-double CinReader::ReadWeight(std::istream& input)
+bool CinReader::ReadWeight(std::istream& input, double& out)
 {
-    std::cout << "Input weight threshold (0 <= W < 1.0, 0.0001 recommended): ";
-
-    bool valid = false;
-    double weight{};
-
-    do {
-        weight = read<double>(input, "Invalid weight treshold. Input again (0 <= W < 1.0): ");
-        valid = weight >= 0.0 && weight < 1.0;
-    } while (!valid);
+    std::string prompt = "Input weight threshold (0 <= W < 1.0, 0.0001 recommended)";
+    auto [success, weight] = read_in<double>(input, prompt, {}, false, [](const double& weight) {
+        return weight >= 0.0 && weight < 1.0;
+    });
+    if (!success) { return false; }
 
     std::cout << std::endl;
-
-    return weight;
+    return true;
 }

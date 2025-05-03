@@ -60,10 +60,10 @@ pencil
 # Grids #
 #########
 
-#	dz		dr		dt
+#	step_z	step_r	step_t
 	0.1		0.1		0.1
 
-#	nz		nr		nt		na
+#	num_z	num_r	num_t	num_a
 	3		3		3		4
 
 # Scored data categories 
@@ -74,10 +74,10 @@ A_z A_t T_r T_a T_t R_r R_a R_t
 ######################
 
 # Photons	Time limit
-10000		5:10
+10000		1:59
 
 # Weight threshold
-1E-4
+0.0001
 
 # Random number seed
 1

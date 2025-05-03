@@ -9,15 +9,8 @@
 #include <optional>
 
 #include "mcml.hpp"
+#include "reader_util.hpp"
 
-
-using double_or_string = std::variant<double, std::string>;
-using opt_double_or_string = std::optional<std::variant<double, std::string>>;
-
-using double2 = std::tuple<double, double>;
-using double3 = std::tuple<double, double, double>;
-using double4 = std::tuple<double, double, double, double>;
-using double5 = std::tuple<double, double, double, double, double>;
 
 using OutputFile = std::pair<std::string, FileFormat>;
 
@@ -27,69 +20,64 @@ class Random;
 
 class Reader
 {
+
 public:
     Reader(std::string filename, std::string_view version = MCI_VERSION);
     ~Reader() = default;
 
     // Read the input parameters for all runs and count number of runs.
-    virtual void ReadParams(std::istream& input, RunParams& params);
+    virtual bool ReadParams(std::istream& input, RunParams& params);
 
     // Read the mediums list.
-    virtual vec1<Layer> ReadMediums(std::istream& input);
+    virtual bool ReadMediums(std::istream& input, vec1<Layer>& out);
 
     // Read the input name and the input format.
-    virtual std::string ReadOutput(std::istream& input);
+    virtual bool ReadOutput(std::istream& input, std::string& out);
 
     // Read the parameters of all layers.
-    virtual vec1<Layer> ReadLayers(std::istream& input, RunParams& params);
+    virtual bool ReadLayers(std::istream& input, RunParams& params, vec1<Layer>& out);
 
     // Read the beam source type (Pencil or Isotropic) and starting position.
-    virtual LightSource ReadSource(std::istream& input, RunParams& params);
+    virtual bool ReadSource(std::istream& input, RunParams& params, LightSource& out);
 
     // Read the grid separation parameters (z, r, t) and number of grid lines (z, r, t, and alpha).
-    virtual Grid ReadGrid(std::istream& input);
+    virtual bool ReadGrid(std::istream& in, Grid& out);
 
     // Read which quantity is to be scored.
-    virtual Record ReadRecord(std::istream& input, RunParams& params);
+    virtual bool ReadRecord(std::istream& input, RunParams& params, Record& out);
 
     // Read the number of photons and computation time limit.
-    virtual Target ReadTarget(std::istream& input, RunParams& params, bool add = false);
+    virtual bool ReadTarget(std::istream& input, RunParams& params, Target& out, bool add = false);
 
     // Read the weight threshold.
-    virtual double ReadWeight(std::istream& input);
+    virtual bool ReadWeight(std::istream& input, double& out);
 
 
     // Read the seed for random number generator (unused).
-    long ReadSeed(std::istream& input);
+    bool ReadSeed(std::istream& input, long& out);
 
     // Check whether the input version is the same as version.
     bool ReadVersion(std::istream& input, const std::string_view& version);
 
     // Read in the input parameters for one run.
-    void ReadRunParams(std::istream& input, RunParams& params);
+    bool ReadRunParams(std::istream& input, RunParams& params);
 
     // Read and restore the status of random number generater from previous output.
-    void ReadRandomizer(std::istream& input, std::shared_ptr<Random>& random);
+    bool ReadRandomizer(std::istream& input, std::shared_ptr<Random>& random);
 
     // Read result back from a output file.
-    Radiance ReadRadiance(std::istream& input, RunParams& params, std::shared_ptr<Random>& random);
+    bool ReadRadiance(std::istream& input, RunParams& params, std::shared_ptr<Random>& random, Radiance& out);
 
     void SkipLine(std::istream& input, std::size_t num_lines = 1);
 
 
 protected:
     // Skip space or comment lines and return a data line.
-    std::string readNextLine(std::istream& input);
-
-    std::vector<double_or_string> extract(const std::string& input,
-                                          const std::vector<double_or_string>& expected,
-                                          std::string parse_err, bool allow_opt = false);
+    std::string nextDataLine(std::istream& in);
 
     // Check consistancy of input parameters.
     bool checkInputParams(RunParams& params);
 
-    // Return string as uppercase
-    std::string& toUpperCase(std::string& string);
 
 private:
     // Diffuse reflectance per unit area, per unit solid angle, per unit time [1/(cm² sr ps)]
@@ -155,10 +143,11 @@ private:
     // Ballistic absorption per unit depth [1/cm]
     vec1<double> ReadAb_z(std::istream& input, std::size_t Nz);
 
-
 public:
     operator std::istream& () { return *m_input; }
 
 protected:
+    std::string m_filename;
     std::unique_ptr<std::istream> m_input;
+
 };

@@ -40,9 +40,9 @@ sample1a.mco	A
 # Layers #
 ##########
 
-# Medium    Thickness
+# Medium		Thickness
   air
-  matched   0.02
+  matched		0.02
   air
 end #of layers
 
@@ -60,11 +60,11 @@ pencil
 # Grids #
 #########
 
-#	dz	dr	dt
-	0.1	0.1	0.1
+#	step_z	step_r	step_t
+	0.1		0.1		0.1
 
-#	nz	nr	nt	na
-	1	1	1	30
+#	num_z	num_r	num_t	num_a
+	1		1		1		30
 
 # Scored data categories 
 R_a
@@ -74,10 +74,10 @@ R_a
 ######################
 
 # photons	time
-1000000		4:00
+1000000		2:00
 
 # Weight threshold
-1E-4
+0.0001
 
 # Random number seed
 1
@@ -97,7 +97,7 @@ sample1b.mco	A
 
 # medium		thickness
   air
-  mismatched	1E8
+  mismatched	100000000
   air
 end #of layers
 
@@ -115,11 +115,11 @@ pencil
 # Grids #
 #########
 
-#	dz		dr		dt
-	2E-3	2E-3	0.1
+#	step_z	step_r	step_t
+	0.002	0.002	0.1
 
-#	nz	nr	nt	na
-	50	50	1	1
+#	num_z	num_r	num_t	num_a
+	50		50		1		1
 
 # scored data categories 
 R_r A_z
@@ -132,7 +132,7 @@ R_r A_z
 100000
 
 # threshold weight
-1E-4
+0.0001
 
 # random number seed
 1
