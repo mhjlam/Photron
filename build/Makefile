@@ -2,22 +2,15 @@
 # Cross-platform Makefile with comprehensive build targets
 
 # Project metadata
-PROJECT = photron
+PROJECT = Photron
 VERSION = 1.0.0
-SRCDIR = ../src
-BINDIR = ../bin
-$(BUILDDIR)/renderer/window.o: $(SRCDIR)/renderer/window.cpp $(HEADERS)
-	$(ECHO) "Compiling $<..."
-ifeq ($(CXX),cl)
-	$(Q)$(CXX) $(CXXFLAGS) /c $(SRCDIR)/renderer/window.cpp /Fo$@
-else
-	$(Q)$(CXX) $(CXXFLAGS) $(INCLUDES) -c $(SRCDIR)/renderer/window.cpp -o $@
-endif
 
-# Copy configuration and shader files to bin directory
-.PHONY: copy-configs output
-CONFIGDIR = ../config
-SHADERSDIR = ../shaders
+# Directory configuration (simple and reliable)
+SRCDIR := ../src
+BINDIR := ../bin
+BUILDDIR := output
+CONFIGDIR := ../config
+SHADERSDIR := ../shaders
 
 # Build configuration
 BUILD_TYPE ?= release
@@ -58,12 +51,12 @@ ifeq ($(OS),Windows_NT)
 		endif
 	endif
 	
-	# vcpkg paths for Windows
 	VCPKG_DIR = ../vcpkg_installed/x64-windows
-	INCLUDES = -I$(SRCDIR) -I$(SRCDIR)/structs -I$(SRCDIR)/renderer -I$(SRCDIR)/simulator -I$(SRCDIR)/utilities -I$(SRCDIR)/mcml -I$(VCPKG_DIR)/include
+	# Use -isystem for external (vcpkg) includes to suppress warnings
+	INCLUDES = -I$(SRCDIR) -I$(SRCDIR)/structs -I$(SRCDIR)/renderer -I$(SRCDIR)/simulator -I$(SRCDIR)/utilities -I$(SRCDIR)/mcml -isystem $(VCPKG_DIR)/include -isystem /mingw64/include
 	LIBDIRS = -L$(VCPKG_DIR)/lib
 else
-	# Unix-like environment (Linux, macOS, WSL when not Windows_NT)
+	# Unix-like environment (Linux, macOS, WSL, MSYS2/MinGW)
 	EXEEXT =
 	MKDIR_P = mkdir -p $(1)
 	RM = rm -f
@@ -74,7 +67,8 @@ else
 	XCOPY = cp -r
 	# Unix-like systems - use c++ by default
 	CXX ?= c++
-	CXXFLAGS = -std=c++20 -Wall -Wextra -pedantic -Wconversion -Wsign-conversion
+	# Add -Wno-sign-conversion to suppress sign-conversion warnings globally
+	CXXFLAGS = -std=c++20 -Wall -Wextra -pedantic -Wconversion -Wsign-conversion -Wno-sign-conversion
 	LIBS = -lGL -lGLU -lGLEW -lglfw -lm
 	COMPILER_FOUND = $(CXX)
 	ifeq ($(BUILD_TYPE),debug)
@@ -82,9 +76,8 @@ else
 	else
 		CXXFLAGS += -O2 -DNDEBUG
 	endif
-	
-	# Standard system paths for Unix-like systems
-	INCLUDES = -I$(SRCDIR) -I$(SRCDIR)/structs -I$(SRCDIR)/renderer -I$(SRCDIR)/simulator -I$(SRCDIR)/utilities -I$(SRCDIR)/mcml
+	# Use -isystem for MSYS2/MinGW external includes
+	INCLUDES = -I$(SRCDIR) -I$(SRCDIR)/structs -I$(SRCDIR)/renderer -I$(SRCDIR)/simulator -I$(SRCDIR)/utilities -I$(SRCDIR)/mcml -isystem /mingw64/include
 	LIBDIRS =
 endif
 
@@ -116,8 +109,8 @@ MCML_SOURCES =
 ALL_SOURCES = $(PHOTRON_SOURCES) $(MCML_SOURCES)
 HEADERS = $(wildcard $(SRCDIR)/*.hpp) $(wildcard $(SRCDIR)/*/*.hpp)
 
-# Object files (put in build/output directory as requested)
-OBJECTS = $(patsubst $(SRCDIR)/%.cpp, $(BUILDDIR)/%.o, $(ALL_SOURCES))
+# Object files (flattened in build/output directory - no subdirectories)  
+OBJECTS = $(foreach src,$(ALL_SOURCES),$(BUILDDIR)/$(notdir $(patsubst %.cpp,%.o,$(src))))
 
 # Default target
 .PHONY: all
@@ -144,9 +137,6 @@ $(BINDIR):
 
 $(BUILDDIR):
 	$(Q)$(call MKDIR_P,$(BUILDDIR))
-	$(Q)$(call MKDIR_P,$(BUILDDIR)/renderer)
-	$(Q)$(call MKDIR_P,$(BUILDDIR)/simulator)
-	$(Q)$(call MKDIR_P,$(BUILDDIR)/utilities)
 
 # Build Photron executable
 .PHONY: photron
@@ -160,61 +150,37 @@ else
 	$(Q)$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $(OBJECTS) $(LIBDIRS) $(LIBS)
 endif
 
-# Object file compilation rules (object files go in output directory)
-$(BUILDDIR)/main.o: $(SRCDIR)/main.cpp $(HEADERS)
+# Generic pattern rules for object file compilation (flattened in output directory)
+$(BUILDDIR)/%.o: $(SRCDIR)/%.cpp $(HEADERS) | $(BUILDDIR)
 	$(ECHO) "Compiling $<..."
 ifeq ($(CXX),cl)
-	$(Q)$(CXX) $(CXXFLAGS) /c $(SRCDIR)/main.cpp /Fo$@
+	$(Q)$(CXX) $(CXXFLAGS) /c $< /Fo$@
 else
-	$(Q)$(CXX) $(CXXFLAGS) $(INCLUDES) -c $(SRCDIR)/main.cpp -o $@
+	$(Q)$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 endif
 
-$(BUILDDIR)/renderer/renderer.o: $(SRCDIR)/renderer/renderer.cpp $(HEADERS)
+$(BUILDDIR)/%.o: $(SRCDIR)/renderer/%.cpp $(HEADERS) | $(BUILDDIR)
 	$(ECHO) "Compiling $<..."
 ifeq ($(CXX),cl)
-	$(Q)$(CXX) $(CXXFLAGS) /c $(SRCDIR)/renderer/renderer.cpp /Fo$@
+	$(Q)$(CXX) $(CXXFLAGS) /c $< /Fo$@
 else
-	$(Q)$(CXX) $(CXXFLAGS) $(INCLUDES) -c $(SRCDIR)/renderer/renderer.cpp -o $@
+	$(Q)$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 endif
 
-$(BUILDDIR)/simulator/initializer.o: $(SRCDIR)/simulator/initializer.cpp $(HEADERS)
+$(BUILDDIR)/%.o: $(SRCDIR)/simulator/%.cpp $(HEADERS) | $(BUILDDIR)
 	$(ECHO) "Compiling $<..."
 ifeq ($(CXX),cl)
-	$(Q)$(CXX) $(CXXFLAGS) /c $(SRCDIR)/simulator/initializer.cpp /Fo$@
+	$(Q)$(CXX) $(CXXFLAGS) /c $< /Fo$@
 else
-	$(Q)$(CXX) $(CXXFLAGS) $(INCLUDES) -c $(SRCDIR)/simulator/initializer.cpp -o $@
+	$(Q)$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 endif
 
-$(BUILDDIR)/simulator/mcml_integration.o: $(SRCDIR)/simulator/mcml_integration.cpp $(HEADERS)
+$(BUILDDIR)/%.o: $(SRCDIR)/utilities/%.cpp $(HEADERS) | $(BUILDDIR)
 	$(ECHO) "Compiling $<..."
 ifeq ($(CXX),cl)
-	$(Q)$(CXX) $(CXXFLAGS) /c $(SRCDIR)/simulator/mcml_integration.cpp /Fo$@
+	$(Q)$(CXX) $(CXXFLAGS) /c $< /Fo$@
 else
-	$(Q)$(CXX) $(CXXFLAGS) $(INCLUDES) -c $(SRCDIR)/simulator/mcml_integration.cpp -o $@
-endif
-
-$(BUILDDIR)/simulator/simulator.o: $(SRCDIR)/simulator/simulator.cpp $(HEADERS)
-	$(ECHO) "Compiling $<..."
-ifeq ($(CXX),cl)
-	$(Q)$(CXX) $(CXXFLAGS) /c $(SRCDIR)/simulator/simulator.cpp /Fo$@
-else
-	$(Q)$(CXX) $(CXXFLAGS) $(INCLUDES) -c $(SRCDIR)/simulator/simulator.cpp -o $@
-endif
-
-$(BUILDDIR)/utilities/experimenter.o: $(SRCDIR)/utilities/experimenter.cpp $(HEADERS)
-	$(ECHO) "Compiling $<..."
-ifeq ($(CXX),cl)
-	$(Q)$(CXX) $(CXXFLAGS) /c $(SRCDIR)/utilities/experimenter.cpp /Fo$@
-else
-	$(Q)$(CXX) $(CXXFLAGS) $(INCLUDES) -c $(SRCDIR)/utilities/experimenter.cpp -o $@
-endif
-
-$(BUILDDIR)/utilities/utilities.o: $(SRCDIR)/utilities/utilities.cpp $(HEADERS)
-	$(ECHO) "Compiling $<..."
-ifeq ($(CXX),cl)
-	$(Q)$(CXX) $(CXXFLAGS) /c $(SRCDIR)/utilities/utilities.cpp /Fo$@
-else
-	$(Q)$(CXX) $(CXXFLAGS) $(INCLUDES) -c $(SRCDIR)/utilities/utilities.cpp -o $@
+	$(Q)$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 endif
 
 # Copy configuration and shader files to bin directory

@@ -1,7 +1,19 @@
 # Photron - Monte Carlo Photon Transport Renderer
-# Modern CMake Build System (CMake 3.20+)
+# Modern CMake Build System (CMake 3.20+) - MCML 3.0.0 Strategy
 # Author: Enhanced by GitHub Copilot
 # Date: 2025
+#
+# Build Instructions:
+#   From build/ directory:
+#     cmake -S . -B output
+#     cmake --build output --config Release
+#   From root directory:
+#     cmake -S build -B build/output  
+#     cmake --build build/output --config Release
+#   For vcpkg manifest mode (if using vcpkg.json):
+#     cmake -S . -B output
+#     cmake --build output -- /p:VcpkgEnableManifest=true
+# This puts all intermediate files in build/output/ and final executable in bin/
 
 cmake_minimum_required(VERSION 3.20)
 project(Photron VERSION 1.0.0 LANGUAGES CXX)
@@ -16,46 +28,22 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# Enable CMake integration with vcpkg
-if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+# Enable vcpkg manifest mode if vcpkg.json is present
+if(DEFINED ENV{VCPKG_ROOT} AND EXISTS "${CMAKE_SOURCE_DIR}/vcpkg.json")
     set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "Vcpkg toolchain file")
 endif()
 
 # Enable modern CMake policies
 cmake_policy(SET CMP0074 NEW)  # find_package uses <PackageName>_ROOT variables
 
-# Project directories (relative to build directory)
+# Project directories - following MCML 3.0.0 strategy
+# When using -S . -B output, CMAKE_SOURCE_DIR is build/ and CMAKE_BINARY_DIR is build/output/
 set(SRC_DIR ${CMAKE_SOURCE_DIR}/../src)
-set(BIN_DIR ${CMAKE_SOURCE_DIR}/../bin)
+set(BIN_DIR ${CMAKE_SOURCE_DIR}/../bin)  # Always relative to the source dir (build/)
 set(CONFIG_DIR ${CMAKE_SOURCE_DIR}/../config)
-set(OUTPUT_DIR ${CMAKE_BINARY_DIR}/output)
+set(BUILD_OUTPUT_DIR ${CMAKE_BINARY_DIR})  # This will be build/output/
 
-# Configure build system to use output directory for ALL intermediate files
-set(CMAKE_BINARY_DIR ${OUTPUT_DIR})
-
-# Configure build output directories to keep build folder clean
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${OUTPUT_DIR}/lib)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${OUTPUT_DIR}/lib)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${OUTPUT_DIR}/bin)
-
-# For multi-config generators (Visual Studio) - put ALL files in output
-foreach(CONFIG ${CMAKE_CONFIGURATION_TYPES})
-    string(TOUPPER ${CONFIG} CONFIG_UPPER)
-    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${CONFIG_UPPER} ${OUTPUT_DIR}/${CONFIG}/lib)
-    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${CONFIG_UPPER} ${OUTPUT_DIR}/${CONFIG}/lib)
-    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG_UPPER} ${OUTPUT_DIR}/${CONFIG}/bin)
-endforeach()
-
-# Force Visual Studio to place project files and intermediate files in output directory
-if(CMAKE_GENERATOR MATCHES "Visual Studio")
-    set(CMAKE_VS_INCLUDE_INSTALL_TO_DEFAULT_BUILD FALSE)
-    set_property(GLOBAL PROPERTY USE_FOLDERS ON)
-endif()
-
-# Create output directories
-file(MAKE_DIRECTORY ${OUTPUT_DIR})
-file(MAKE_DIRECTORY ${OUTPUT_DIR}/bin)
-file(MAKE_DIRECTORY ${OUTPUT_DIR}/lib)
+# Create necessary directories
 file(MAKE_DIRECTORY ${BIN_DIR})
 
 # Find packages using vcpkg
@@ -78,7 +66,7 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4 /EHsc")
     # Disable specific MSVC warnings that are too noisy
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4996")  # Disable deprecation warnings
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4996 /wd4201")  # Disable deprecation and nameless struct/union warnings
     set(CMAKE_CXX_FLAGS_DEBUG "/Zi /Od /DDEBUG")
     set(CMAKE_CXX_FLAGS_RELEASE "/O2 /DNDEBUG")
 endif()
@@ -136,20 +124,17 @@ foreach(src_file ${MCML_SOURCES})
 endforeach()
 
 # Create executable
-add_executable(photron ${ALL_SOURCES} ${PHOTRON_HEADERS})
+add_executable(Photron ${ALL_SOURCES} ${PHOTRON_HEADERS})
 
-# Set target-specific output directories to organize build files
-set_target_properties(photron PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${OUTPUT_DIR}/bin
-    RUNTIME_OUTPUT_DIRECTORY_RELEASE ${OUTPUT_DIR}/Release/bin
-    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${OUTPUT_DIR}/Debug/bin
-    ARCHIVE_OUTPUT_DIRECTORY ${OUTPUT_DIR}/lib
-    ARCHIVE_OUTPUT_DIRECTORY_RELEASE ${OUTPUT_DIR}/Release/lib
-    ARCHIVE_OUTPUT_DIRECTORY_DEBUG ${OUTPUT_DIR}/Debug/lib
+# Simple target properties - exe goes to root bin, intermediates to build/output
+set_target_properties(Photron PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR}
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE ${BIN_DIR}
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${BIN_DIR}
 )
 
 # Add include directories
-target_include_directories(photron PRIVATE 
+target_include_directories(Photron PRIVATE 
     ${SRC_DIR}
     ${SRC_DIR}/structs
     ${SRC_DIR}/renderer
@@ -178,15 +163,15 @@ if(TARGET glm::glm)
     message(STATUS "Using GLM from vcpkg")
 endif()
 
-target_link_libraries(photron PRIVATE ${PHOTRON_LIBRARIES})
+target_link_libraries(Photron PRIVATE ${PHOTRON_LIBRARIES})
 
 # Platform-specific additional libraries
 if(WIN32)
-    target_link_libraries(photron PRIVATE 
+    target_link_libraries(Photron PRIVATE 
         opengl32
     )
 elseif(APPLE)
-    target_link_libraries(photron PRIVATE 
+    target_link_libraries(Photron PRIVATE 
         "-framework OpenGL"
         "-framework Cocoa"
         "-framework IOKit"
@@ -194,46 +179,32 @@ elseif(APPLE)
     )
 else()
     # Linux and other Unix-like systems
-    target_link_libraries(photron PRIVATE 
+    target_link_libraries(Photron PRIVATE 
         GL 
         GLU
     )
 endif()
 
-# Set output directories and intermediate file locations
-set_target_properties(photron PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY_DEBUG   "${BIN_DIR}"
-    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${BIN_DIR}"
-    RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${BIN_DIR}"
-    RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${BIN_DIR}"
-    # Force Visual Studio to put intermediate files in output directory
-    COMPILE_PDB_OUTPUT_DIRECTORY_DEBUG "${OUTPUT_DIR}/Debug"
-    COMPILE_PDB_OUTPUT_DIRECTORY_RELEASE "${OUTPUT_DIR}/Release"
-    VS_INTERMEDIATE_DIRECTORY_DEBUG "${OUTPUT_DIR}/Debug"
-    VS_INTERMEDIATE_DIRECTORY_RELEASE "${OUTPUT_DIR}/Release"
-    # Object file directory
-    OBJECT_DEPENDS ""
-)
-
-# Copy final executable from build/output to main bin directory for easy access
-add_custom_command(TARGET photron POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_FILE:photron>" "${BIN_DIR}/photron.exe"
-    COMMENT "Copying executable from build/output to main bin directory"
+# Set output directories following MCML 3.0.0 strategy
+set_target_properties(Photron PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR}
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${BIN_DIR}
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE ${BIN_DIR}
+    # Intermediate files (object files) go to output directory
+    ARCHIVE_OUTPUT_DIRECTORY ${BUILD_OUTPUT_DIR}
+    LIBRARY_OUTPUT_DIRECTORY ${BUILD_OUTPUT_DIR}
 )
 
 # Copy configuration files to main bin directory
-add_custom_command(TARGET photron POST_BUILD
+add_custom_command(TARGET Photron POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CONFIG_DIR}/" "${BIN_DIR}/config/"
-    COMMENT "Copying configuration files to target directory"
 )
 
 # Copy shader files to main bin directory
-add_custom_command(TARGET photron POST_BUILD
+add_custom_command(TARGET Photron POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_SOURCE_DIR}/../shaders/" "${BIN_DIR}/shaders/"
-    COMMENT "Copying shader files to target directory"
 )
 
 # Print build information
@@ -248,7 +219,7 @@ message(STATUS "  Build Dir:    ${CMAKE_BINARY_DIR}")
 message(STATUS "  Flags:        ${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${CMAKE_BUILD_TYPE}}")
 
 # Optional: Create install targets
-install(TARGETS photron
+install(TARGETS Photron
     RUNTIME DESTINATION bin
     COMPONENT runtime
 )
