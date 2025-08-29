@@ -1,0 +1,12 @@
+{
+  "name": "photron",
+  "version": "1.0.0",
+  "description": "Monte Carlo Photon Transport Renderer",
+  "dependencies": [
+    "opengl",
+    "glfw3",
+    "glew",
+    "glm"
+  ],
+  "builtin-baseline": "3426db05b996481ca31e95fff3734cf23e0f51bc"
+}
