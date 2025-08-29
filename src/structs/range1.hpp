@@ -3,19 +3,19 @@
 #include <cmath>
 
 struct Range1 {
-	double xmin, xmax;
+	double x_min, x_max;
 	double width;
 
 	Range1() {
-		xmin = xmax = 0;
+		x_min = x_max = 0;
 		width = 0;
 	}
 
 	Range1(double xx0, double xx1) {
-		xmin = xx0;
-		xmax = xx1;
-		width = fabs(xmax - xmin);
+		x_min = xx0;
+		x_max = xx1;
+		width = fabs(x_max - x_min);
 	}
 
-	bool includes(double x) { return (x >= xmin && x <= xmax); }
+	bool includes(double x) { return (x >= x_min && x <= x_max); }
 };

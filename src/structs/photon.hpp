@@ -5,40 +5,42 @@
 #include "vector3.hpp"
 #include "voxel.hpp"
 
-struct Emitter // emitted photon
-{
-	unsigned long id;
-	Point3 pos;
-	Vector3 dir;
+#include <cstdint>
+
+// Emitted photon
+struct Emitter {
+	uint64_t id;
+	Point3 position;
+	Vector3 direction;
 	double weight;
 
-	Emitter(unsigned long i, Point3& p, Vector3& d, double w) {
+	Emitter(uint64_t i, Point3& p, Vector3& d, double w) {
 		id = i;
-		pos = p;
-		dir = d;
+		position = p;
+		direction = d;
 		weight = w;
 	}
 };
 
 struct Photon {
-	unsigned long id; // identifier
-	bool alive;       // true if photon still propagates
-	bool cross;       // true if photon crosses into another voxel in substep
+	uint64_t id;          // identifier
+	bool alive;           // true if photon still propagates
+	bool cross;           // true if photon crosses into another voxel in substep
 
-	double step;      // step distance between scattering
-	double substep;   // step distance inside a voxel
-	double weight;    // remaining weight of the photon packet
+	double step;          // step distance between scattering
+	double sub_step;      // step distance inside a voxel
+	double weight;        // remaining weight of the photon packet
 
-	Point3 pos;       // position at the start of a substep
-	Vector3 dir;      // propagation direction
-	Voxel* vox;       // resident voxel at start of substep
-	Voxel* prevvox;   // voxel before crossing an interface
+	Point3 position;      // position at the start of a substep
+	Vector3 direction;    // propagation direction
+	Voxel* voxel;         // resident voxel at start of substep
+	Voxel* prev_voxel;    // voxel before crossing an interface
 
-	Point3 inter;     // voxel boundary intersection
-	Source source;    // source from which the photon was shot
-	Vector3 vnorm;    // voxel boundary intersection normal
+	Point3 intersect;     // voxel boundary intersection
+	Source source;        // source from which the photon was shot
+	Vector3 voxel_normal; // voxel boundary intersection normal
 
-	bool scatters;    // true if photon path scatters at least once
+	bool scatters;        // true if photon path scatters at least once
 
 	Photon() {
 		id = 0;
@@ -46,67 +48,67 @@ struct Photon {
 		cross = false;
 
 		step = 0;
-		substep = 0;
+		sub_step = 0;
 		weight = 0;
 
-		pos = Point3();
-		dir = Vector3();
-		vox = NULL;
-		prevvox = NULL;
+		position = Point3();
+		direction = Vector3();
+		voxel = nullptr;
+		prev_voxel = nullptr;
 
-		inter = Point3();
-		vnorm = Vector3();
+		intersect = Point3();
+		voxel_normal = Vector3();
 		source = Source();
 
 		scatters = false;
 	}
 
-	Photon(unsigned long i) {
+	Photon(uint64_t i) {
 		id = i;
 		alive = true;
 		cross = false;
 
 		step = 0;
-		substep = 0;
+		sub_step = 0;
 		weight = 0;
 
-		pos = Point3();
-		dir = Vector3();
-		vox = NULL;
-		prevvox = NULL;
+		position = Point3();
+		direction = Vector3();
+		voxel = nullptr;
+		prev_voxel = nullptr;
 
-		inter = Point3();
-		vnorm = Vector3();
+		intersect = Point3();
+		voxel_normal = Vector3();
 		source = Source();
 
 		scatters = false;
 	}
 
 	double ani() {
-		if (vox == NULL || vox->tissue == NULL)
+		if (voxel == nullptr || voxel->tissue == nullptr) {
 			return 0;
-
-		return vox->tissue->ani;
+		}
+		return voxel->tissue->ani;
 	}
 
 	double eta() {
-		if (vox == NULL || vox->tissue == NULL)
+		if (voxel == nullptr || voxel->tissue == nullptr) {
 			return 0;
-
-		return vox->tissue->eta;
+		}
+		return voxel->tissue->eta;
 	}
 
 	double mua() {
-		if (vox == NULL || vox->tissue == NULL)
+		if (voxel == nullptr || voxel->tissue == nullptr) {
 			return 0;
-
-		return vox->tissue->mua;
+		}
+		return voxel->tissue->mua;
 	}
 
 	double mus() {
-		if (vox == NULL || vox->tissue == NULL)
+		if (voxel == nullptr || voxel->tissue == nullptr) {
 			return 0;
-
-		return vox->tissue->mus;
+		}
+		return voxel->tissue->mus;
 	}
 };

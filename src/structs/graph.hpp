@@ -2,56 +2,34 @@
 
 #include "vertex.hpp"
 
+#include <cstdint>
+
 struct Graph {
-	long id;
+	uint64_t id;
 	Vertex* head;
 	Vertex* last;
 
-	long numsegint; // internal segments
-	long numsegext; // emittant segments
+	uint64_t num_seg_int; // internal segments
+	uint64_t num_seg_ext; // emittant segments
 
-	Graph(long i, Vertex* h) {
+	Graph(uint64_t i, Vertex* h) {
 		id = i;
 		head = h;
 		last = h;
-
-		numsegint = 1;
-		numsegext = 1;
+		num_seg_int = 1;
+		num_seg_ext = 1;
 	}
 
-	//	~Graph()
-	//	{
-	//		Vertex* item = head;
-	//
-	//		if (head->prev)
-	//		{
-	//			delete head->prev;
-	//			head->prev = NULL;
-	//		}
-	//
-	//		while (item)
-	//		{
-	//			Vertex* old = item;
-	//			item = item->next;
-	//
-	//			delete old;
-	//			old = NULL;
-	//		}
-	//	}
-
-	void AddInternalVertex(Vertex* vert) {
+	void add_internal_vertex(Vertex* vert) {
 		last->next = vert;
 		vert->prev = last;
-
 		last = vert;
-
-		++numsegint;
+		++num_seg_int;
 	}
 
-	void AddExternalVertex(Vertex* vert) {
+	void add_external_vertex(Vertex* vert) {
 		last->emit = vert;
 		vert->prev = last;
-
-		++numsegext;
+		++num_seg_ext;
 	}
 };

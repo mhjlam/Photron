@@ -31,7 +31,7 @@ double sum(std::vector<T> vals) {
 
 	double sum = 0.0;
 
-	for (size_t i(0); i < vals.size(); ++i) {
+	for (size_t i = 0; i < vals.size(); ++i) {
 		sum += vals[i];
 	}
 
@@ -76,7 +76,7 @@ T str2num(const std::string& str, T def) {
  ***********************************************************/
 
 double sq(double n);
-double dist(Point3& p, Point3& q);
+double distribution_(Point3& p, Point3& q);
 
 #ifndef _WIN32
 double round(double n, int precision);
@@ -89,7 +89,7 @@ double deg(double rad);
  * COMPARISONS
  ***********************************************************/
 
-bool isbetween(unsigned int x, unsigned int a, unsigned int b);
+bool isbetween(uint32_t x, uint32_t a, uint32_t b);
 bool isbetween(double x, double a, double b);
 
 double min3(double a, double b, double c);
@@ -103,15 +103,15 @@ double max4(double a, double b, double c, double d);
 
 std::ostream& tab(std::ostream& os);
 bool equals(const std::string& s, const std::string& t);
-void trimcomment(std::string& str);
-void trimspaces(std::string& str);
+void trim_comment(std::string& str);
+void trim_spaces(std::string& str);
 
 /***********************************************************
  * FILE EXTRACTION
  ***********************************************************/
 
 std::vector<double> split(const std::string& str, char splitchar);
-std::vector<std::pair<std::string, std::string> > getparvals(std::list<std::string>& lines);
+std::vector<std::pair<std::string, std::string> > parameter_values(std::list<std::string>& lines);
 
 /***********************************************************
  * LINEAR ALGEBRA
@@ -125,18 +125,18 @@ Vector3 subtract(Point3& v, Point3& w);
  * INTERSECTION TESTS
  ***********************************************************/
 
-bool ray_triangle_intersect(Ray& ray, Triangle& triangle, Point3& inter);
-bool ray_plane_intersect(Ray& ray, Vector3& normal, Point3& point, Point3& inter);
+bool ray_triangle_intersect(Ray& ray, Triangle& triangle, Point3& intersect);
+bool ray_plane_intersect(Ray& ray, Vector3& normal, Point3& point, Point3& intersect);
 
 std::pair<bool, Point3> ray_triangle_intersect(Ray& ray, Triangle& triangle);
 void ray_triangles_intersections(Ray& ray, std::vector<Triangle>& triangles, std::vector<Point3>& intersections);
 
-double first_ray_triangle_intersect(Ray& ray, std::vector<Triangle>& triangles, Point3& inter, Triangle& triangle);
-double first_ray_cuboid_intersect_internal(Ray& ray, Cuboid& cuboid, Point3& inter, Vector3& normal);
+double first_ray_triangle_intersect(Ray& ray, std::vector<Triangle>& triangles, Point3& intersect, Triangle& triangle);
+double first_ray_cuboid_intersect_internal(Ray& ray, Cuboid& cuboid, Point3& intersect, Vector3& normal);
 
 /***********************************************************
  * GENERATING RANDOM NUMBERS
  ***********************************************************/
 
 double rand3(int* idum);
-double randomnum(void);
+double random_num(void);

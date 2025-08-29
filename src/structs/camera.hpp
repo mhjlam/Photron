@@ -11,7 +11,7 @@ struct Camera {
 	float phi;
 	float radius;
 
-	Point3 pos;
+	Point3 position;
 	Point3 rot;
 	float speed;
 
@@ -24,7 +24,7 @@ struct Camera {
 		phi = 2.0f;
 		radius = 3.0f;
 
-		pos = Point3(2, 1.5, 1.5);
+		position = Point3(2, 1.5, 1.5);
 		rot = Point3(33, -50, 0);
 		speed = 0.01f;
 	}

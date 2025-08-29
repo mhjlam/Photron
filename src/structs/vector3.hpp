@@ -67,7 +67,7 @@ struct Vector3 {
 		}
 	}
 
-	double length() { return sqrt(x * x + y * y + z * z); }
+	double length() { return std::sqrt(x * x + y * y + z * z); }
 
 	void normalize() {
 		double l = length();
@@ -90,6 +90,4 @@ struct Vector3 {
 	Vector3 operator*(const double& d) { return Vector3(x * d, y * d, z * d); }
 	Vector3 operator*(const Vector3& w) { return Vector3(x * w.x, y * w.y, z * w.z); }
 	bool operator==(const Vector3& w) const { return (x == w.x && y == w.y && z == w.z); }
-	friend Vector3 operator-(const Point3& v, const Point3& w);
-	friend Vector3 operator+(const Point3& v, const Point3& w);
 };

@@ -14,21 +14,17 @@ struct Vertex {
 		x = xx;
 		y = yy;
 		z = zz;
-
 		value = v;
-
 		prev = 0;
 		next = 0;
 		emit = 0;
 	}
 
-	Vertex(Point3 pos, double v) {
-		x = pos.x;
-		y = pos.y;
-		z = pos.z;
-
+	Vertex(Point3 position, double v) {
+		x = position.x;
+		y = position.y;
+		z = position.z;
 		value = v;
-
 		prev = 0;
 		next = 0;
 		emit = 0;

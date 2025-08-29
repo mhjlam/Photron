@@ -2,16 +2,17 @@
 
 #include "triangle.hpp"
 
+#include <cstdint>
 #include <vector>
 
 struct Layer {
-	unsigned short id;
-	unsigned short tissueid;
+	uint8_t id;
+	uint8_t tissue_id;
 	std::vector<Triangle> mesh;
 
 	Layer() {
 		id = 0;
-		tissueid = 0;
+		tissue_id = 0;
 
 		mesh = std::vector<Triangle>();
 	}

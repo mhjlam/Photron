@@ -97,7 +97,6 @@ TEST_TARGET = $(BINDIR)/$(PROJECT)_test$(EXEEXT)
 PHOTRON_SOURCES = $(SRCDIR)/main.cpp \
                   $(SRCDIR)/renderer/renderer.cpp \
                   $(SRCDIR)/renderer/window.cpp \
-                  $(SRCDIR)/simulator/initializer.cpp \
                   $(SRCDIR)/simulator/simulator.cpp \
                   $(SRCDIR)/utilities/experimenter.cpp \
                   $(SRCDIR)/utilities/utilities.cpp

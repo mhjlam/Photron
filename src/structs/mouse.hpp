@@ -1,21 +1,20 @@
 #pragma once
 
-struct Mouse
-{
+#include <cstdint>
+
+struct Mouse {
 	int x;
 	int y;
-	
-	unsigned int lmb;
-	unsigned int rmb;
-	
-	Mouse()
-	{
+
+	uint32_t lmb;
+	uint32_t rmb;
+
+	Mouse() {
 		x = y = 0;
 		lmb = rmb = 1;
 	}
-	
-	void Update(int nx, int ny)
-	{
+
+	void update(int nx, int ny) {
 		x = nx;
 		y = ny;
 	}

@@ -1,6 +1,5 @@
 #include "renderer.hpp"
 
-// Simple OpenGL headers
 #include <windows.h>
 
 #include <GL/gl.h>
@@ -8,14 +7,11 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-// Photron specific headers
-#include "../structs/graph.hpp"
-#include "../structs/layer.hpp"
-#include "../structs/range3.hpp"
-#include "../structs/vertex.hpp"
-#include "../utilities/utilities.hpp"
-
-// Simple OpenGL window
+#include "structs/graph.hpp"
+#include "structs/layer.hpp"
+#include "structs/range3.hpp"
+#include "structs/vertex.hpp"
+#include "utilities/utilities.hpp"
 #include "window.hpp"
 
 #include <algorithm>
@@ -24,11 +20,6 @@
 #include <iostream>
 #include <memory>
 #include <sstream>
-
-// Define M_PI if not available
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
 
 // Static member definitions - Simple rendering
 std::unique_ptr<GLWindow> Renderer::gl_window_ = nullptr;
@@ -42,20 +33,14 @@ float Renderer::camera_distance_ = 5.0f;
 float Renderer::camera_rotation_x_ = 30.0f;
 float Renderer::camera_rotation_y_ = 45.0f;
 
-// Legacy static members (keep for compatibility)
-unsigned long Renderer::numvoxall = 0;
-unsigned long Renderer::numvoxrec = 0;
-
-GLFWwindow* Renderer::glfwWindow = nullptr;
-Mouse Renderer::mouse = Mouse();
-Camera Renderer::camera = Camera();
-WindowDimensions Renderer::window = WindowDimensions();
-Keyboard Renderer::keyboard = Keyboard();
-Settings Renderer::settings = Settings();
-Simulator* Renderer::simulator = nullptr;
+Mouse Renderer::mouse_ = Mouse();
+Camera Renderer::camera_ = Camera();
+WindowSize Renderer::window_size_ = WindowSize();
+Settings Renderer::settings_ = Settings();
+Simulator* Renderer::simulator_ = nullptr;
 
 // Simple OpenGL initialization
-void Renderer::Initialize() {
+void Renderer::initialize() {
 	// Initialize OpenGL settings
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_CULL_FACE);
@@ -70,15 +55,15 @@ void Renderer::Initialize() {
 	glClearColor(0.1f, 0.1f, 0.2f, 1.0f);
 
 	// Set up default perspective
-	SetupPerspective(1200, 800, 45.0f, 0.1f, 1000.0f);
+	setup_perspective(1200, 800, 45.0f, 0.1f, 1000.0f);
 
 	std::cout << "Simple OpenGL renderer initialized successfully!" << std::endl;
 }
 
-void Renderer::SetupPerspective(int width, int height, float fov, float near_plane, float far_plane) {
+void Renderer::setup_perspective(int width, int height, float fov, float near_plane, float far_plane) {
 	float aspect = static_cast<float>(width) / static_cast<float>(height);
 	projection_matrix_ = glm::perspective(glm::radians(fov), aspect, near_plane, far_plane);
-	UpdateMVP();
+	update_mvp();
 
 	// Also set legacy OpenGL matrices
 	glViewport(0, 0, width, height);
@@ -86,34 +71,35 @@ void Renderer::SetupPerspective(int width, int height, float fov, float near_pla
 	glLoadMatrixf(glm::value_ptr(projection_matrix_));
 }
 
-void Renderer::SetViewMatrix(const glm::vec3& eye, const glm::vec3& center, const glm::vec3& up) {
+void Renderer::set_view_matrix(const glm::vec3& eye, const glm::vec3& center, const glm::vec3& up) {
 	view_matrix_ = glm::lookAt(eye, center, up);
-	UpdateMVP();
+	update_mvp();
 
 	// Also set legacy OpenGL matrices
 	glMatrixMode(GL_MODELVIEW);
 	glLoadMatrixf(glm::value_ptr(view_matrix_));
 }
 
-void Renderer::UpdateMVP() {
+void Renderer::update_mvp() {
 	mvp_matrix_ = projection_matrix_ * view_matrix_ * model_matrix_;
 }
 
-void Renderer::DrawBounds() {
-	if (!simulator)
+void Renderer::draw_bounds() {
+	if (!simulator_) {
 		return;
+	}
 
 	// Draw simple bounding box using legacy OpenGL
 	glColor3f(1.0f, 1.0f, 1.0f); // White wireframe
 	glBegin(GL_LINES);
 
-	Range3 bounds = simulator->bounds;
-	float minX = static_cast<float>(bounds.xmin);
-	float maxX = static_cast<float>(bounds.xmax);
-	float minY = static_cast<float>(bounds.ymin);
-	float maxY = static_cast<float>(bounds.ymax);
-	float minZ = static_cast<float>(bounds.zmin);
-	float maxZ = static_cast<float>(bounds.zmax);
+	Range3 bounds = simulator_->bounds;
+	float minX = static_cast<float>(bounds.x_min);
+	float maxX = static_cast<float>(bounds.x_max);
+	float minY = static_cast<float>(bounds.y_min);
+	float maxY = static_cast<float>(bounds.y_max);
+	float minZ = static_cast<float>(bounds.z_min);
+	float maxZ = static_cast<float>(bounds.z_max);
 
 	// Bottom face
 	glVertex3f(minX, minY, minZ);
@@ -148,9 +134,10 @@ void Renderer::DrawBounds() {
 	glEnd();
 }
 
-void Renderer::DrawVoxels() {
-	if (!simulator)
+void Renderer::draw_voxels() {
+	if (!simulator_) {
 		return;
+	}
 
 	// Draw actual voxels using MCML's EXACT grid system
 	glEnable(GL_BLEND);
@@ -158,27 +145,27 @@ void Renderer::DrawVoxels() {
 	glDepthMask(GL_FALSE); // Don't write to depth buffer for transparent voxels
 
 	// Get MCML grid parameters
-	int nx = simulator->config.nx;
-	int ny = simulator->config.ny;
-	int nz = simulator->config.nz;
-	double voxsize = simulator->config.voxsize;
-	double half_voxsize = voxsize * 0.5;
+	int32_t nx = simulator_->config.nx;
+	int32_t ny = simulator_->config.ny;
+	int32_t nz = simulator_->config.nz;
+	double vox_size = simulator_->config.vox_size;
+	double half_voxsize = vox_size * 0.5;
 
 	// Draw ALL voxels in the MCML grid, not just ones with recorded energy
-	for (int iz = 0; iz < nz; iz++) {
-		for (int iy = 0; iy < ny; iy++) {
-			for (int ix = 0; ix < nx; ix++) {
+	for (int32_t iz = 0; iz < nz; iz++) {
+		for (int32_t iy = 0; iy < ny; iy++) {
+			for (int32_t ix = 0; ix < nx; ix++) {
 				// Calculate the voxel index using MCML's exact formula
-				int voxel_index = iz * nx * ny + iy * nx + ix;
+				int32_t voxel_index = iz * nx * ny + iy * nx + ix;
 
-				if (voxel_index >= 0 && static_cast<size_t>(voxel_index) < simulator->voxels.size()) {
-					Voxel* voxel = simulator->voxels[static_cast<size_t>(voxel_index)];
+				if (voxel_index >= 0 && static_cast<size_t>(voxel_index) < simulator_->voxels.size()) {
+					Voxel* voxel = simulator_->voxels[static_cast<size_t>(voxel_index)];
 
 					if (voxel) {
 						// Calculate center position using MCML's exact formula
-						double x = simulator->bounds.xmin + (voxsize * ix) + half_voxsize;
-						double y = simulator->bounds.ymin + (voxsize * iy) + half_voxsize;
-						double z = simulator->bounds.zmin + (voxsize * iz) + half_voxsize;
+						double x = simulator_->bounds.x_min + (vox_size * ix) + half_voxsize;
+						double y = simulator_->bounds.y_min + (vox_size * iy) + half_voxsize;
+						double z = simulator_->bounds.z_min + (vox_size * iz) + half_voxsize;
 
 						float fx = static_cast<float>(x);
 						float fy = static_cast<float>(y);
@@ -273,36 +260,38 @@ void Renderer::DrawVoxels() {
 	glDisable(GL_BLEND);
 }
 
-void Renderer::DrawLayers() {
-	if (!simulator)
+void Renderer::draw_layers() {
+	if (!simulator_) {
 		return;
+	}
 
 	// Draw tissue layer boundaries as very subtle wireframe outlines (no more green tint!)
 	glDisable(GL_BLEND); // No transparency to avoid visual clutter
 	glLineWidth(1.0f);
 
-	for (size_t i = 0; i < simulator->layers.size(); ++i) {
+	for (size_t i = 0; i < simulator_->layers.size(); ++i) {
 		// Very subtle gray wireframe for layer boundaries
 		glColor3f(0.4f, 0.4f, 0.4f); // Neutral gray
 
 		// Draw layer as wireframe outline (assuming layers are horizontal)
-		Range3 bounds = simulator->bounds;
+		Range3 bounds = simulator_->bounds;
 		float layerZ = static_cast<float>(
-			bounds.zmin
-			+ (bounds.zmax - bounds.zmin) * (static_cast<float>(i) / static_cast<float>(simulator->layers.size())));
+			bounds.z_min
+			+ (bounds.z_max - bounds.z_min) * (static_cast<float>(i) / static_cast<float>(simulator_->layers.size())));
 
 		glBegin(GL_LINE_LOOP); // Wireframe outline instead of filled quad
-		glVertex3f(static_cast<GLfloat>(bounds.xmin), static_cast<GLfloat>(bounds.ymin), layerZ);
-		glVertex3f(static_cast<GLfloat>(bounds.xmax), static_cast<GLfloat>(bounds.ymin), layerZ);
-		glVertex3f(static_cast<GLfloat>(bounds.xmax), static_cast<GLfloat>(bounds.ymax), layerZ);
-		glVertex3f(static_cast<GLfloat>(bounds.xmin), static_cast<GLfloat>(bounds.ymax), layerZ);
+		glVertex3f(static_cast<GLfloat>(bounds.x_min), static_cast<GLfloat>(bounds.y_min), layerZ);
+		glVertex3f(static_cast<GLfloat>(bounds.x_max), static_cast<GLfloat>(bounds.y_min), layerZ);
+		glVertex3f(static_cast<GLfloat>(bounds.x_max), static_cast<GLfloat>(bounds.y_max), layerZ);
+		glVertex3f(static_cast<GLfloat>(bounds.x_min), static_cast<GLfloat>(bounds.y_max), layerZ);
 		glEnd();
 	}
 }
 
-void Renderer::DrawPhotons() {
-	if (!simulator)
+void Renderer::draw_photons() {
+	if (!simulator_) {
 		return;
+	}
 
 	// Draw photon paths showing energy loss through color changes
 	glLineWidth(3.0f);
@@ -310,7 +299,7 @@ void Renderer::DrawPhotons() {
 	// First, draw current photon positions as energy-colored points
 	glPointSize(8.0f);
 	glBegin(GL_POINTS);
-	for (const auto& photon : simulator->photons) {
+	for (const auto& photon : simulator_->photons) {
 		if (photon.alive && photon.weight > 0.001) {
 			// Energy-based coloring: White = full energy, Red = medium energy, Dark red = low energy
 			float weight = static_cast<float>(photon.weight);
@@ -331,14 +320,15 @@ void Renderer::DrawPhotons() {
 				glColor3f(0.5f + 0.5f * t, 0.1f * t, 0.1f * t);
 			}
 
-			glVertex3f(static_cast<GLfloat>(photon.pos.x), static_cast<GLfloat>(photon.pos.y), static_cast<GLfloat>(photon.pos.z));
+			glVertex3f(static_cast<GLfloat>(photon.position.x), static_cast<GLfloat>(photon.position.y),
+					   static_cast<GLfloat>(photon.position.z));
 		}
 	}
 	glEnd();
 
 	// Draw photon direction indicators
 	glBegin(GL_LINES);
-	for (const auto& photon : simulator->photons) {
+	for (const auto& photon : simulator_->photons) {
 		if (photon.alive && photon.weight > 0.001) {
 			// Same energy-based color as above
 			float weight = static_cast<float>(photon.weight);
@@ -358,12 +348,14 @@ void Renderer::DrawPhotons() {
 
 			// Draw direction vector
 			Point3 end_pos;
-			end_pos.x = photon.pos.x + photon.dir.x * 0.08; // Direction indicator
-			end_pos.y = photon.pos.y + photon.dir.y * 0.08;
-			end_pos.z = photon.pos.z + photon.dir.z * 0.08;
+			end_pos.x = photon.position.x + photon.direction.x * 0.08; // Direction indicator
+			end_pos.y = photon.position.y + photon.direction.y * 0.08;
+			end_pos.z = photon.position.z + photon.direction.z * 0.08;
 
-			glVertex3f(static_cast<GLfloat>(photon.pos.x), static_cast<GLfloat>(photon.pos.y), static_cast<GLfloat>(photon.pos.z));
-			glVertex3f(static_cast<GLfloat>(end_pos.x), static_cast<GLfloat>(end_pos.y), static_cast<GLfloat>(end_pos.z));
+			glVertex3f(static_cast<GLfloat>(photon.position.x), static_cast<GLfloat>(photon.position.y),
+					   static_cast<GLfloat>(photon.position.z));
+			glVertex3f(static_cast<GLfloat>(end_pos.x), static_cast<GLfloat>(end_pos.y),
+					   static_cast<GLfloat>(end_pos.z));
 		}
 	}
 	glEnd();
@@ -372,7 +364,7 @@ void Renderer::DrawPhotons() {
 	glLineWidth(2.0f);
 	glBegin(GL_LINES);
 
-	for (const auto& path : simulator->paths) {
+	for (const auto& path : simulator_->paths) {
 		if (path.head) {
 			// Draw connected line segments with energy gradient
 			Vertex* current = path.head;
@@ -395,7 +387,8 @@ void Renderer::DrawPhotons() {
 					float t = energy1 / 0.4f;
 					glColor3f(0.6f + 0.4f * t, 0.2f * t, 0.2f * t);
 				}
-				glVertex3f(static_cast<GLfloat>(current->x), static_cast<GLfloat>(current->y), static_cast<GLfloat>(current->z));
+				glVertex3f(static_cast<GLfloat>(current->x), static_cast<GLfloat>(current->y),
+						   static_cast<GLfloat>(current->z));
 
 				// End color (next vertex)
 				if (energy2 > 0.7f) {
@@ -421,8 +414,10 @@ void Renderer::DrawPhotons() {
 			while (current) {
 				if (current->emit) {
 					glColor3f(1.0f, 0.8f, 0.0f); // Bright yellow for emitted photons
-					glVertex3f(static_cast<GLfloat>(current->x), static_cast<GLfloat>(current->y), static_cast<GLfloat>(current->z));
-					glVertex3f(static_cast<GLfloat>(current->emit->x), static_cast<GLfloat>(current->emit->y), static_cast<GLfloat>(current->emit->z));
+					glVertex3f(static_cast<GLfloat>(current->x), static_cast<GLfloat>(current->y),
+							   static_cast<GLfloat>(current->z));
+					glVertex3f(static_cast<GLfloat>(current->emit->x), static_cast<GLfloat>(current->emit->y),
+							   static_cast<GLfloat>(current->emit->z));
 				}
 				current = current->next;
 			}
@@ -434,7 +429,7 @@ void Renderer::DrawPhotons() {
 }
 
 // Simple renderer initialization
-void Renderer::Initialize(int /*argc*/, char* /*argv*/[]) {
+void Renderer::initialize(int /*argc*/, char* /*argv*/[]) {
 	gl_window_ = std::make_unique<GLWindow>();
 	if (!gl_window_->create("Photron - Monte Carlo Voxel Renderer")) {
 		std::cout << "Failed to create OpenGL window - continuing in headless mode" << std::endl;
@@ -446,7 +441,7 @@ void Renderer::Initialize(int /*argc*/, char* /*argv*/[]) {
 
 	// Initialize OpenGL renderer
 	try {
-		Initialize();
+		initialize();
 		std::cout << "OpenGL renderer initialized successfully!" << std::endl;
 	}
 	catch (const std::exception& e) {
@@ -459,8 +454,8 @@ void Renderer::Initialize(int /*argc*/, char* /*argv*/[]) {
 	camera_rotation_y_ = 45.0f;
 }
 
-void Renderer::Render(Simulator* sim) {
-	simulator = sim;
+void Renderer::render(Simulator* simulator) {
+	simulator_ = simulator;
 
 	if (!gl_window_) {
 		std::cout << "Headless mode: Simulation complete, visual rendering disabled" << std::endl;
@@ -469,7 +464,7 @@ void Renderer::Render(Simulator* sim) {
 	}
 
 	// Set up camera
-	UpdateCamera();
+	update_camera();
 
 	int frame_count = 0;
 
@@ -479,45 +474,45 @@ void Renderer::Render(Simulator* sim) {
 
 		// Poll for window events and handle mouse input
 		gl_window_->poll_events();
-		HandleMouseInput();
+		handle_mouse_input();
 
 		// Update camera based on mouse input
-		UpdateCamera();
+		update_camera();
 
 		// Clear screen
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		// Draw scene in proper order: opaque objects first, then transparent
-		DrawBounds();  // Opaque wireframe
-		DrawLayers();  // Opaque wireframes
-		DrawVoxels();  // Transparent voxels (with depth mask disabled)
-		DrawPhotons(); // Opaque photon paths (drawn last to be visible)
+		draw_bounds();  // Opaque wireframe
+		draw_layers();  // Opaque wireframes
+		draw_voxels();  // Transparent voxels (with depth mask disabled)
+		draw_photons(); // Opaque photon paths (drawn last to be visible)
 
 		// Swap buffers to display
 		gl_window_->swap_buffers();
 	}
 }
 
-void Renderer::UpdateCamera() {
-	if (!simulator) {
+void Renderer::update_camera() {
+	if (!simulator_) {
 		return;
 	}
 
-	Range3 bounds = simulator->bounds;
-	double centerX = (bounds.xmin + bounds.xmax) / 2.0;
-	double centerY = (bounds.ymin + bounds.ymax) / 2.0;
-	double centerZ = (bounds.zmin + bounds.zmax) / 2.0;
-	double size = std::max({bounds.xmax - bounds.xmin, bounds.ymax - bounds.ymin, bounds.zmax - bounds.zmin});
+	Range3 bounds = simulator_->bounds;
+	double center_x = (bounds.x_min + bounds.x_max) / 2.0;
+	double center_y = (bounds.y_min + bounds.y_max) / 2.0;
+	double center_z = (bounds.z_min + bounds.z_max) / 2.0;
+	double size = std::max({bounds.x_max - bounds.x_min, bounds.y_max - bounds.y_min, bounds.z_max - bounds.z_min});
 
 	// Use spherical coordinates for camera position
-	float radX = glm::radians(camera_rotation_x_);
-	float radY = glm::radians(camera_rotation_y_);
+	float radius_x = glm::radians(camera_rotation_x_);
+	float radius_y = glm::radians(camera_rotation_y_);
 
 	float distance = camera_distance_ * static_cast<float>(size);
-	glm::vec3 eye(centerX + distance * cos(radX) * cos(radY), centerY + distance * sin(radX),
-				  centerZ + distance * cos(radX) * sin(radY));
+	glm::vec3 eye(center_x + distance * cos(radius_x) * cos(radius_y), center_y + distance * sin(radius_x),
+				  center_z + distance * cos(radius_x) * sin(radius_y));
 
-	glm::vec3 center(centerX, centerY, centerZ);
+	glm::vec3 center(center_x, center_y, center_z);
 	glm::vec3 up(0.0f, 1.0f, 0.0f);
 
 	// Set up view matrix
@@ -534,7 +529,7 @@ void Renderer::UpdateCamera() {
 	glLoadMatrixf(glm::value_ptr(view_matrix_));
 }
 
-void Renderer::HandleMouseInput() {
+void Renderer::handle_mouse_input() {
 	if (!gl_window_) {
 		return;
 	}

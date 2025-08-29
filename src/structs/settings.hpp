@@ -1,42 +1,42 @@
 #pragma once
 
-enum CAM_MODE { CAM_ARC, CAM_FREE };
-enum VOX_MODE { VOX_NONE, VOX_ABS, VOX_EMIT };
-enum TEXT_MODE { TEXT_NONE, TEXT_HUD, TEXT_ALL };
-enum GRID_MODE { GRID_NONE, GRID_PARTIAL, GRID_ALL };
-enum GEOM_MODE { GEOM_NONE, GEOM_WHITE, GEOM_COLOR };
+enum class CameraMode { Arc, Free };
+enum class VoxelMode { None, Absorption, Emittance };
+enum class TextMode { None, HeadsUpDisplay, All };
+enum class GridMode { None, Partial, All };
+enum class GeometryMode { None, White, Color };
 
-enum MENU_ITEM {
-	MENU_DISPLAYMODE,
-	MENU_CAMERAMODE,
-	MENU_GRIDMODE,
-	MENU_TEXTMODE,
-	MENU_GEOMMODE,
-	MENU_TOGGLE_FRAME,
-	MENU_TOGGLE_PATHS,
-	MENU_TOGGLE_BOUNDS
+enum class MenuItem {
+	DisplayMode,
+	CameraMode,
+	GridMode,
+	TextMode,
+	GeometryMode,
+	ToggleFrame,
+	TogglePaths,
+	ToggleBounds
 };
 
 struct Settings {
-	bool drawpaths;
-	bool drawframe;
-	bool drawbounds;
+	bool draw_paths;
+	bool draw_frame;
+	bool draw_bounds;
 
-	CAM_MODE cammode;
-	VOX_MODE voxmode;
-	TEXT_MODE textmode;
-	GRID_MODE gridmode;
-	GEOM_MODE geommode;
+	CameraMode camera_mode;
+	VoxelMode voxel_mode;
+	TextMode text_mode;
+	GridMode grid_mode;
+	GeometryMode geometry_mode;
 
 	Settings() {
-		drawpaths = true;
-		drawframe = false;
-		drawbounds = true;
+		draw_paths = true;
+		draw_frame = false;
+		draw_bounds = true;
 
-		cammode = CAM_ARC;
-		voxmode = VOX_NONE;
-		textmode = TEXT_ALL;
-		gridmode = GRID_NONE;
-		geommode = GEOM_WHITE;
+		camera_mode = CameraMode::Arc;
+		voxel_mode = VoxelMode::None;
+		text_mode = TextMode::All;
+		grid_mode = GridMode::None;
+		geometry_mode = GeometryMode::White;
 	}
 };

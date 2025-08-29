@@ -8,42 +8,38 @@
 
 /**
  * @brief High-quality random number generator using Mersenne Twister
- * 
+ *
  * Provides uniform random numbers in [0,1) with state save/restore functionality
  * for reproducible Monte Carlo simulations.
  */
 class Random
 {
-private:
-	std::mt19937 rng;                            // Mersenne Twister PRNG
-	std::uniform_real_distribution<double> dist; // Uniform distribution [0,1)
-
 public:
-	/** 
+	/**
 	 * @brief Initialize random generator with seed
 	 * @param seed Initial seed value (default: 0)
 	 */
-	explicit Random(long seed = 0) : rng(static_cast<unsigned int>(seed)), dist(0.0, 1.0) {}
+	explicit Random(long seed = 0) : rng_(static_cast<uint32_t>(seed)), distribution_(0.0, 1.0) {}
 
-	/** 
+	/**
 	 * @brief Re-seed the generator with new seed
 	 * @param new_seed New seed value
 	 */
-	void seed(long new_seed) { rng.seed(static_cast<unsigned int>(new_seed)); }
+	void seed(long new_seed) { rng_.seed(static_cast<uint32_t>(new_seed)); }
 
-	/** 
+	/**
 	 * @brief Generate random number in [0,1) interval
 	 * @return Random double in [0,1)
 	 */
-	double next() { return dist(rng); }
+	double next() { return distribution_(rng_); }
 
-	/** 
+	/**
 	 * @brief Save current generator state for later restoration
 	 * @return Vector containing serialized generator state
 	 */
 	std::vector<std::uint32_t> state() const {
 		std::ostringstream oss;
-		oss << rng; // Serialize generator state
+		oss << rng_; // Serialize generator state
 
 		std::vector<std::uint32_t> status;
 		std::istringstream iss(oss.str());
@@ -53,7 +49,7 @@ public:
 		return status;
 	}
 
-	/** 
+	/**
 	 * @brief Restore generator state from previously saved state
 	 * @param status Previously saved generator state vector
 	 */
@@ -64,6 +60,10 @@ public:
 		}
 
 		std::istringstream iss(oss.str());
-		iss >> rng; // Deserialize back into mt19937
+		iss >> rng_;                                      // Deserialize back into mt19937
 	}
+
+private:
+	std::mt19937 rng_;                                    // Mersenne Twister PRNG
+	std::uniform_real_distribution<double> distribution_; // Uniform distribution [0,1)
 };

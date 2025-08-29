@@ -4,34 +4,32 @@
 #include "triangle.hpp"
 #include "vector3.hpp"
 
-struct Source {
-	unsigned long id;  // identifier
-	Point3 orig;       // origin
-	Vector3 dir;       // direction of incidence
-	Vector3 dirspec;   // direction of specular reflectance
+#include <cstdint>
 
-	Point3 inter;      // intersection point
-	Triangle intertri; // triangle at intersection point
+struct Source {
+	uint64_t id;                // identifier
+	Point3 origin;              // origin
+	Vector3 direction;          // direction of incidence
+	Vector3 specular_direction; // direction of specular reflectance
+
+	Point3 intersect;           // intersection point
+	Triangle triangle;          // triangle at intersection point
 
 	Source() {
 		id = 0;
-		orig = Point3();
-		dir = Vector3();
-
-		inter = Point3();
-		intertri = Triangle();
-
-		dirspec = Vector3();
+		origin = Point3();
+		direction = Vector3();
+		intersect = Point3();
+		triangle = Triangle();
+		specular_direction = Vector3();
 	}
 
-	Source(unsigned long i, Point3 p, Vector3 v) {
+	Source(uint64_t i, Point3 p, Vector3 v) {
 		id = i;
-		orig = p;
-		dir = v;
-
-		inter = Point3();
-		intertri = Triangle();
-
-		dirspec = Vector3();
+		origin = p;
+		direction = v;
+		intersect = Point3();
+		triangle = Triangle();
+		specular_direction = Vector3();
 	}
 };

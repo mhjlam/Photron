@@ -1,16 +1,16 @@
 #pragma once
 
-#include "../structs/config.hpp"
-#include "../structs/cuboid.hpp"
-#include "../structs/graph.hpp"
-#include "../structs/layer.hpp"
-#include "../structs/photon.hpp"
-#include "../structs/range3.hpp"
-#include "../structs/record.hpp"
-#include "../structs/source.hpp"
-#include "../structs/tissue.hpp"
-#include "../structs/triangle.hpp"
-#include "../structs/voxel.hpp"
+#include "structs/config.hpp"
+#include "structs/cuboid.hpp"
+#include "structs/graph.hpp"
+#include "structs/layer.hpp"
+#include "structs/photon.hpp"
+#include "structs/range3.hpp"
+#include "structs/record.hpp"
+#include "structs/source.hpp"
+#include "structs/tissue.hpp"
+#include "structs/triangle.hpp"
+#include "structs/voxel.hpp"
 
 #include <list>
 #include <map>
@@ -21,11 +21,18 @@
 // Forward declaration for Random class
 class Random;
 
-#define PI     (3.1415926535897932384626433832795)
-#define HALFPI (1.5707963267948966192313216916398)
-
 class Simulator
 {
+public:
+	// constructor & destructor
+	Simulator();
+	~Simulator();
+
+	// main routines
+	bool initialize(std::string file);
+	void simulate();
+	void report();
+
 public:
 	Config config;
 	Record record;
@@ -39,73 +46,56 @@ public:
 	std::vector<Source> sources;
 	std::vector<Emitter> emitters;
 	std::vector<Triangle> triangles;
-	
-	// MCML 3.0.0 Monte Carlo functionality - integrated directly
+
 	std::shared_ptr<Random> mcml_random;
 	double mcml_weight_threshold;
 
 private:
 	// simulation subroutines
-	void Launch(Photon& photon, Source& source);
-	void StepSize(Photon& photon);
-	void Transfer(Photon& photon);
-	void Substep(Photon& photon);
-	void Deposit(Photon& photon);
-	void Scatter(Photon& photon);
-	void Cross(Photon& photon);
-	void Radiate(Photon& photon, Vector3& dir, double weight);
-	void Roulette(Photon& photon);
-	void Normalize();
+	void launch(Photon& photon, Source& source);
+	void step_size(Photon& photon);
+	void transfer(Photon& photon);
+	void sub_step(Photon& photon);
+	void deposit(Photon& photon);
+	void scatter(Photon& photon);
+	void cross(Photon& photon);
+	void radiate(Photon& photon, Vector3& direction, double weight);
+	void roulette(Photon& photon);
+	void normalize();
 
 	// physical computation
-	void SpecularReflection(Source& source);
-	double InternalReflection(Photon& photon, double& nt, Vector3& tran, Vector3& refl);
+	void specular_reflection(Source& source);
+	double internal_reflection(Photon& photon, double& eta_t, Vector3& tran, Vector3& refl);
 
 	// voxel computation
-	Voxel* VoxelAt(Point3& pos);
-	Point3 VoxelCenter(Voxel* vox);
-	Cuboid VoxelCorners(Voxel* vox);
-	bool NearVoxelFace(Point3& pos, Voxel* vox);
+	Voxel* voxel_at(Point3& position);
+	Point3 voxel_center(Voxel* voxel);
+	Cuboid voxel_corners(Voxel* voxel);
 
 	// point translation
-	Point3 Move(Point3& pos, Vector3& dir, double d);
-	Point3 MoveDelta(Point3& pos, Vector3& dir);
+	Point3 move(Point3& position, Vector3& direction, double d);
+	Point3 move_delta(Point3& position, Vector3& direction);
 
-	// MCML 3.0.0 Monte Carlo algorithms - integrated directly
-	void GenerateStepSize(Photon& photon);
-	void ScatterPhoton(Photon& photon, const Tissue& tissue);
-	void RoulettePhoton(Photon& photon);
-	void SetMcmlSeed(int seed);
+	// MCML 3.0.0 algorithms
+	void generate_step_size(Photon& photon);
+	void scatter_photon(Photon& photon, const Tissue& tissue);
+	void roulette_photon(Photon& photon);
+	void set_rng_seed(int seed);
 
-	// MCML integration
-	bool UseMcml() const;
-	void SetUseMcml(bool use_mcml);
-
-private:
 	// file parsing
-	bool Parse(const std::string& fconfig);
-	bool ParseGeneral(std::list<std::string>& data);
-	bool ParseSource(std::list<std::string>& data);
-	bool ParseTissue(std::list<std::string>& data);
-	bool ParseLayer(std::list<std::string>& data);
+	bool parse(const std::string& fconfig);
+	bool parse_general(std::list<std::string>& data);
+	bool parse_source(std::list<std::string>& data);
+	bool parse_tissue(std::list<std::string>& data);
+	bool parse_layer(std::list<std::string>& data);
 
 	// data extraction
-	bool Extract(const std::string& fconfig, std::multimap<std::string, std::list<std::string> >& datalines);
-	void ExtractBlock(std::ifstream& inconfig, std::string section,
-					  std::multimap<std::string, std::list<std::string> >& datamap);
+	bool extract(const std::string& fconfig, std::multimap<std::string, std::list<std::string> >& datalines);
+	void extract_block(std::ifstream& inconfig, std::string section,
+					   std::multimap<std::string, std::list<std::string> >& datamap);
 
 	// initialization
-	bool InitializeGrid();
-	bool InitializeData();
-	bool VoxelizeLayers();
-
-public:
-	// constructor & destructor
-	Simulator();
-	~Simulator();
-
-	// main routines
-	bool Initialize(std::string file);
-	void Simulate();
-	void Report();
+	bool initialize_grid();
+	bool initialize_data();
+	bool voxelize_layers();
 };

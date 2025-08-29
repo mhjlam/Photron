@@ -4,22 +4,22 @@
 #include "vector3.hpp"
 
 struct Triangle {
-	Point3 vertex0;
-	Point3 vertex1;
-	Point3 vertex2;
+	Point3 v0;
+	Point3 v1;
+	Point3 v2;
 	Vector3 normal;
 
 	Triangle() {
-		vertex0 = 0;
-		vertex1 = 0;
-		vertex2 = 0;
+		v0 = 0;
+		v1 = 0;
+		v2 = 0;
 	}
 
 	Triangle(Point3 v0, Point3 v1, Point3 v2) {
-		vertex0 = v0;
-		vertex1 = v1;
-		vertex2 = v2;
+		v0 = v0;
+		v1 = v1;
+		v2 = v2;
 	}
 
-	bool isinvalid() { return (vertex0 == vertex1 || vertex0 == vertex2 || vertex1 == vertex2); }
+	bool is_invalid() { return (v0 == v1 || v0 == v2 || v1 == v2); }
 };

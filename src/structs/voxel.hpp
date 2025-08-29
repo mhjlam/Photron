@@ -2,36 +2,32 @@
 
 #include "tissue.hpp"
 
-struct Voxel {
-	unsigned int ix;
-	unsigned int iy;
-	unsigned int iz;
+#include <cstdint>
 
+struct Voxel {
+	uint32_t ix;
+	uint32_t iy;
+	uint32_t iz;
 	double absorption;
 	double emittance;
-
 	Tissue* tissue;
 
 	Voxel() {
 		ix = 0;
 		iy = 0;
 		iz = 0;
-
 		absorption = 0;
 		emittance = 0;
-
-		tissue = NULL;
+		tissue = nullptr;
 	}
 
-	Voxel(unsigned int x, unsigned int y, unsigned int z) {
+	Voxel(uint32_t x, uint32_t y, uint32_t z) {
 		ix = x;
 		iy = y;
 		iz = z;
-
 		absorption = 0;
 		emittance = 0;
-
-		tissue = NULL;
+		tissue = nullptr;
 	}
 
 	bool operator==(Voxel& other) const {

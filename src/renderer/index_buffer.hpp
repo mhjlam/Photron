@@ -2,24 +2,19 @@
 
 #include "buffer.hpp"
 
-/**
- * @class IndexBuffer
- * @brief Index buffer object wrapper
- */
-class IndexBuffer : public Buffer {
+class IndexBuffer : public Buffer
+{
 public:
-    IndexBuffer() : Buffer(BufferType::INDEX_BUFFER) {}
-    ~IndexBuffer() = default;
+	IndexBuffer() : Buffer(BufferType::Index) {}
+	~IndexBuffer() = default;
 
-    void upload_indices(const std::vector<unsigned int>& indices, BufferUsage usage = BufferUsage::STATIC_DRAW) {
-        upload_data(indices, usage);
-    }
+	void upload_indices(const std::vector<uint32_t>& indices, BufferUsage usage = BufferUsage::Static) {
+		upload_data(indices, usage);
+	}
 
-    void update_indices(const std::vector<unsigned int>& indices, size_t offset = 0) {
-        update_data(indices.data(), indices.size() * sizeof(unsigned int), offset * sizeof(unsigned int));
-    }
+	void update_indices(const std::vector<uint32_t>& indices, size_t offset = 0) {
+		update_data(indices.data(), indices.size() * sizeof(uint32_t), offset * sizeof(uint32_t));
+	}
 
-    size_t index_count() const {
-        return size() / sizeof(unsigned int);
-    }
+	size_t index_count() const { return size() / sizeof(uint32_t); }
 };

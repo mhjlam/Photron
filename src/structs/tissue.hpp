@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cstdint>
+
 struct Tissue {
-	unsigned short id;
+	uint8_t id;
 
 	double ani; // anisotropy coefficient
 	double eta; // index of refraction
@@ -10,16 +12,14 @@ struct Tissue {
 
 	Tissue() {
 		id = 0;
-
 		ani = 0.00;
 		eta = 1.37;
 		mua = 1.00;
 		mus = 10.00;
 	}
 
-	Tissue(unsigned short i, double g, double n, double a, double s) {
+	Tissue(uint8_t i, double g, double n, double a, double s) {
 		id = i;
-
 		ani = g;
 		eta = n;
 		mua = a;

@@ -1,6 +1,5 @@
 /*******************************************************************************
- * MCPTR: MONTE CARLO PHOTON TRANSPORT RENDERER
- * EXPERIMENTATION PROJECT: RENDERING LAYERED SUBSURFACE SCATTERING MATERIALS
+ * PHOTRON: MONTE CARLO PHOTON TRANSPORT RENDERER
  *
  * DATE: 	November 2012
  * AUTHOR:	Maurits H.J. Lam, BSc.
@@ -21,11 +20,6 @@
  * 	T. Li, H. Gong, and Q. Luo,
  * 	"MCVM: Monte Carlo Modeling of photon migration in voxelized media",
  * 	Journal of Innovative Optical Health Sciences 3(2), 91-102 (2010).
- *
- *
- * COMPILATION:
- * 	Renderer requires linking to opengl32, glu32, freeglut/glut32, and glew32.
- * 	Compiled and tested with MinGW.
  ******************************************************************************/
 
 #include "renderer/renderer.hpp"
@@ -42,42 +36,44 @@ int main(int argc, char* argv[]) {
 	}
 
 	// create instance of the simulator
-	Simulator simulator = Simulator();
+	Simulator simulator_;
 
-	if (!simulator.Initialize(argv[1])) {
+	if (!simulator_.initialize(argv[1])) {
 		return 1;
 	}
 
-	// start traditional photon tracing simulation
-	simulator.Simulate();
+	// Start photon tracing simulation
+	simulator_.simulate();
 
-	// write results to file
-	simulator.Report();
+	// Write results to file
+	simulator_.report();
 
-	// stop if real-time renderer is unwanted
+	// Stop if real-time renderer is unwanted
 	if (argv[2] && equals(argv[2], "norender")) {
 		return 0;
 	}
 
 	bool renderer_initialized = false;
 	try {
-		Renderer::Initialize(argc, argv);
+		Renderer::initialize(argc, argv);
 		renderer_initialized = true;
 		std::cout << "Modern OpenGL renderer components initialized" << std::endl;
-		
-	} catch (const std::exception& e) {
+	}
+	catch (const std::exception& e) {
 		std::cerr << "Renderer initialization exception: " << e.what() << std::endl;
-	} catch (...) {
+	}
+	catch (...) {
 		std::cout << "Renderer initialization completed with fallback" << std::endl;
 	}
-	
+
 	// Safe render attempt with comprehensive error handling
 	if (renderer_initialized) {
 		try {
 			// Use a function pointer to safely call render
-			void (*render_func)(Simulator*) = &Renderer::Render;
-			render_func(&simulator);
-		} catch (...) {
+			void (*render_func)(Simulator*) = &Renderer::render;
+			render_func(&simulator_);
+		}
+		catch (...) {
 			std::cout << "Renderer completed in headless mode" << std::endl;
 		}
 	}

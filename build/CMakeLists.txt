@@ -78,7 +78,6 @@ file(MAKE_DIRECTORY ${BIN_DIR})
 file(GLOB_RECURSE PHOTRON_SOURCES
     ${SRC_DIR}/main.cpp
     ${SRC_DIR}/renderer/*.cpp
-    ${SRC_DIR}/simulator/initializer.cpp
     ${SRC_DIR}/simulator/mcml_integration.cpp
     ${SRC_DIR}/simulator/simulator.cpp
     ${SRC_DIR}/utilities/*.cpp
@@ -88,16 +87,6 @@ file(GLOB_RECURSE PHOTRON_SOURCES
 file(GLOB_RECURSE MCML_SOURCES
     ${SRC_DIR}/mcml/*.cpp
 )
-
-# Remove old/backup files and exclude MCML directory from main sources
-list(FILTER PHOTRON_SOURCES EXCLUDE REGEX ".*_old\\.cpp$")
-list(FILTER PHOTRON_SOURCES EXCLUDE REGEX ".*/mcml/.*")
-# Use only the main renderer, exclude all alternative versions
-list(FILTER PHOTRON_SOURCES EXCLUDE REGEX ".*/renderer_modern\\.cpp$")
-list(FILTER PHOTRON_SOURCES EXCLUDE REGEX ".*/renderer_working\\.cpp$")
-
-# Remove main.cpp from MCML sources to avoid duplicate main functions
-list(FILTER MCML_SOURCES EXCLUDE REGEX ".*/main\\.cpp$")
 
 # Combine Photron and MCML sources
 set(ALL_SOURCES ${PHOTRON_SOURCES} ${MCML_SOURCES})
@@ -167,9 +156,7 @@ target_link_libraries(Photron PRIVATE ${PHOTRON_LIBRARIES})
 
 # Platform-specific additional libraries
 if(WIN32)
-    target_link_libraries(Photron PRIVATE 
-        opengl32
-    )
+    target_link_libraries(Photron PRIVATE opengl32)
 elseif(APPLE)
     target_link_libraries(Photron PRIVATE 
         "-framework OpenGL"
@@ -179,10 +166,7 @@ elseif(APPLE)
     )
 else()
     # Linux and other Unix-like systems
-    target_link_libraries(Photron PRIVATE 
-        GL 
-        GLU
-    )
+    target_link_libraries(Photron PRIVATE GL GLU)
 endif()
 
 # Set output directories following MCML 3.0.0 strategy
