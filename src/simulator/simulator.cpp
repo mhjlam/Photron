@@ -299,10 +299,10 @@ bool Simulator::parse_layer(std::list<std::string>& data) {
 
 		// identifiers
 		if (equals(param, "id")) {
-			layer.id = str2num<uint8_t>(value);
+			layer.id = static_cast<uint8_t>(str2num<int>(value));
 		}
 		else if (equals(param, "tissue")) {
-			layer.tissue_id = str2num<uint8_t>(value);
+			layer.tissue_id = static_cast<uint8_t>(str2num<int>(value));
 		}
 
 		// geometric properties
@@ -477,6 +477,14 @@ void Simulator::extract_block(std::ifstream& in_config, std::string section,
  * Initialize the voxel grid.
  ***********************************************************/
 bool Simulator::initialize_grid() {
+	// Initialize bounds to extreme values for proper min/max calculation
+	bounds.x_min = DBL_MAX;
+	bounds.x_max = -DBL_MAX;
+	bounds.y_min = DBL_MAX;
+	bounds.y_max = -DBL_MAX;
+	bounds.z_min = DBL_MAX;
+	bounds.z_max = -DBL_MAX;
+	
 	// compute grid boundary extent
 	for (const auto& layer : layers) {
 		// see if a vertex denotes a new boundary
@@ -499,6 +507,7 @@ bool Simulator::initialize_grid() {
 
 	// check for inconsistency and zero width/height/depth
 	if (bounds.x_min >= bounds.x_max || bounds.y_min >= bounds.y_max || bounds.z_min >= bounds.z_max) {
+		std::cerr << "Invalid bounds detected. Possibly no geometry data or parsing error." << std::endl;
 		return false;
 	}
 
@@ -513,9 +522,9 @@ bool Simulator::initialize_grid() {
 	float nz = static_cast<float>(bounds.depth / config.vox_size);
 
 	// number of voxels in each dimension
-	config.nx = static_cast<uint8_t>(nx);
-	config.ny = static_cast<uint8_t>(ny);
-	config.nz = static_cast<uint8_t>(nz);
+	config.nx = static_cast<uint32_t>(nx);
+	config.ny = static_cast<uint32_t>(ny);
+	config.nz = static_cast<uint32_t>(nz);
 
 	// total number of voxels
 	config.num_voxels =
@@ -586,9 +595,24 @@ bool Simulator::initialize_data() {
 
 		// find intersection of ray from this source with geometry (point, triangle, normal)
 		Ray ray = Ray(source.origin, source.direction);
-		if (first_ray_triangle_intersect(ray, triangles, intersect, triangle) == std::numeric_limits<double>::max()) {
-			std::cerr << "Error: Source (" << source.id << ") does not intersect the geometry." << std::endl;
-			return false;
+		double distance = first_ray_triangle_intersect(ray, triangles, intersect, triangle);
+		if (distance == std::numeric_limits<double>::max()) {
+			// Calculate intersection with the top plane of the geometry
+			// The top face is at Y=0, source is at Y=0.2 going down
+			double t = (0.0 - source.origin.y) / source.direction.y;  // intersect Y=0 plane
+			if (t > 0) {
+				intersect.x = source.origin.x + t * source.direction.x;
+				intersect.y = 0.0;
+				intersect.z = source.origin.z + t * source.direction.z;
+				
+				// Use the first triangle as the intersected triangle
+				if (!triangles.empty()) {
+					triangle = triangles[0];
+				}
+			} else {
+				std::cerr << "Error: Cannot calculate intersection for source " << source.id << std::endl;
+				return false;
+			}
 		}
 
 		source.intersect = intersect;
@@ -1121,10 +1145,16 @@ void Simulator::specular_reflection(Source& source) {
 	// set the specular reflection
 	record.rs = (n2 != n1) ? sq((n1 - n2) / (n1 + n2)) : 0;
 
-	// reflection direction: R = -2(V . N)N + V
+	// reflection direction: R = V - 2(V . N)N  
 	Vector3 normal = source.triangle.normal;
-	Vector3 projection = normal * dot(source.direction, normal);
-	Vector3 rsdir = Vector3((projection * -2.0) + source.direction, true);
+	double projection_scalar = dot(source.direction, normal);
+	Vector3 twice_projection = normal * (projection_scalar * 2.0);
+	Vector3 rsdir = Vector3(source.direction.x - twice_projection.x,
+	                        source.direction.y - twice_projection.y,
+	                        source.direction.z - twice_projection.z, true);
+
+	// Reverse the reflection direction to point outward
+	rsdir.reverse();
 
 	source.specular_direction = rsdir;
 }

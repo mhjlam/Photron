@@ -30,13 +30,13 @@ struct Settings {
 
 	Settings() {
 		draw_paths = true;
-		draw_frame = false;
-		draw_bounds = true;
+		draw_frame = false; // User wants this removed
+		draw_bounds = true; // Enable wireframe quads by default (user request 3)
 
 		camera_mode = CameraMode::Arc;
-		voxel_mode = VoxelMode::None;
+		voxel_mode = VoxelMode::Absorption; // Restore voxel display (user wants to see them)
 		text_mode = TextMode::All;
 		grid_mode = GridMode::None;
-		geometry_mode = GeometryMode::White;
+		geometry_mode = GeometryMode::Color; // Use colored geometry like original
 	}
 };

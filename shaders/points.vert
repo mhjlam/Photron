@@ -1,14 +1,15 @@
-#version 330 core
+#version 450 core
 
-layout(location = 0) in vec3 position;
-layout(location = 1) in vec4 color;
+layout(location = 0) in vec3 aPosition;
+layout(location = 1) in vec4 aColor;
 
-uniform mat4 mvp_matrix;
+uniform mat4 uMVP;
+uniform float uPointSize;
 
-out vec4 vertex_color;
+out vec4 vColor;
 
 void main() {
-    gl_Position = mvp_matrix * vec4(position, 1.0);
-    vertex_color = color;
-    gl_PointSize = 2.0;
+    gl_Position = uMVP * vec4(aPosition, 1.0);
+    vColor = aColor;
+    gl_PointSize = uPointSize;
 }
