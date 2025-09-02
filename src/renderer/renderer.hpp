@@ -67,9 +67,21 @@ public:
 
     // Text billboard rendering for energy labels
     void draw_energy_labels(const Settings& settings);
+    void cache_energy_labels(); // Cache energy labels from current simulation data
+    void invalidate_energy_label_cache(); // Force recalculation of energy labels
+    void update_energy_label_screen_positions(); // Update screen positions once per frame
+    
+    // World-to-screen coordinate conversion for text rendering
+    glm::vec2 world_to_screen(const glm::vec3& world_pos, int screen_width, int screen_height) const;
+    
+    // Text rendering callback (to be set by overlay system)
+    void set_text_render_callback(std::function<void(const std::string&, float, float, const glm::vec4&)> callback) {
+        text_render_callback_ = callback;
+    }
     
     // Adaptive color mapping helper
     glm::vec4 get_adaptive_energy_color(float energy, float min_energy, float max_energy);
+    glm::vec4 get_layer_specific_energy_color(float energy, float min_energy, float max_energy, uint8_t tissue_id);
 
 private:
     void setup_opengl();
@@ -84,6 +96,7 @@ private:
     void draw_paths_modern(const Settings& settings);  
     void draw_photons_modern(const Settings& settings);
     void draw_layers_modern(Simulator* simulator);
+    void draw_tissue_interfaces(Simulator* simulator);
 
     // Shader management methods
     bool setup_line_rendering();
@@ -115,6 +128,8 @@ private:
         std::string text;
         glm::vec4 color;
         float scale = 1.0f;
+        glm::vec2 screen_position; // Cached screen position
+        bool screen_position_valid = false; // Whether screen position is current
     };
 
     // OpenGL resources for shader-based rendering
@@ -135,6 +150,20 @@ private:
     Settings settings_;
     int viewport_width_;
     int viewport_height_;
+    
+    // Text rendering callback for ImGui-based text display
+    std::function<void(const std::string&, float, float, const glm::vec4&)> text_render_callback_;
+    
+    // Cached energy labels (computed once when simulation updates)
+    std::vector<EnergyLabel> cached_energy_labels_;
+    bool energy_labels_cached_ = false;
+    
+    // Camera state tracking for label position updates
+    glm::vec3 last_camera_position_;
+    float last_camera_distance_;
+    float last_camera_azimuth_;
+    float last_camera_elevation_;
+    bool camera_state_changed_ = true;
     
     // Key state tracking for smooth movement
     struct KeyState {

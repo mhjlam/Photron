@@ -105,6 +105,11 @@ void Renderer::render(Simulator* simulator) {
 	if (!simulator)
 		return;
 
+	// Check if simulator has changed and invalidate energy label cache if needed
+	if (simulator_ != simulator) {
+		invalidate_energy_label_cache();
+	}
+
 	// Store simulator reference for use in drawing functions
 	simulator_ = simulator;
 
@@ -120,6 +125,9 @@ void Renderer::render(Simulator* simulator) {
 
 	// Update camera and matrices
 	update_camera();
+	
+	// Update energy label screen positions once per frame (fixes label positioning stability)
+	update_energy_label_screen_positions();
 
 	// Draw everything based on current settings (user request 4 - re-enable ImGui menu)
 	if (settings_.draw_bounds) {
@@ -144,17 +152,17 @@ void Renderer::render(Simulator* simulator) {
 }
 
 void Renderer::draw_coordinate_axes() {
-	// Draw coordinate axes with muted colors to not interfere with data
+	// Draw coordinate axes with very muted colors to not interfere with physics visualization
 	begin_lines();
 
-	// X axis - Muted Red
-	add_line(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec4(0.8f, 0.3f, 0.3f, 0.6f));
+	// X axis - Very muted red
+	add_line(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.5f, 0.0f, 0.0f), glm::vec4(0.4f, 0.1f, 0.1f, 0.3f));
 
-	// Y axis - Muted Green
-	add_line(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec4(0.3f, 0.8f, 0.3f, 0.6f));
+	// Y axis - Very muted green (shortened to avoid confusion with physics rays)
+	add_line(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.5f, 0.0f), glm::vec4(0.1f, 0.4f, 0.1f, 0.3f));
 
-	// Z axis - Muted Blue
-	add_line(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec4(0.3f, 0.3f, 0.8f, 0.6f));
+	// Z axis - Very muted blue
+	add_line(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.5f), glm::vec4(0.1f, 0.1f, 0.4f, 0.3f));
 
 	end_lines();
 	draw_lines();
@@ -245,6 +253,9 @@ void Renderer::set_viewport(int width, int height) {
 	viewport_width_ = width;
 	viewport_height_ = height;
 	glViewport(0, 0, width, height);
+	
+	// Invalidate energy label cache when viewport changes to ensure proper coordinate conversion
+	invalidate_energy_label_cache();
 }
 
 // Input handlers (simplified for now)
@@ -279,6 +290,8 @@ void Renderer::handle_key_input(int key, int scancode, int action, int mods) {
 
 void Renderer::handle_mouse_move(float xpos, float ypos) {
 	camera_.handle_mouse_move(xpos, ypos);
+	// Mark camera state as changed to update label positions
+	camera_state_changed_ = true;
 }
 
 void Renderer::handle_mouse_button(int button, int action, int mods) {
@@ -379,7 +392,7 @@ void Renderer::draw_voxels_modern(const Settings& settings) {
 	}
 
 	// Calculate adaptive energy range for better contrast
-	float min_energy = 0.0000001f; // Minimum threshold for visibility
+	float min_energy = 1e-8f; // Much lower threshold for emittance detection
 	float max_energy = 0.01f;      // Default fallback
 
 	if (!all_energies.empty()) {
@@ -390,7 +403,7 @@ void Renderer::draw_voxels_modern(const Settings& settings) {
 		float p5 = all_energies[static_cast<size_t>(count * 0.05)];  // 5th percentile
 		float p95 = all_energies[static_cast<size_t>(count * 0.95)]; // 95th percentile
 
-		min_energy = std::max(p5, 0.0000001f);
+		min_energy = std::max(p5, 1e-8f); // Lower minimum
 		max_energy = std::max(p95, min_energy * 10.0f);              // Ensure reasonable range
 	}
 
@@ -418,6 +431,49 @@ void Renderer::draw_voxels_modern(const Settings& settings) {
 						// Energy-based coloring based on selected voxel mode (user request 4)
 						float absorption = static_cast<float>(voxel->absorption);
 						float emittance = static_cast<float>(voxel->emittance);
+						
+						// ADD SURFACE SCATTERING AS EMITTANCE at the surface entry voxel
+						// Always detect the surface entry voxel, but only add emittance in Emittance mode
+						if (!simulator_->sources.empty()) {
+							const auto& source = simulator_->sources[0];
+							glm::vec3 source_pos(static_cast<float>(source.origin.x), 
+												static_cast<float>(source.origin.y), 
+												static_cast<float>(source.origin.z));
+							glm::vec3 source_dir(static_cast<float>(source.direction.x), 
+												static_cast<float>(source.direction.y), 
+												static_cast<float>(source.direction.z));
+							
+							// Calculate surface entry point
+							float surface_y = 0.1f;
+							if (!simulator_->layers.empty()) {
+								surface_y = -1000.0f;
+								for (const auto& layer : simulator_->layers) {
+									for (const auto& triangle : layer.mesh) {
+										surface_y = std::max({surface_y, 
+															static_cast<float>(triangle.v0.y),
+															static_cast<float>(triangle.v1.y), 
+															static_cast<float>(triangle.v2.y)});
+									}
+								}
+							}
+							
+							if (source_dir.y != 0.0f) {
+								float t = (surface_y - source_pos.y) / source_dir.y;
+								glm::vec3 surface_entry = source_pos + t * source_dir;
+								
+								// Check if this voxel contains the surface entry point
+								float voxel_tolerance = 1.5f * static_cast<float>(voxsize); // Increase tolerance for better detection
+								float distance = glm::length(voxel_pos - surface_entry);
+								
+								if (distance < voxel_tolerance) {
+									// Only add surface reflection as emittance in Emittance mode
+									if (settings.voxel_mode == VoxelMode::Emittance) {
+										float surface_scattering = static_cast<float>(simulator_->record.rs);
+										emittance += surface_scattering;
+									}
+								}
+							}
+						}
 
 						float total_energy;
 						if (settings.voxel_mode == VoxelMode::Absorption) {
@@ -433,7 +489,7 @@ void Renderer::draw_voxels_modern(const Settings& settings) {
 						// Show even the tiniest energy interactions
 						glm::vec4 color(0.0f, 0.0f, 0.0f, 0.0f); // Default transparent
 
-						if (total_energy > 0.0000001 || voxel->tissue != nullptr) {
+						if (total_energy > 1e-8f || voxel->tissue != nullptr) { // Much lower threshold
 							// Calculate percentage of total energy for this voxel
 							float energy_percentage = (total_accumulated_energy > 0.0f)
 														  ? (total_energy / total_accumulated_energy) * 100.0f
@@ -454,19 +510,27 @@ void Renderer::draw_voxels_modern(const Settings& settings) {
 							float normalized_dist = glm::clamp(dist_from_origin / max_dist, 0.0f, 1.0f);
 
 							// More visible alpha scaling based on gamma-corrected energy
-							float min_alpha = 0.15f; // More visible base
-							float max_alpha = 0.7f;  // Higher maximum visibility
+							float min_alpha = 0.2f; // Higher minimum for emittance visibility
+							float max_alpha = 0.9f;  // Higher maximum visibility
+							
+							// Special case for emittance mode: boost visibility significantly
+							if (settings.voxel_mode == VoxelMode::Emittance) {
+								min_alpha = 0.6f; // Much more visible
+								max_alpha = 1.0f;  // Full opacity for high emittance
+							}
+							
 							float alpha =
-								min_alpha + (max_alpha - min_alpha) * gamma_corrected * (1.0f - 0.3f * normalized_dist);
+								min_alpha + (max_alpha - min_alpha) * gamma_corrected * (1.0f - 0.2f * normalized_dist);
 
-							// Use adaptive energy color mapping with dynamic range
-							if (total_energy > 0.0000001f) {
-								color = get_adaptive_energy_color(total_energy, min_energy, max_energy);
+							// Use layer-specific energy color mapping with dynamic range
+							if (total_energy > 1e-8f) { // Lower threshold
+								color = get_layer_specific_energy_color(total_energy, min_energy, max_energy, voxel->tissue->id);
 								color.a = alpha;
 							}
 							else if (voxel->tissue != nullptr) {
-								// Voxel in medium but no recorded energy: very faint blue
-								color = glm::vec4(0.4f, 0.4f, 0.8f, 0.02f);
+								// Voxel in medium but no recorded energy: very faint tissue-colored hint
+								color = get_layer_specific_energy_color(1e-8f, min_energy, max_energy, voxel->tissue->id);
+								color.a = 0.05f; // Slightly more visible
 							}
 
 							// Calculate distance to camera for depth sorting
@@ -595,35 +659,51 @@ void Renderer::draw_paths_modern(const Settings& settings) {
 			Vertex* current = path.head;
 			Vertex* next = current ? current->next : nullptr;
 
-			// First, draw incident photon above the medium (user request 1)
-			if (current) {
-				glm::vec3 first_point(static_cast<float>(current->position.x), static_cast<float>(current->position.y),
-									  static_cast<float>(current->position.z));
+			// Draw physically correct incident ray from source to tissue surface
+			if (current && !simulator_->sources.empty()) {
+				glm::vec3 first_interaction(static_cast<float>(current->position.x), 
+										   static_cast<float>(current->position.y),
+										   static_cast<float>(current->position.z));
 
-				// Get the actual source direction from the simulator
-				glm::vec3 source_direction(0.0f, -1.0f, -0.5f); // From config: direction = 0, -1, -0.5
-				source_direction = normalize(source_direction);
-
-				// Draw incident photon coming from the source direction
-				// Start point should be BEFORE the incidence point, opposite to the source direction
-				glm::vec3 incident_start = first_point - source_direction * 0.5f;
-				glm::vec4 incident_color(1.0f, 1.0f, 1.0f, 1.0f); // Bright white for incident photon
-				add_line(incident_start, first_point, incident_color);
-
-				// TEMPORARILY DISABLED - If there's reflection at the surface, draw the reflected ray going back up
-				if (false && next) {
-					glm::vec3 next_point(static_cast<float>(next->position.x), static_cast<float>(next->position.y),
-										 static_cast<float>(next->position.z));
-
-					// If we're at the surface (z ≈ 0), add a reflected ray going upward
-					if (abs(first_point.z) < 0.1f) { // Near surface
-						// FORCE reflected ray to point clearly outward - no complex calculation
-						glm::vec3 reflected_dir(0.0f, -1.0f, 0.8f); // Same Y as incident, but positive Z (outward)
-						reflected_dir = normalize(reflected_dir);
-
-						glm::vec3 reflected_end = first_point + reflected_dir * 0.5f;
-						glm::vec4 reflected_color(1.0f, 0.0f, 0.0f, 1.0f); // BRIGHT RED to make it obvious
-						add_line(first_point, reflected_end, reflected_color);
+				// Use actual source parameters from the configuration
+				const Source& source = simulator_->sources[0];  // Use first source
+				glm::vec3 source_pos(static_cast<float>(source.origin.x), 
+									static_cast<float>(source.origin.y), 
+									static_cast<float>(source.origin.z));
+				glm::vec3 source_dir(static_cast<float>(source.direction.x), 
+									static_cast<float>(source.direction.y), 
+									static_cast<float>(source.direction.z));
+				
+				// Calculate surface entry point (find topmost Y coordinate of any layer)
+				float surface_y = 0.1f;  // Default top surface
+				if (!simulator_->layers.empty()) {
+					// Find the highest Y coordinate among all layers by examining triangle vertices
+					surface_y = -1000.0f;  // Start very low
+					for (const auto& layer : simulator_->layers) {
+						for (const auto& triangle : layer.mesh) {
+							float y0 = static_cast<float>(triangle.v0.y);
+							float y1 = static_cast<float>(triangle.v1.y);
+							float y2 = static_cast<float>(triangle.v2.y);
+							if (y0 > surface_y) surface_y = y0;
+							if (y1 > surface_y) surface_y = y1;
+							if (y2 > surface_y) surface_y = y2;
+						}
+					}
+				}
+				
+				// Calculate where ray hits the surface
+				if (source_dir.y != 0.0f) {
+					float t = (surface_y - source_pos.y) / source_dir.y;
+					glm::vec3 surface_entry = source_pos + t * source_dir;
+					
+					// Draw incident ray from source to surface
+					glm::vec4 incident_color(1.0f, 1.0f, 1.0f, 1.0f); // Bright white
+					add_line(source_pos, surface_entry, incident_color);
+					
+					// If photon actually enters tissue, draw refracted ray from surface to first interaction
+					if (first_interaction.y < surface_y - 0.001f) {
+						glm::vec4 refracted_color(0.9f, 0.9f, 1.0f, 0.8f); // Light blue
+						add_line(surface_entry, first_interaction, refracted_color);
 					}
 				}
 			}
@@ -643,36 +723,20 @@ void Renderer::draw_paths_modern(const Settings& settings) {
 				glm::vec3 end(static_cast<float>(next->position.x), static_cast<float>(next->position.y),
 							  static_cast<float>(next->position.z));
 
-				// Special handling for first segment (from incident point)
-				if (current == path.head && abs(start.z) < 0.1f) {
-					// This is the first segment from the surface incident point
-					// Instead of drawing the transmitted ray into the medium,
-					// draw a scattered ray going outward (this is what you want to see!)
-					glm::vec3 scattered_direction = normalize(end - start); // Original direction into medium
-					scattered_direction.z = -scattered_direction.z;         // Flip Z to point outward
-					glm::vec3 scattered_end = start + scattered_direction * 0.5f;
+				// Draw actual photon path segments with energy-based coloring
+				// Create gradient by adding multiple line segments with interpolated colors
+				const int gradient_segments = 10;
+				for (int i = 0; i < gradient_segments; i++) {
+					float t1 = static_cast<float>(i) / static_cast<float>(gradient_segments);
+					float t2 = static_cast<float>(i + 1) / static_cast<float>(gradient_segments);
 
-					// Use BRIGHT GREEN color to identify this ray clearly
-					glm::vec4 scattered_color(0.0f, 1.0f, 0.0f, 1.0f); // BRIGHT GREEN
-					add_line(start, scattered_end, scattered_color);
+					glm::vec3 seg_start = start + t1 * (end - start);
+					glm::vec3 seg_end = start + t2 * (end - start);
 
-					// Skip the original transmitted segment - don't draw it
-				}
-				else {
-					// Normal path segment - create gradient by adding multiple line segments with interpolated colors
-					const int gradient_segments = 10;
-					for (int i = 0; i < gradient_segments; i++) {
-						float t1 = static_cast<float>(i) / static_cast<float>(gradient_segments);
-						float t2 = static_cast<float>(i + 1) / static_cast<float>(gradient_segments);
+					glm::vec4 seg_color = start_color * (1.0f - (t1 + t2) * 0.5f) + end_color * ((t1 + t2) * 0.5f);
+					seg_color.a = 1.0f;
 
-						glm::vec3 seg_start = start + t1 * (end - start);
-						glm::vec3 seg_end = start + t2 * (end - start);
-
-						glm::vec4 seg_color = start_color * (1.0f - (t1 + t2) * 0.5f) + end_color * ((t1 + t2) * 0.5f);
-						seg_color.a = 1.0f;
-
-						add_line(seg_start, seg_end, seg_color);
-					}
+					add_line(seg_start, seg_end, seg_color);
 				}
 
 				// Move to next segment
@@ -872,30 +936,76 @@ void Renderer::draw_layers_modern(Simulator* simulator) {
 	if (!simulator)
 		return;
 
+	// For now, disable tissue interface visualization completely
+	// You can enable it later with a UI toggle if desired
+	// draw_tissue_interfaces(simulator);
+}
+
+void Renderer::draw_tissue_interfaces(Simulator* simulator) {
+	if (!simulator || simulator->voxels.empty()) {
+		return;
+	}
+
+	// Much more subtle approach - only draw a few key boundary indicators
 	begin_lines();
 
-	// Draw tissue layer boundaries as very subtle wireframe outlines exactly like backup
-	for (size_t i = 0; i < simulator->layers.size(); ++i) {
-		// Very subtle gray wireframe for layer boundaries - EXACT backup colors
-		glm::vec4 layer_color(0.4f, 0.4f, 0.4f, 1.0f); // Neutral gray like backup
+	// Very subtle colors - barely visible
+	std::vector<glm::vec4> tissue_colors = {
+		glm::vec4(0.3f, 0.3f, 0.3f, 0.1f),  // Very faint gray for tissue 0
+		glm::vec4(0.4f, 0.2f, 0.2f, 0.1f),  // Very faint red for tissue 1  
+		glm::vec4(0.2f, 0.4f, 0.2f, 0.1f),  // Very faint green for tissue 2
+		glm::vec4(0.2f, 0.2f, 0.4f, 0.1f),  // Very faint blue for tissue 3
+		glm::vec4(0.4f, 0.4f, 0.2f, 0.1f),  // Very faint yellow for tissue 4
+		glm::vec4(0.4f, 0.2f, 0.4f, 0.1f),  // Very faint magenta for tissue 5
+	};
 
-		// Draw layer as wireframe outline (assuming layers are horizontal) - LIKE BACKUP
-		Range3 bounds = simulator->bounds;
-		float layerZ = static_cast<float>(
-			bounds.z_min
-			+ (bounds.z_max - bounds.z_min) * (static_cast<float>(i) / static_cast<float>(simulator->layers.size())));
+	// Get MCML grid parameters
+	int nx = simulator->config.nx;
+	int ny = simulator->config.ny;  
+	int nz = simulator->config.nz;
+	double voxsize = simulator->config.vox_size;
+	double half_voxsize = voxsize * 0.5;
 
-		// Draw rectangular wireframe using line loop equivalent (4 lines forming a rectangle)
-		glm::vec3 corner1(static_cast<float>(bounds.x_min), static_cast<float>(bounds.y_min), layerZ);
-		glm::vec3 corner2(static_cast<float>(bounds.x_max), static_cast<float>(bounds.y_min), layerZ);
-		glm::vec3 corner3(static_cast<float>(bounds.x_max), static_cast<float>(bounds.y_max), layerZ);
-		glm::vec3 corner4(static_cast<float>(bounds.x_min), static_cast<float>(bounds.y_max), layerZ);
+	// Only draw horizontal lines at Y boundaries where tissues actually change (layer interfaces)
+	// Skip most voxels to reduce visual clutter dramatically
+	for (int iz = 0; iz < nz; iz += 4) { // Only every 4th slice
+		for (int iy = 0; iy < ny; ++iy) {
+			for (int ix = 0; ix < nx; ix += 4) { // Only every 4th voxel
+				size_t voxel_index = static_cast<size_t>(iz) * static_cast<size_t>(nx) * static_cast<size_t>(ny)
+									+ static_cast<size_t>(iy) * static_cast<size_t>(nx) + static_cast<size_t>(ix);
 
-		// Draw the 4 edges of the rectangle (emulating GL_LINE_LOOP exactly like backup)
-		add_line(corner1, corner2, layer_color);
-		add_line(corner2, corner3, layer_color);
-		add_line(corner3, corner4, layer_color);
-		add_line(corner4, corner1, layer_color);
+				if (voxel_index >= simulator->voxels.size()) continue;
+				
+				Voxel* current_voxel = simulator->voxels[voxel_index];
+				if (!current_voxel || !current_voxel->tissue) continue;
+
+				// Only check Y+1 neighbor for horizontal layer boundaries
+				if (iy + 1 < ny) {
+					size_t neighbor_index = static_cast<size_t>(iz) * static_cast<size_t>(nx) * static_cast<size_t>(ny)
+										  + static_cast<size_t>(iy + 1) * static_cast<size_t>(nx) + static_cast<size_t>(ix);
+					if (neighbor_index < simulator->voxels.size()) {
+						Voxel* neighbor = simulator->voxels[neighbor_index];
+						if (!neighbor || !neighbor->tissue || neighbor->tissue->id != current_voxel->tissue->id) {
+							// Found a tissue boundary - draw just a small horizontal line indicator
+							double x = simulator->bounds.x_min + (voxsize * ix) + half_voxsize;
+							double y = simulator->bounds.y_min + (voxsize * iy) + half_voxsize;
+							double z = simulator->bounds.z_min + (voxsize * iz) + half_voxsize;
+
+							float interface_y = static_cast<float>(y + half_voxsize);
+							glm::vec4 tissue_color = tissue_colors[current_voxel->tissue->id % tissue_colors.size()];
+							tissue_color.a = 0.2f; // Slightly more visible at boundaries
+							
+							// Just draw a small cross mark, not full wireframe
+							float mark_size = static_cast<float>(voxsize * 0.3);
+							glm::vec3 center(static_cast<float>(x), interface_y, static_cast<float>(z));
+							
+							add_line(center - glm::vec3(mark_size, 0, 0), center + glm::vec3(mark_size, 0, 0), tissue_color);
+							add_line(center - glm::vec3(0, 0, mark_size), center + glm::vec3(0, 0, mark_size), tissue_color);
+						}
+					}
+				}
+			}
+		}
 	}
 
 	end_lines();
@@ -1173,13 +1283,14 @@ std::string Renderer::load_shader_source(const std::string& file_path) {
 	return buffer.str();
 }
 
-void Renderer::draw_energy_labels(const Settings& settings) {
+void Renderer::cache_energy_labels() {
+	cached_energy_labels_.clear();
+	energy_labels_cached_ = false;
+	
 	if (!simulator_)
 		return;
 
 	// Collect energy labels from photon paths
-	std::vector<EnergyLabel> labels;
-
 	for (const Graph& path : simulator_->paths) {
 		if (path.head) {
 			Vertex* current = path.head;
@@ -1200,17 +1311,99 @@ void Renderer::draw_energy_labels(const Settings& settings) {
 				glm::vec4 label_color(1.0f, 1.0f, 1.0f, 1.0f);
 
 				if (current_index == 0) {
-					// Incidence point
+					// Incidence point - check if at surface (reflected) or inside (transmitted into tissue)
 					should_label = true;
 					float energy_percent = static_cast<float>(current->value * 100.0);
-					label_text = std::to_string(static_cast<int>(energy_percent)) + "%";
+					
+					glm::vec3 pos(static_cast<float>(current->position.x), static_cast<float>(current->position.y),
+								  static_cast<float>(current->position.z));
+					
+					// Check if at or near surface (incident interface)
+					bool at_surface = (std::abs(pos.z) < 0.01f); // Within 0.01 units of surface
+					
+					if (at_surface) {
+						// At incident interface - this is reflected light
+						if (energy_percent < 1.0f) {
+							label_text = "Reflected: <1%";
+						} else {
+							label_text = "Reflected: " + std::to_string(static_cast<int>(energy_percent)) + "%";
+						}
+					} else {
+						// Inside tissue - this is just the incident energy
+						if (energy_percent < 1.0f) {
+							label_text = "<1%";
+						} else {
+							label_text = std::to_string(static_cast<int>(energy_percent)) + "%";
+						}
+					}
 					label_color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f); // White for incident
 				}
 				else if (current_index == vertex_count - 1) {
-					// End point
+					// End point - check if at bottom surface (transmitted) or internal (absorbed/scattered)
 					should_label = true;
 					float energy_percent = static_cast<float>(current->value * 100.0);
-					label_text = std::to_string(static_cast<int>(energy_percent)) + "%";
+					
+					glm::vec3 pos(static_cast<float>(current->position.x), static_cast<float>(current->position.y),
+								  static_cast<float>(current->position.z));
+					
+					// Calculate tissue bottom boundary
+					float bottom_y = -0.1f;  // Default bottom
+					if (!simulator_->layers.empty()) {
+						bottom_y = 1000.0f;  // Start very high
+						for (const auto& layer : simulator_->layers) {
+							for (const auto& triangle : layer.mesh) {
+								float y0 = static_cast<float>(triangle.v0.y);
+								float y1 = static_cast<float>(triangle.v1.y);
+								float y2 = static_cast<float>(triangle.v2.y);
+								if (y0 < bottom_y) bottom_y = y0;
+								if (y1 < bottom_y) bottom_y = y1;
+								if (y2 < bottom_y) bottom_y = y2;
+							}
+						}
+					}
+					
+					// Calculate tissue top boundary as well
+					float top_y = 0.1f;  // Default top
+					if (!simulator_->layers.empty()) {
+						top_y = -1000.0f;  // Start very low
+						for (const auto& layer : simulator_->layers) {
+							for (const auto& triangle : layer.mesh) {
+								float y0 = static_cast<float>(triangle.v0.y);
+								float y1 = static_cast<float>(triangle.v1.y);
+								float y2 = static_cast<float>(triangle.v2.y);
+								if (y0 > top_y) top_y = y0;
+								if (y1 > top_y) top_y = y1;
+								if (y2 > top_y) top_y = y2;
+							}
+						}
+					}
+					
+					// Check if at interfaces
+					bool at_top = (std::abs(pos.y - top_y) < 0.05f); // Increased tolerance for surface detection
+					bool at_bottom = (std::abs(pos.y - bottom_y) < 0.05f); // Increased tolerance for surface detection
+					
+					if (at_top) {
+						// At incident interface - this is reflected light exiting back through the top
+						if (energy_percent < 1.0f) {
+							label_text = "Reflected: <1%";
+						} else {
+							label_text = "Reflected: " + std::to_string(static_cast<int>(energy_percent)) + "%";
+						}
+					} else if (at_bottom) {
+						// At exit interface - this is transmitted light
+						if (energy_percent < 1.0f) {
+							label_text = "Transmitted: <1%";
+						} else {
+							label_text = "Transmitted: " + std::to_string(static_cast<int>(energy_percent)) + "%";
+						}
+					} else {
+						// Inside tissue - just show percentage
+						if (energy_percent < 1.0f) {
+							label_text = "<1%";
+						} else {
+							label_text = std::to_string(static_cast<int>(energy_percent)) + "%";
+						}
+					}
 
 					// Use logarithmic color mapping like the spheres
 					float energy = std::max(0.1f, static_cast<float>(current->value));
@@ -1242,7 +1435,52 @@ void Renderer::draw_energy_labels(const Settings& settings) {
 						if (is_boundary) {
 							should_label = true;
 							float energy_percent = static_cast<float>(current->value * 100.0);
-							label_text = std::to_string(static_cast<int>(energy_percent)) + "%";
+							
+							// Determine label type based on position
+							// Calculate tissue boundaries
+							float top_y = 0.1f, bottom_y = -0.1f;
+							if (!simulator_->layers.empty()) {
+								top_y = -1000.0f; bottom_y = 1000.0f;
+								for (const auto& layer : simulator_->layers) {
+									for (const auto& triangle : layer.mesh) {
+										float y0 = static_cast<float>(triangle.v0.y);
+										float y1 = static_cast<float>(triangle.v1.y);
+										float y2 = static_cast<float>(triangle.v2.y);
+										if (y0 > top_y) top_y = y0;
+										if (y1 > top_y) top_y = y1;
+										if (y2 > top_y) top_y = y2;
+										if (y0 < bottom_y) bottom_y = y0;
+										if (y1 < bottom_y) bottom_y = y1;
+										if (y2 < bottom_y) bottom_y = y2;
+									}
+								}
+							}
+							
+							bool at_top = (std::abs(pos.y - top_y) < 0.05f);
+							bool at_bottom = (std::abs(pos.y - bottom_y) < 0.05f);
+							
+							if (at_top) {
+								// At incident interface - reflected light
+								if (energy_percent < 1.0f) {
+									label_text = "Reflected: <1%";
+								} else {
+									label_text = "Reflected: " + std::to_string(static_cast<int>(energy_percent)) + "%";
+								}
+							} else if (at_bottom) {
+								// At exit interface - transmitted light
+								if (energy_percent < 1.0f) {
+									label_text = "Transmitted: <1%";
+								} else {
+									label_text = "Transmitted: " + std::to_string(static_cast<int>(energy_percent)) + "%";
+								}
+							} else {
+								// Internal scattering - just percentage
+								if (energy_percent < 1.0f) {
+									label_text = "<1%";
+								} else {
+									label_text = std::to_string(static_cast<int>(energy_percent)) + "%";
+								}
+							}
 
 							// Color based on energy like the spheres
 							float energy = std::max(0.1f, static_cast<float>(current->value));
@@ -1271,11 +1509,9 @@ void Renderer::draw_energy_labels(const Settings& settings) {
 								  static_cast<float>(current->position.z));
 					label.text = label_text;
 					label.color = label_color;
+					label.scale = 1.0f; // Base scale
 
-					// Scale based on camera distance
-					label.scale = camera_.get_distance() * 0.02f;
-
-					labels.push_back(label);
+					cached_energy_labels_.push_back(label);
 				}
 
 				current = current->next;
@@ -1283,22 +1519,129 @@ void Renderer::draw_energy_labels(const Settings& settings) {
 			}
 		}
 	}
+	
+	// Add surface scattering label at incident point (unified with other energy labels)
+	if (simulator_->record.rs > 0.0) {
+		// Calculate incident surface position
+		glm::vec3 source_pos(0.05f, 0.0f, 0.05f); // From the incident ray calculations
+		glm::vec3 source_dir(0.0f, 1.0f, 0.0f);   // Upward direction
+		
+		// Find topmost surface point
+		float surface_y = 0.1f;
+		if (!simulator_->layers.empty()) {
+			surface_y = -1000.0f;
+			for (const auto& layer : simulator_->layers) {
+				for (const auto& triangle : layer.mesh) {
+					float y0 = static_cast<float>(triangle.v0.y);
+					float y1 = static_cast<float>(triangle.v1.y);
+					float y2 = static_cast<float>(triangle.v2.y);
+					if (y0 > surface_y) surface_y = y0;
+					if (y1 > surface_y) surface_y = y1;
+					if (y2 > surface_y) surface_y = y2;
+				}
+			}
+		}
+		
+		// Calculate surface entry point
+		if (source_dir.y != 0.0f) {
+			float t = (surface_y - source_pos.y) / source_dir.y;
+			glm::vec3 surface_entry = source_pos + t * source_dir;
+			
+			// Add surface scattering label
+			float surface_scattering = static_cast<float>(simulator_->record.rs);
+			float scatter_percent = surface_scattering * 100.0f;
+			
+			std::string label_text;
+			if (scatter_percent < 1.0f) {
+				label_text = "Reflected: <1%";
+			} else {
+				label_text = "Reflected: " + std::to_string(static_cast<int>(scatter_percent)) + "%";
+			}
+			
+			EnergyLabel surface_label;
+			surface_label.world_position = surface_entry;
+			surface_label.text = label_text;
+			surface_label.color = get_layer_specific_energy_color(surface_scattering, 0.0f, 1.0f, 0);
+			surface_label.scale = 1.0f;
+			
+			cached_energy_labels_.push_back(surface_label);
+		}
+	}
+	
+	energy_labels_cached_ = true;
+}
 
-	// Render labels as billboards using point sprites with offset text rendering
-	// For now, we'll render them as simple colored points at a larger size
-	begin_points();
+void Renderer::invalidate_energy_label_cache() {
+	energy_labels_cached_ = false;
+	cached_energy_labels_.clear();
+	camera_state_changed_ = true; // Force screen position recalculation
+}
 
-	for (const auto& label : labels) {
-		// Offset the label position slightly above the actual point to avoid overlapping
-		glm::vec3 label_pos = label.world_position + glm::vec3(0.0f, 0.0f, 0.05f);
-		add_point(label_pos, label.color);
+void Renderer::update_energy_label_screen_positions() {
+	if (!energy_labels_cached_ || cached_energy_labels_.empty()) {
+		return;
 	}
 
-	end_points();
-	draw_points();
+	// Check if camera has actually changed
+	glm::vec3 current_position = camera_.get_position();
+	float current_distance = camera_.get_distance();
+	float current_azimuth = camera_.get_azimuth();
+	float current_elevation = camera_.get_elevation();
+	
+	bool camera_changed = false;
+	if (glm::length(current_position - last_camera_position_) > 1e-4f ||
+		std::abs(current_distance - last_camera_distance_) > 1e-4f ||
+		std::abs(current_azimuth - last_camera_azimuth_) > 1e-4f ||
+		std::abs(current_elevation - last_camera_elevation_) > 1e-4f) {
+		camera_changed = true;
+	}
+	
+	// Update screen positions only when camera changes
+	if (camera_changed || camera_state_changed_) {
+		last_camera_position_ = current_position;
+		last_camera_distance_ = current_distance;
+		last_camera_azimuth_ = current_azimuth;
+		last_camera_elevation_ = current_elevation;
+		camera_state_changed_ = false;
+		
+		// Update all cached screen positions
+		for (auto& label : cached_energy_labels_) {
+			label.screen_position = world_to_screen(label.world_position, viewport_width_, viewport_height_);
+			label.screen_position_valid = (label.screen_position.x >= 0 && label.screen_position.x < viewport_width_ && 
+											label.screen_position.y >= 0 && label.screen_position.y < viewport_height_);
+		}
+	}
+}
 
-	// TODO: Add actual text rendering using texture atlases or bitmap fonts
-	// For now, the colored points indicate where energy labels would appear
+void Renderer::draw_energy_labels(const Settings& settings) {
+	if (!simulator_ || !settings.draw_path_labels)
+		return;
+
+	// Cache energy labels if not already cached
+	if (!energy_labels_cached_) {
+		cache_energy_labels();
+	}
+
+	// Render cached text labels using pre-calculated screen positions
+	if (text_render_callback_) {
+		for (const auto& label : cached_energy_labels_) {
+			if (label.screen_position_valid) {
+				text_render_callback_(label.text, label.screen_position.x, label.screen_position.y, label.color);
+			}
+		}
+	} else {
+		// Fallback: render colored points where text would appear
+		begin_points();
+		for (const auto& label : cached_energy_labels_) {
+			if (label.screen_position_valid) {
+				// Offset the label position slightly above the actual point to avoid overlapping
+				glm::vec3 label_pos = label.world_position + glm::vec3(0.0f, 0.0f, 0.05f);
+				add_point(label_pos, label.color);
+			}
+		}
+		end_points();
+		draw_points();
+	}
 }
 
 glm::vec4 Renderer::get_adaptive_energy_color(float energy, float min_energy, float max_energy) {
@@ -1396,4 +1739,86 @@ glm::vec4 Renderer::get_adaptive_energy_color(float energy, float min_energy, fl
 		// Very dark red: darkest visible red
 		return glm::vec4(0.55f, 0.0f, 0.0f, 1.0f);
 	}
+}
+
+glm::vec4 Renderer::get_layer_specific_energy_color(float energy, float min_energy, float max_energy, uint8_t tissue_id) {
+	// Clamp and normalize energy like the original function
+	energy = std::clamp(energy, min_energy, max_energy);
+	float linear_normalized = (energy - min_energy) / (max_energy - min_energy);
+	linear_normalized = std::clamp(linear_normalized, 0.0f, 1.0f);
+	float normalized = std::pow(linear_normalized, 0.3f);
+	normalized = std::clamp(normalized, 0.0f, 1.0f);
+
+	// Define base colors for different tissue types
+	glm::vec3 base_colors[6] = {
+		glm::vec3(1.0f, 0.4f, 0.4f),  // Red theme for tissue 0
+		glm::vec3(0.4f, 0.4f, 1.0f),  // Blue theme for tissue 1
+		glm::vec3(0.4f, 1.0f, 0.4f),  // Green theme for tissue 2
+		glm::vec3(1.0f, 0.4f, 1.0f),  // Magenta theme for tissue 3
+		glm::vec3(1.0f, 1.0f, 0.4f),  // Yellow theme for tissue 4
+		glm::vec3(0.4f, 1.0f, 1.0f),  // Cyan theme for tissue 5
+	};
+
+	glm::vec3 base_color = base_colors[tissue_id % 6];
+
+	// Create energy gradient within the tissue's color theme
+	if (normalized > 0.85f) {
+		// Very high energy: brighten to near white
+		return glm::vec4(glm::mix(base_color, glm::vec3(1.0f), 0.6f), 1.0f);
+	}
+	else if (normalized > 0.70f) {
+		// High energy: bright version of base color
+		float t = (normalized - 0.70f) / 0.15f;
+		glm::vec3 bright_color = base_color * 1.4f; // Brighten
+		bright_color = glm::min(bright_color, glm::vec3(1.0f)); // Clamp to valid range
+		return glm::vec4(glm::mix(base_color, bright_color, t), 1.0f);
+	}
+	else if (normalized > 0.40f) {
+		// Medium energy: full base color
+		return glm::vec4(base_color, 1.0f);
+	}
+	else if (normalized > 0.15f) {
+		// Low-medium energy: darken the base color
+		float t = (normalized - 0.15f) / 0.25f;
+		glm::vec3 dark_color = base_color * 0.7f;
+		return glm::vec4(glm::mix(dark_color, base_color, t), 1.0f);
+	}
+	else if (normalized > 0.05f) {
+		// Low energy: darker version
+		float t = (normalized - 0.05f) / 0.10f;
+		glm::vec3 darker_color = base_color * 0.5f;
+		glm::vec3 dark_color = base_color * 0.7f;
+		return glm::vec4(glm::mix(darker_color, dark_color, t), 1.0f);
+	}
+	else {
+		// Very low energy: very dark but still visible
+		return glm::vec4(base_color * 0.3f, 1.0f);
+	}
+}
+
+glm::vec2 Renderer::world_to_screen(const glm::vec3& world_pos, int screen_width, int screen_height) const {
+	// Use the actual camera matrices that are being used for rendering
+	glm::mat4 mvp = camera_.get_mvp_matrix();
+	
+	// Transform world position to clip space
+	glm::vec4 clip_pos = mvp * glm::vec4(world_pos, 1.0f);
+	
+	// Check if point is behind the camera or at infinity
+	if (clip_pos.w <= 0.0f) {
+		return glm::vec2(-1.0f, -1.0f); // Invalid point (behind camera)
+	}
+	
+	// Perform perspective divide to get normalized device coordinates
+	glm::vec3 ndc = glm::vec3(clip_pos) / clip_pos.w;
+	
+	// Check if point is outside the view frustum
+	if (ndc.x < -1.0f || ndc.x > 1.0f || ndc.y < -1.0f || ndc.y > 1.0f || ndc.z < -1.0f || ndc.z > 1.0f) {
+		return glm::vec2(-1.0f, -1.0f); // Invalid point (outside frustum)
+	}
+	
+	// Convert from NDC [-1, 1] to screen coordinates [0, screen_size]
+	float screen_x = (ndc.x + 1.0f) * 0.5f * screen_width;
+	float screen_y = (1.0f - ndc.y) * 0.5f * screen_height;  // Flip Y for screen coordinates
+	
+	return glm::vec2(screen_x, screen_y);
 }

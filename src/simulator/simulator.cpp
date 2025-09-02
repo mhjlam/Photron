@@ -940,6 +940,13 @@ void Simulator::deposit(Photon& photon) {
  * voxel are computed.
  ***********************************************************/
 void Simulator::cross(Photon& photon) {
+	// Safety check - ensure photon has valid voxel and tissue
+	if (!photon.voxel || !photon.voxel->tissue) {
+		// Photon is outside medium - kill it
+		photon.alive = false;
+		return;
+	}
+	
 	// directions of transmission and reflection
 	glm::dvec3 transmittance, reflectance;
 
@@ -988,7 +995,7 @@ void Simulator::cross(Photon& photon) {
 			}
 			else { // all-or-none transmission/reflection
 				// total transmission
-				if (random_num() > reflection) {
+				if (mcml_random->next() > reflection) {
 					photon.direction = transmittance;
 					photon.alive = false;
 
@@ -1006,7 +1013,9 @@ void Simulator::cross(Photon& photon) {
 		Experimenter::increment_scatters();
 	}
 	// 2. crossing to another medium
-	else if (newvox != nullptr && photon.voxel->tissue->eta != newvox->tissue->eta) {
+	else if (newvox != nullptr && newvox->tissue != nullptr && 
+	         photon.voxel->tissue != nullptr && 
+	         photon.voxel->tissue->eta != newvox->tissue->eta) {
 		// compute reflected/transmitted fraction and reflection/transmission directions
 		double reflection = internal_reflection(photon, eta, transmittance, reflectance);
 
@@ -1024,7 +1033,7 @@ void Simulator::cross(Photon& photon) {
 		}
 		else { // all-or-none transmission/reflection
 			// total transmission
-			if (random_num() > reflection) {
+			if (mcml_random->next() > reflection) {
 				photon.direction = transmittance;
 				photon.position = move_delta(photon.intersect, photon.direction);
 				photon.voxel = voxel_at(photon.position);

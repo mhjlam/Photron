@@ -42,6 +42,9 @@ bool Overlay::initialize(GLFWwindow* window) {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    
+    // Disable ImGui's cursor management so we can control it ourselves
+    io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
@@ -123,6 +126,9 @@ void Overlay::render_with_simulator(Simulator* simulator) {
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
+
+    // Render world text overlays FIRST (so they appear behind other UI elements)
+    render_world_text_overlays();
 
     // Handle keyboard shortcuts
     handle_keyboard_shortcuts();
@@ -247,7 +253,8 @@ void Overlay::render_info_window(Simulator* simulator) {
         // Display configuration info
         ImGui::Text("Grid Size: %dx%dx%d", simulator->config.nx, simulator->config.ny, simulator->config.nz);
         ImGui::Text("Voxel Size: %.4f", simulator->config.vox_size);
-        ImGui::Text("Total Photons: %lld", simulator->config.num_photons);
+        ImGui::Text("Config Photons: %lld", simulator->config.num_photons);
+        ImGui::Text("Traced Photons: %zu", simulator->paths.size());
         
         ImGui::Separator();
         
@@ -279,8 +286,19 @@ void Overlay::render_control_panel(Simulator* simulator) {
         ImGui::Checkbox("Medium Bounds", &settings_.draw_bounds);
         ImGui::SameLine(); HelpMarker("Show bounding box of the simulation volume");
         
+        // Energy Labels - disable if multiple photons are traced
+        bool multiple_photons = (simulator && simulator->paths.size() > 1);
+        if (multiple_photons) {
+            settings_.draw_path_labels = false; // Automatically disable for multiple photons
+            ImGui::BeginDisabled();
+        }
         ImGui::Checkbox("Energy Labels", &settings_.draw_path_labels);
-        ImGui::SameLine(); HelpMarker("Show energy percentage labels at interaction points");
+        if (multiple_photons) {
+            ImGui::EndDisabled();
+            ImGui::SameLine(); HelpMarker("Energy labels are disabled when multiple photons are traced to avoid visual clutter");
+        } else {
+            ImGui::SameLine(); HelpMarker("Show energy percentage labels at interaction points");
+        }
         
         ImGui::Spacing();
         
@@ -330,7 +348,8 @@ void Overlay::render_control_panel(Simulator* simulator) {
             ImGui::Spacing();
             
             // Basic simulation info
-            ImGui::Text("Total Photons: %lld", simulator->config.num_photons);
+            ImGui::Text("Config Photons: %lld", simulator->config.num_photons);
+            ImGui::Text("Traced Photons: %zu", simulator->paths.size());
             if (simulator->config.num_photons > 1) {
                 // Multi-photon aggregate statistics
                 ImGui::Separator();
@@ -462,6 +481,70 @@ void Overlay::render_file_dialog() {
         if (ImGui::Button("Cancel")) {
             show_file_dialog_ = false;
             memset(file_path_buffer_, 0, sizeof(file_path_buffer_));
+        }
+    }
+    ImGui::End();
+}
+
+void Overlay::add_world_text(const std::string& text, float screen_x, float screen_y, const glm::vec4& color) {
+    world_text_queue_.push_back({text, screen_x, screen_y, color});
+}
+
+void Overlay::clear_world_text() {
+    world_text_queue_.clear();
+}
+
+void Overlay::render_world_text_overlays() {
+    // Only render if we have text to show
+    if (world_text_queue_.empty()) {
+        return;
+    }
+    
+    // Create an invisible fullscreen window for text rendering behind UI
+    ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | 
+                                   ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | 
+                                   ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse | 
+                                   ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoBringToFrontOnFocus |
+                                   ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoInputs |
+                                   ImGuiWindowFlags_NoDecoration;
+    
+    // Set window to cover entire viewport, positioned behind other windows
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->Pos);
+    ImGui::SetNextWindowSize(viewport->Size);
+    
+    if (ImGui::Begin("##WorldTextOverlay", nullptr, window_flags)) {
+        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+        
+        for (const auto& world_text : world_text_queue_) {
+            // Skip invalid coordinates
+            if (world_text.screen_x < 0 || world_text.screen_y < 0) {
+                continue;
+            }
+            
+            // Convert glm::vec4 color to ImU32
+            ImU32 color = IM_COL32(
+                static_cast<int>(world_text.color.r * 255),
+                static_cast<int>(world_text.color.g * 255), 
+                static_cast<int>(world_text.color.b * 255),
+                static_cast<int>(world_text.color.a * 255)
+            );
+            
+            // Position text using direct screen coordinates (already calculated relative to viewport)
+            ImVec2 text_pos(world_text.screen_x, world_text.screen_y);
+            
+            // Black outline for readability
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    if (dx != 0 || dy != 0) {
+                        draw_list->AddText(ImVec2(text_pos.x + dx, text_pos.y + dy), 
+                                         IM_COL32_BLACK, world_text.text.c_str());
+                    }
+                }
+            }
+            
+            // Main text
+            draw_list->AddText(text_pos, color, world_text.text.c_str());
         }
     }
     ImGui::End();

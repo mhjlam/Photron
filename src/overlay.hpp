@@ -1,6 +1,7 @@
 #pragma once
 
 #include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
 #include "structs/settings.hpp"
 #include <functional>
 #include <string>
@@ -45,12 +46,17 @@ public:
     void set_ui_enabled(bool enabled) { ui_enabled_ = enabled; }
     bool is_ui_enabled() const { return ui_enabled_; }
 
+    // Text overlay system for 3D world text rendering
+    void add_world_text(const std::string& text, float screen_x, float screen_y, const glm::vec4& color);
+    void clear_world_text();
+
 private:
     void render_main_menu_bar();
     void render_options_window();
     void render_info_window(Simulator* simulator);
     void render_control_panel(Simulator* simulator = nullptr);
     void render_file_dialog();
+    void render_world_text_overlays();
     void handle_keyboard_shortcuts();
 
     enum class FileDialogMode {
@@ -77,4 +83,12 @@ private:
     std::function<void(const std::string&)> save_results_callback_;
     std::function<void()> reset_view_callback_;
     std::function<void(bool)> camera_mode_changed_callback_;
+    
+    // World text overlay system
+    struct WorldText {
+        std::string text;
+        float screen_x, screen_y;
+        glm::vec4 color;
+    };
+    std::vector<WorldText> world_text_queue_;
 };

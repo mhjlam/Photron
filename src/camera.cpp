@@ -202,7 +202,7 @@ void Camera::handle_mouse_scroll(float yoffset) {
         return;
     } else {
         // Scroll wheel moves camera physically up/down along world Y-axis in orbital mode
-        adjust_camera_elevation(yoffset * 0.2f);
+        adjust_camera_elevation(yoffset * 0.05f); // Reduced sensitivity from 0.2f to 0.05f
     }
 }
 

@@ -59,6 +59,14 @@ bool App::initialize(int argc, char* argv[]) {
         return false;
     }
 
+    // Center window on screen
+    const GLFWvidmode* mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
+    if (mode) {
+        int center_x = (mode->width - window_width_) / 2;
+        int center_y = (mode->height - window_height_) / 2;
+        glfwSetWindowPos(window_, center_x, center_y);
+    }
+
     glfwMakeContextCurrent(window_);
     glfwSwapInterval(1); // Enable vsync
 
@@ -99,6 +107,9 @@ bool App::initialize(int argc, char* argv[]) {
         std::cerr << "Failed to initialize renderer" << std::endl;
         return false;
     }
+
+    // Set correct initial viewport size (framebuffer callback only triggers on resize)
+    renderer_->set_viewport(window_width_, window_height_);
 
     // Initialize overlay
     overlay_ = std::make_unique<Overlay>();
@@ -182,6 +193,11 @@ void App::setup_overlay_callbacks() {
         simulator_->report();
         std::cout << "Simulation completed!" << std::endl;
         
+        // Invalidate energy label cache since simulation data has changed
+        if (renderer_) {
+            renderer_->invalidate_energy_label_cache();
+        }
+        
         // Re-enable UI
         overlay_->set_ui_enabled(true);
     });
@@ -202,6 +218,11 @@ void App::setup_overlay_callbacks() {
             std::cout << "No config file loaded. Please load a configuration first." << std::endl;
         }
         std::cout << "Simulation completed!" << std::endl;
+        
+        // Invalidate energy label cache since simulation data has been reset
+        if (renderer_) {
+            renderer_->invalidate_energy_label_cache();
+        }
         
         // Re-enable UI
         overlay_->set_ui_enabled(true);
@@ -246,6 +267,13 @@ void App::setup_overlay_callbacks() {
                 settings.camera_mode = is_arc_mode ? CameraMode::Orbit : CameraMode::Free;
             }
         });
+        
+        // Set up text rendering callback for energy labels
+        renderer_->set_text_render_callback([this](const std::string& text, float x, float y, const glm::vec4& color) {
+            if (overlay_) {
+                overlay_->add_world_text(text, x, y, color);
+            }
+        });
     }
 }
 
@@ -253,11 +281,20 @@ void App::update() {
     // Update camera and other systems
     if (renderer_) {
         renderer_->update();
+        
+        // Handle cursor visibility after all updates
+        bool should_hide_cursor = renderer_->should_capture_mouse();
+        glfwSetInputMode(window_, GLFW_CURSOR, should_hide_cursor ? GLFW_CURSOR_HIDDEN : GLFW_CURSOR_NORMAL);
     }
 }
 
 void App::render() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    
+    // Clear previous frame's world text before rendering new frame
+    if (overlay_) {
+        overlay_->clear_world_text();
+    }
     
     // Update renderer settings from overlay before rendering
     if (renderer_ && overlay_) {
@@ -321,8 +358,9 @@ void App::cursor_pos_callback(GLFWwindow* window, double xpos, double ypos) {
     if (app_instance && app_instance->renderer_) {
         app_instance->renderer_->handle_mouse_move(static_cast<float>(xpos), static_cast<float>(ypos));
         
-        // Handle mouse capture for FPS mode
-        if (app_instance->renderer_->should_capture_mouse()) {
+        // Handle mouse capture for FPS mode (but don't set cursor here - done in update loop)
+        bool should_capture = app_instance->renderer_->should_capture_mouse();
+        if (should_capture) {
             int width, height;
             glfwGetWindowSize(window, &width, &height);
             float center_x = width / 2.0f;
@@ -333,12 +371,8 @@ void App::cursor_pos_callback(GLFWwindow* window, double xpos, double ypos) {
                 app_instance->renderer_->get_camera().set_mouse_center(center_x, center_y);
             }
             
-            // Hide cursor when in FPS mode with right mouse held
-            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
+            // Center the cursor for FPS mode
             glfwSetCursorPos(window, center_x, center_y);
-        } else {
-            // Show cursor when not capturing mouse
-            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
         }
     }
 }
