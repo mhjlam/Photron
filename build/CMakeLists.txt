@@ -47,10 +47,12 @@ set(BUILD_OUTPUT_DIR ${CMAKE_BINARY_DIR})  # This will be build/output/
 file(MAKE_DIRECTORY ${BIN_DIR})
 
 # Find packages using vcpkg
-find_package(OpenGL REQUIRED)
-find_package(glfw3 CONFIG)
-find_package(GLEW CONFIG)
-find_package(glm CONFIG)
+set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH};$ENV{VCPKG_ROOT}/installed/x64-windows/share")
+
+find_package(glm CONFIG REQUIRED)
+find_package(glfw3 CONFIG REQUIRED)
+find_package(glew CONFIG REQUIRED)
+find_package(imgui CONFIG REQUIRED)
 
 # Compiler-specific flags
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -77,38 +79,28 @@ file(MAKE_DIRECTORY ${BIN_DIR})
 # Collect all source files automatically
 file(GLOB_RECURSE PHOTRON_SOURCES
     ${SRC_DIR}/main.cpp
+    ${SRC_DIR}/app.cpp
+    ${SRC_DIR}/overlay.cpp
     ${SRC_DIR}/renderer/*.cpp
-    ${SRC_DIR}/simulator/mcml_integration.cpp
-    ${SRC_DIR}/simulator/simulator.cpp
+    ${SRC_DIR}/simulator/*.cpp
     ${SRC_DIR}/utilities/*.cpp
 )
 
-# Collect MCML sources (to be compiled in separate namespace)
-file(GLOB_RECURSE MCML_SOURCES
-    ${SRC_DIR}/mcml/*.cpp
-)
-
 # Combine Photron and MCML sources
-set(ALL_SOURCES ${PHOTRON_SOURCES} ${MCML_SOURCES})
+set(ALL_SOURCES ${PHOTRON_SOURCES})
 
 # Collect all header files (for IDE integration)
 file(GLOB_RECURSE PHOTRON_HEADERS
+    ${SRC_DIR}/*.hpp
     ${SRC_DIR}/structs/*.hpp
     ${SRC_DIR}/renderer/*.hpp
     ${SRC_DIR}/simulator/*.hpp
     ${SRC_DIR}/utilities/*.hpp
-    ${SRC_DIR}/render/*.hpp
-    ${SRC_DIR}/mcml/*.hpp
 )
 
 # Print discovered files for debugging
 message(STATUS "Discovered Photron source files:")
 foreach(src_file ${PHOTRON_SOURCES})
-    message(STATUS "  ${src_file}")
-endforeach()
-
-message(STATUS "Discovered MCML source files:")
-foreach(src_file ${MCML_SOURCES})
     message(STATUS "  ${src_file}")
 endforeach()
 
@@ -129,30 +121,16 @@ target_include_directories(Photron PRIVATE
     ${SRC_DIR}/renderer
     ${SRC_DIR}/simulator
     ${SRC_DIR}/utilities
-    ${SRC_DIR}/render
-    ${SRC_DIR}/mcml
 )
 
 # Link libraries using vcpkg targets
-set(PHOTRON_LIBRARIES ${OPENGL_LIBRARIES})
-
-# Try to link modern OpenGL libraries if available
-if(TARGET glfw)
-    list(APPEND PHOTRON_LIBRARIES glfw)
-    message(STATUS "Using GLFW from vcpkg")
-endif()
-
-if(TARGET GLEW::GLEW)
-    list(APPEND PHOTRON_LIBRARIES GLEW::GLEW)
-    message(STATUS "Using GLEW from vcpkg")
-endif()
-
-if(TARGET glm::glm)
-    list(APPEND PHOTRON_LIBRARIES glm::glm)
-    message(STATUS "Using GLM from vcpkg")
-endif()
-
-target_link_libraries(Photron PRIVATE ${PHOTRON_LIBRARIES})
+target_link_libraries(Photron PRIVATE 
+    glfw 
+    GLEW::GLEW 
+    opengl32 
+    glm::glm 
+    imgui::imgui
+)
 
 # Platform-specific additional libraries
 if(WIN32)

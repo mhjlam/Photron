@@ -328,7 +328,91 @@ void Renderer::draw_voxels_modern(const Settings& settings) {
         camera_target_z_ + camera_distance_ * cos(camera_rotation_y_) * cos(camera_rotation_x_)
     );
 
-    // Collect all voxels with their render data
+    // First pass: analyze energy distribution to find dynamic range for adaptive scaling
+    std::vector<float> all_energies;
+    float total_accumulated_energy = 0.0f;
+    
+    for (int iz = 0; iz < nz; iz++) {
+        for (int iy = 0; iy < ny; iy++) {
+            for (int ix = 0; ix < nx; ix++) {
+                int voxel_index = iz * nx * ny + iy * nx + ix;
+                
+                if (voxel_index >= 0 && static_cast<size_t>(voxel_index) < simulator_->voxels.size()) {
+                    Voxel* voxel = simulator_->voxels[static_cast<size_t>(voxel_index)];
+                    
+                    if (voxel) {
+                        float absorption = static_cast<float>(voxel->absorption);
+                        float emittance = static_cast<float>(voxel->emittance);
+                        
+                        float total_energy;
+                        if (settings.voxel_mode == VoxelMode::Absorption) {
+                            total_energy = absorption;
+                        } else if (settings.voxel_mode == VoxelMode::Emittance) {
+                            total_energy = emittance;
+                        } else {
+                            total_energy = absorption + emittance;
+                        }
+                        
+                        if (total_energy > 0.0000001f) {
+                            all_energies.push_back(total_energy);
+                            total_accumulated_energy += total_energy;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Calculate adaptive energy range for better contrast
+    float min_energy = 0.0000001f;  // Minimum threshold for visibility
+    float max_energy = 0.01f;       // Default fallback
+    
+    if (!all_energies.empty()) {
+        std::sort(all_energies.begin(), all_energies.end());
+        
+        // Use percentile-based scaling for better contrast
+        size_t count = all_energies.size();
+        float p5 = all_energies[static_cast<size_t>(count * 0.05)];   // 5th percentile
+        float p95 = all_energies[static_cast<size_t>(count * 0.95)];  // 95th percentile
+        
+        min_energy = std::max(p5, 0.0000001f);
+        max_energy = std::max(p95, min_energy * 10.0f); // Ensure reasonable range
+        
+        // Debug output for adaptive voxel scaling (print only once)
+        static bool debug_printed = false;
+        if (!debug_printed) {
+            std::cout << "Voxel energy analysis:" << std::endl;
+            std::cout << "  Voxels with energy: " << count << std::endl;
+            std::cout << "  Total accumulated energy: " << total_accumulated_energy << std::endl;
+            std::cout << "  Energy range: " << all_energies[0] << " to " << all_energies[count-1] << std::endl;
+            std::cout << "  Adaptive range (5th-95th percentile): " << min_energy << " to " << max_energy << std::endl;
+            std::cout << "  Scale factor: " << (max_energy - min_energy) << std::endl;
+            
+            // Show how some sample energies map to normalized values
+            std::cout << "  Color mapping examples (non-linear power=0.3):" << std::endl;
+            float test_energies[] = {all_energies[0], p5, all_energies[count/4], all_energies[count/2], all_energies[3*count/4], p95, all_energies[count-1]};
+            for (int i = 0; i < 7; i++) {
+                float linear_norm = (test_energies[i] - min_energy) / (max_energy - min_energy);
+                linear_norm = std::clamp(linear_norm, 0.0f, 1.0f);
+                float power_norm = std::pow(linear_norm, 0.3f);
+                std::cout << "    Energy " << test_energies[i] << " -> linear " << linear_norm << " -> power " << power_norm;
+                if (power_norm > 0.85f) std::cout << " -> pure white";
+                else if (power_norm > 0.70f) std::cout << " -> white-yellow";
+                else if (power_norm > 0.55f) std::cout << " -> bright yellow";
+                else if (power_norm > 0.40f) std::cout << " -> yellow-orange";
+                else if (power_norm > 0.25f) std::cout << " -> orange-red";
+                else if (power_norm > 0.15f) std::cout << " -> red-orange to red";
+                else if (power_norm > 0.08f) std::cout << " -> bright red";
+                else if (power_norm > 0.04f) std::cout << " -> medium red";
+                else if (power_norm > 0.02f) std::cout << " -> dark red";
+                else std::cout << " -> very dark red";
+                std::cout << std::endl;
+            }
+            debug_printed = true;
+        }
+    }
+
+    // Second pass: collect all voxels with their render data using adaptive scaling
     for (int iz = 0; iz < nz; iz++) {
         for (int iy = 0; iy < ny; iy++) {
             for (int ix = 0; ix < nx; ix++) {
@@ -366,31 +450,35 @@ void Renderer::draw_voxels_modern(const Settings& settings) {
                         glm::vec4 color(0.0f, 0.0f, 0.0f, 0.0f); // Default transparent
                         
                         if (total_energy > 0.0000001 || voxel->tissue != nullptr) {
-                            float normalized = std::min(total_energy / 0.01f, 1.0f); // Very sensitive scale
+                            // Calculate percentage of total energy for this voxel
+                            float energy_percentage = (total_accumulated_energy > 0.0f) ? 
+                                                      (total_energy / total_accumulated_energy) * 100.0f : 0.0f;
 
-                            // Guaranteed minimum visibility for ALL voxels in the medium
-                            float min_alpha = 0.05f; // Base visibility
-                            float max_alpha = 0.5f;  // Maximum visibility
-                            float alpha = min_alpha + (max_alpha - min_alpha) * normalized;
+                            // Use gamma correction for better mid-range contrast
+                            float normalized_energy = (total_energy - min_energy) / (max_energy - min_energy);
+                            normalized_energy = std::clamp(normalized_energy, 0.0f, 1.0f);
+                            
+                            // Apply gamma correction for better contrast (gamma = 0.5 brightens mid-tones)
+                            float gamma_corrected = std::pow(normalized_energy, 0.5f);
+                            
+                            // Calculate distance from origin for depth-based alpha
+                            float max_dist = glm::length(glm::vec3(
+                                static_cast<float>(simulator_->bounds.x_max),
+                                static_cast<float>(simulator_->bounds.y_max),
+                                static_cast<float>(simulator_->bounds.z_max)));
+                            float dist_from_origin = glm::length(voxel_pos);
+                            float normalized_dist = glm::clamp(dist_from_origin / max_dist, 0.0f, 1.0f);
 
-                            // Heat map with enhanced visibility for low energies - EXACT backup colors
-                            if (total_energy > 0.01f) {
-                                // High energy: red
-                                color = glm::vec4(1.0f, 0.2f, 0.2f, alpha);
-                            }
-                            else if (total_energy > 0.001f) {
-                                // Medium energy: yellow-orange
-                                color = glm::vec4(1.0f, 0.8f, 0.2f, alpha);
-                            }
-                            else if (total_energy > 0.0001f) {
-                                // Low energy: green
-                                color = glm::vec4(0.2f, 1.0f, 0.4f, alpha);
-                            }
-                            else if (total_energy > 0.0000001f) {
-                                // Very low energy: cyan (this should catch photon paths!)
-                                color = glm::vec4(0.2f, 0.8f, 1.0f, alpha);
-                            }
-                            else if (voxel->tissue != nullptr) {
+                            // More visible alpha scaling based on gamma-corrected energy
+                            float min_alpha = 0.15f; // More visible base
+                            float max_alpha = 0.7f;  // Higher maximum visibility
+                            float alpha = min_alpha + (max_alpha - min_alpha) * gamma_corrected * (1.0f - 0.3f * normalized_dist);
+
+                            // Use adaptive energy color mapping with dynamic range
+                            if (total_energy > 0.0000001f) {
+                                color = get_adaptive_energy_color(total_energy, min_energy, max_energy);
+                                color.a = alpha;
+                            } else if (voxel->tissue != nullptr) {
                                 // Voxel in medium but no recorded energy: very faint blue
                                 color = glm::vec4(0.4f, 0.4f, 0.8f, 0.02f);
                             }
@@ -564,6 +652,8 @@ void Renderer::draw_paths_modern(const Settings& settings) {
 
                 glm::vec4 start_color = adaptive_log_color(energy1);
                 glm::vec4 end_color = adaptive_log_color(energy2);
+                start_color.a = 1.0f;
+                end_color.a = 1.0f;
 
                 glm::vec3 start(static_cast<float>(current->x), static_cast<float>(current->y), static_cast<float>(current->z));
                 glm::vec3 end(static_cast<float>(next->x), static_cast<float>(next->y), static_cast<float>(next->z));
@@ -593,6 +683,7 @@ void Renderer::draw_paths_modern(const Settings& settings) {
                         glm::vec3 seg_end = start + t2 * (end - start);
                         
                         glm::vec4 seg_color = start_color * (1.0f - (t1 + t2) * 0.5f) + end_color * ((t1 + t2) * 0.5f);
+                        seg_color.a = 1.0f;
                         
                         add_line(seg_start, seg_end, seg_color);
                     }
@@ -611,6 +702,7 @@ void Renderer::draw_paths_modern(const Settings& settings) {
                     // The simulator should already compute the correct scattered/reflected direction
                     float emit_energy = static_cast<float>(current->value);
                     glm::vec4 emit_color = adaptive_log_color(emit_energy);
+                    emit_color.a = 1.0f;
                     
                     glm::vec3 start(static_cast<float>(current->x), static_cast<float>(current->y), static_cast<float>(current->z));
                     glm::vec3 emit_end(static_cast<float>(current->emit->x), static_cast<float>(current->emit->y), static_cast<float>(current->emit->z));
@@ -1191,38 +1283,89 @@ void Renderer::draw_energy_labels(const Settings& settings) {
 }
 
 glm::vec4 Renderer::get_adaptive_energy_color(float energy, float min_energy, float max_energy) {
+    // Non-linear normalization to better visualize energy distribution
+    // Most voxels have very low energy, so we need to expand that range visually
+    
     // Clamp energy to valid range
-    energy = std::max(min_energy * 0.1f, energy);
+    energy = std::clamp(energy, min_energy, max_energy);
     
-    // Apply logarithmic transformation
-    float log_min = std::log10(min_energy * 0.1f);
-    float log_max = std::log10(max_energy);
-    float log_energy = std::log10(energy);
+    // First do linear normalization
+    float linear_normalized = (energy - min_energy) / (max_energy - min_energy);
+    linear_normalized = std::clamp(linear_normalized, 0.0f, 1.0f);
     
-    // Normalize to [0,1] using the actual energy distribution
-    float normalized = (log_energy - log_min) / (log_max - log_min);
+    // Apply power function to expand low-energy visualization
+    // Using power of 0.3 significantly expands the low-energy range
+    float normalized = std::pow(linear_normalized, 0.3f);
+    
+    // Alternative: logarithmic mapping for even more low-energy expansion
+    // float normalized = std::log10(linear_normalized * 9.0f + 1.0f); // log10(1) to log10(10) = 0 to 1
+    
     normalized = std::clamp(normalized, 0.0f, 1.0f);
     
-    // Create smooth color gradient that emphasizes differences throughout the range
+    // Create more distinct color zones with emphasis on lower energies
+    // Now the low energy ranges get much more visual space
+    
     if (normalized > 0.85f) {
-        // High energy: bright white to yellow
-        float t = (normalized - 0.85f) / 0.15f;
-        return glm::vec4(1.0f, 1.0f, 1.0f - 0.3f * (1.0f - t), 1.0f);
-    } else if (normalized > 0.65f) {
-        // Medium-high energy: yellow to orange
-        float t = (normalized - 0.65f) / 0.2f;
-        return glm::vec4(1.0f, 1.0f - 0.4f * t, 0.2f * t, 1.0f);
-    } else if (normalized > 0.35f) {
-        // Medium energy: orange to red
-        float t = (normalized - 0.35f) / 0.3f;
-        return glm::vec4(1.0f, 0.6f - 0.4f * t, 0.2f - 0.2f * t, 1.0f);
+        // Very high energy: pure white (still top ~5% but harder to reach)
+        return glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+    } else if (normalized > 0.70f) {
+        // High energy: white to bright yellow with smooth transition
+        float t = (normalized - 0.70f) / 0.15f;
+        float r = 1.0f;
+        float g = 1.0f;
+        float b = 1.0f - t * 0.2f; // From white (1.0) to bright yellow (0.8)
+        return glm::vec4(r, g, b, 1.0f);
+    } else if (normalized > 0.55f) {
+        // Medium-high energy: bright yellow to yellow
+        float t = (normalized - 0.55f) / 0.15f;
+        float r = 1.0f;
+        float g = 1.0f;
+        float b = 0.8f - t * 0.3f; // From bright yellow (0.8) to yellow (0.5)
+        return glm::vec4(r, g, b, 1.0f);
+    } else if (normalized > 0.40f) {
+        // Medium energy: yellow to orange  
+        float t = (normalized - 0.40f) / 0.15f;
+        float r = 1.0f;
+        float g = 1.0f - t * 0.3f; // From 1.0 (yellow) to 0.7 (orange)
+        float b = 0.5f - t * 0.5f; // From 0.5 (yellow) to 0.0 (orange)
+        return glm::vec4(r, g, b, 1.0f);
+    } else if (normalized > 0.25f) {
+        // Medium-low energy: orange to red-orange
+        float t = (normalized - 0.25f) / 0.15f;
+        float r = 1.0f;
+        float g = 0.7f - t * 0.4f; // From 0.7 (orange) to 0.3 (red-orange)
+        float b = 0.0f;
+        return glm::vec4(r, g, b, 1.0f);
     } else if (normalized > 0.15f) {
-        // Low energy: red to dark red
-        float t = (normalized - 0.15f) / 0.2f;
-        return glm::vec4(0.8f + 0.2f * t, 0.2f * t, 0.0f, 1.0f);
+        // Low energy: red-orange to red
+        float t = (normalized - 0.15f) / 0.10f;
+        float r = 1.0f;
+        float g = 0.3f - t * 0.3f; // From 0.3 (red-orange) to 0.0 (red)
+        float b = 0.0f;
+        return glm::vec4(r, g, b, 1.0f);
+    } else if (normalized > 0.08f) {
+        // Low-medium red: bright red to medium red
+        float t = (normalized - 0.08f) / 0.07f;
+        float r = 1.0f - t * 0.15f; // From 1.0 (bright red) to 0.85 (medium red)
+        float g = 0.0f;
+        float b = 0.0f;
+        return glm::vec4(r, g, b, 1.0f);
+    } else if (normalized > 0.04f) {
+        // Medium red: medium red to darker red
+        float t = (normalized - 0.04f) / 0.04f;
+        float r = 0.85f - t * 0.15f; // From 0.85 (medium red) to 0.7 (darker red)
+        float g = 0.0f;
+        float b = 0.0f;
+        return glm::vec4(r, g, b, 1.0f);
+    } else if (normalized > 0.02f) {
+        // Dark red: darker red to dark red
+        float t = (normalized - 0.02f) / 0.02f;
+        float r = 0.7f - t * 0.15f; // From 0.7 (darker red) to 0.55 (dark red)
+        float g = 0.0f;
+        float b = 0.0f;
+        return glm::vec4(r, g, b, 1.0f);
     } else {
-        // Very low energy: dark red to purple
-        float t = normalized / 0.15f;
-        return glm::vec4(0.4f + 0.4f * t, 0.1f * t, 0.2f * t, 1.0f);
+        // Very dark red: darkest visible red
+        return glm::vec4(0.55f, 0.0f, 0.0f, 1.0f);
     }
 }
