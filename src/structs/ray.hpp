@@ -1,15 +1,14 @@
 #pragma once
 
-#include "point3.hpp"
-#include "vector3.hpp"
+#include "glm_types.hpp"
 
 struct Ray {
-	Point3 origin;
-	Vector3 direction;
+	glm::dvec3 origin;
+	glm::dvec3 direction;
 
-	Ray(Point3 p, Vector3 v, bool normalize = false) : origin(p), direction(v) {
+	Ray(glm::dvec3 p, glm::dvec3 v, bool normalize = false) : origin(p), direction(v) {
 		if (normalize) {
-			direction.normalize();
+			direction = glm::normalize(direction);
 		}
 	}
 };

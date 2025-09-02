@@ -25,8 +25,13 @@ public:
 
 private:
     void setup_callbacks();
+    void setup_overlay_callbacks();
     void update();
     void render();
+    
+    // Results saving methods
+    void save_results_as_json(const std::string& filepath);
+    void save_results_as_text(const std::string& filepath);
 
     // GLFW callbacks
     static void framebuffer_size_callback(GLFWwindow* window, int width, int height);

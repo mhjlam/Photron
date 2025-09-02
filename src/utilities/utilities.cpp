@@ -22,12 +22,8 @@ double sq(double n) {
 /***********************************************************
  * Returns the distance between two three dimensional points.
  ***********************************************************/
-double distribution_(Point3& p, Point3& q) {
-	double xd = q.x - p.x;
-	double yd = q.y - p.y;
-	double zd = q.z - p.z;
-
-	return sqrt(xd * xd + yd * yd + zd * zd);
+double distribution_(glm::dvec3& p, glm::dvec3& q) {
+	return glm::distance(p, q);
 }
 
 /***********************************************************
@@ -224,26 +220,22 @@ std::vector<std::pair<std::string, std::string>> parameter_values(std::list<std:
 /***********************************************************
  * Compute the inner product between two vectors.
  ***********************************************************/
-double dot(Vector3& v, Vector3& w) {
-	return (v.x * w.x + v.y * w.y + v.z * w.z);
+double dot(glm::dvec3& v, glm::dvec3& w) {
+	return glm::dot(v, w);
 }
 
 /***********************************************************
  * Compute the cross product between two vectors.
  ***********************************************************/
-Vector3 cross(Vector3& v, Vector3& w) {
-	double x = v.y * w.z - v.z * w.y;
-	double y = v.z * w.x - v.x * w.z;
-	double z = v.x * w.y - v.y * w.x;
-
-	return Vector3(x, y, z);
+glm::dvec3 cross(glm::dvec3& v, glm::dvec3& w) {
+	return glm::cross(v, w);
 }
 
 /***********************************************************
  * Compute the vector between a given start and end point.
  ***********************************************************/
-Vector3 subtract(Point3& v, Point3& w) {
-	return Vector3(v.x - w.x, v.y - w.y, v.z - w.z);
+glm::dvec3 subtract(glm::dvec3& v, glm::dvec3& w) {
+	return v - w;
 }
 
 /***********************************************************
@@ -264,23 +256,23 @@ Vector3 subtract(Point3& v, Point3& w) {
  * implementation of Moller-Trumbore algorithm, available at
  * http://www.graphics.cornell.edu/pubs/1997/MT97.html
  ***********************************************************/
-bool ray_triangle_intersect(Ray& ray, Triangle& triangle_out, Point3& intersect_out) {
+bool ray_triangle_intersect(Ray& ray, Triangle& triangle_out, glm::dvec3& intersect_out) {
 	// ray origin and direction
-	Point3 origin = ray.origin;
-	Vector3 direction = ray.direction;
-	direction.normalize();
+	glm::dvec3 origin = ray.origin;
+	glm::dvec3 direction = ray.direction;
+	direction = glm::normalize(direction);
 
 	// triangle vertices
-	Point3 vert0 = triangle_out.v0;
-	Point3 vert1 = triangle_out.v1;
-	Point3 vert2 = triangle_out.v2;
+	glm::dvec3 vert0 = triangle_out.v0;
+	glm::dvec3 vert1 = triangle_out.v1;
+	glm::dvec3 vert2 = triangle_out.v2;
 
 	// vectors for two edges sharing v0
-	Vector3 edge1 = subtract(vert1, vert0);
-	Vector3 edge2 = subtract(vert2, vert0);
+	glm::dvec3 edge1 = subtract(vert1, vert0);
+	glm::dvec3 edge2 = subtract(vert2, vert0);
 
 	// compute determinant
-	Vector3 pvec = cross(direction, edge2);
+	glm::dvec3 pvec = cross(direction, edge2);
 	double det = dot(edge1, pvec);
 
 	// if determinant is near zero, ray lies on triangle plane
@@ -292,7 +284,7 @@ bool ray_triangle_intersect(Ray& ray, Triangle& triangle_out, Point3& intersect_
 	double det_inv = 1.0 / det;
 
 	// vector from vert0 to ray origin
-	Vector3 tvec = subtract(origin, vert0);
+	glm::dvec3 tvec = subtract(origin, vert0);
 
 	// compute u and test bounds
 	double u = dot(tvec, pvec) * det_inv;
@@ -303,7 +295,7 @@ bool ray_triangle_intersect(Ray& ray, Triangle& triangle_out, Point3& intersect_
 	}
 
 	// compute v and test bounds
-	Vector3 qvec = cross(tvec, edge1);
+	glm::dvec3 qvec = cross(tvec, edge1);
 	double v = dot(direction, qvec) * det_inv;
 
 	// check if the ray intersects the triangle
@@ -319,9 +311,7 @@ bool ray_triangle_intersect(Ray& ray, Triangle& triangle_out, Point3& intersect_
 	}
 
 	// (x,y,z) = origin + (t * direction)
-	intersect_out.x = origin.x + (t * direction.x);
-	intersect_out.y = origin.y + (t * direction.y);
-	intersect_out.z = origin.z + (t * direction.z);
+	intersect_out = origin + (t * direction);
 
 	// round off at the origin
 	if (abs(intersect_out.x) <= 1E-10) {
@@ -338,14 +328,14 @@ bool ray_triangle_intersect(Ray& ray, Triangle& triangle_out, Point3& intersect_
 }
 
 /***********************************************************
- * Return ray-triangle intersection point as a pair<bool, Point3>,
+ * Return ray-triangle intersection point as a pair<bool, glm::dvec3>,
  * where the boolean indicates whether a collision was detected,
- * and if so, Point3 is the intersection point.
+ * and if so, glm::dvec3 is the intersection point.
  ***********************************************************/
-std::pair<bool, Point3> ray_triangle_intersect(Ray& ray, Triangle& triangle_out) {
-	std::pair<bool, Point3> out;
+std::pair<bool, glm::dvec3> ray_triangle_intersect(Ray& ray, Triangle& triangle_out) {
+	std::pair<bool, glm::dvec3> out;
 
-	Point3 intersect_out;
+	glm::dvec3 intersect_out;
 	out.first = ray_triangle_intersect(ray, triangle_out, intersect_out);
 	out.second = intersect_out;
 
@@ -357,9 +347,9 @@ std::pair<bool, Point3> ray_triangle_intersect(Ray& ray, Triangle& triangle_out)
  * triangles and initialize a reference to a vector of
  * intersections.
  ***********************************************************/
-void ray_triangles_intersections(Ray& ray, std::vector<Triangle>& triangles, std::vector<Point3>& intersections) {
+void ray_triangles_intersections(Ray& ray, std::vector<Triangle>& triangles, std::vector<glm::dvec3>& intersections) {
 	for (auto& triangle_out : triangles) {
-		std::pair<bool, Point3> intersect_out = ray_triangle_intersect(ray, triangle_out);
+		std::pair<bool, glm::dvec3> intersect_out = ray_triangle_intersect(ray, triangle_out);
 		if (intersect_out.first) {
 			intersections.push_back(intersect_out.second);
 		}
@@ -373,14 +363,14 @@ void ray_triangles_intersections(Ray& ray, std::vector<Triangle>& triangles, std
  * Returns the distance to the first intersection, or
  * std::numeric_limits<double>::max() if there is no intersection.
  ***********************************************************/
-double first_ray_triangle_intersect(Ray& ray, std::vector<Triangle>& triangles, Point3& intersect_out,
+double first_ray_triangle_intersect(Ray& ray, std::vector<Triangle>& triangles, glm::dvec3& intersect_out,
 									Triangle& triangle_out) {
 	uint8_t num_hit = 0;
 	double min_dist = std::numeric_limits<double>::max();
-	Point3 origin = ray.origin;
+	glm::dvec3 origin = ray.origin;
 
 	for (auto& triangle : triangles) {
-		Point3 intersect;
+		glm::dvec3 intersect;
 		if (ray_triangle_intersect(ray, triangle_out, intersect)) {
 			num_hit++;
 			double distance = distribution_(origin, intersect);
@@ -409,7 +399,7 @@ double first_ray_triangle_intersect(Ray& ray, std::vector<Triangle>& triangles, 
  * Returns false if there is no intersection point,
  * or true otherwise.
  ***********************************************************/
-bool ray_plane_intersect(Ray& ray, Vector3& normal, Point3& point, Point3& intersect_out) {
+bool ray_plane_intersect(Ray& ray, glm::dvec3& normal, glm::dvec3& point, glm::dvec3& intersect_out) {
 	/*
 	 * Let r(t) = O + tD be the ray equation, where O is the ray origin and D the direction.
 	 * Let N be the plane normal and let Q be a point on the plane.
@@ -423,8 +413,8 @@ bool ray_plane_intersect(Ray& ray, Vector3& normal, Point3& point, Point3& inter
 	 *  t = [(Q - O) . N] / (D . N)
 	 */
 
-	Vector3 direction = ray.direction;
-	Vector3 position = Vector3(point.x - ray.origin.x, point.y - ray.origin.y, point.z - ray.origin.z);
+	glm::dvec3 direction = ray.direction;
+	glm::dvec3 position = point - ray.origin;
 
 	if (abs(position.x) <= 1E-10) {
 		position.x = 0;
@@ -451,9 +441,7 @@ bool ray_plane_intersect(Ray& ray, Vector3& normal, Point3& point, Point3& inter
 	}
 
 	// set hitpoint coordinates
-	intersect_out.x = ray.origin.x + (t * direction.x);
-	intersect_out.y = ray.origin.y + (t * direction.y);
-	intersect_out.z = ray.origin.z + (t * direction.z);
+	intersect_out = ray.origin + (t * direction);
 
 	// round off if values are close to zero
 	if (abs(intersect_out.x) <= 1E-10) {
@@ -478,29 +466,29 @@ bool ray_plane_intersect(Ray& ray, Vector3& normal, Point3& point, Point3& inter
  *
  * References to the intersection point and to the intersected plane normal are initialized.
  ***********************************************************/
-double first_ray_cuboid_intersect_internal(Ray& ray, Cuboid& cuboid, Point3& intersect_out, Vector3& normal) {
+double first_ray_cuboid_intersect_internal(Ray& ray, Cuboid& cuboid, glm::dvec3& intersect_out, glm::dvec3& normal) {
 	double min_dist = std::numeric_limits<double>::max();
 
 	// possible intersection points
-	Point3 inter1, inter2, inter3, inter4, inter5, inter6;
+	glm::dvec3 inter1, inter2, inter3, inter4, inter5, inter6;
 
 	// voxel plane normals are pointed inwards for internal intersection test
-	Vector3 normal1 = Vector3(1, 0, 0);         // left face plane (inwards)
-	Vector3 normal2 = Vector3(-1, 0, 0);        // right face plane (inwards)
-	Vector3 normal3 = Vector3(0, -1, 0);        // top face plane (inwards)
-	Vector3 normal4 = Vector3(0, 1, 0);         // bottom face plane (inwards)
-	Vector3 normal5 = Vector3(0, 0, -1);        // front face plane (inwards)
-	Vector3 normal6 = Vector3(0, 0, 1);         // rear face plane (inwards)
+	glm::dvec3 normal1 = glm::dvec3(1, 0, 0);         // left face plane (inwards)
+	glm::dvec3 normal2 = glm::dvec3(-1, 0, 0);        // right face plane (inwards)
+	glm::dvec3 normal3 = glm::dvec3(0, -1, 0);        // top face plane (inwards)
+	glm::dvec3 normal4 = glm::dvec3(0, 1, 0);         // bottom face plane (inwards)
+	glm::dvec3 normal5 = glm::dvec3(0, 0, -1);        // front face plane (inwards)
+	glm::dvec3 normal6 = glm::dvec3(0, 0, 1);         // rear face plane (inwards)
 
-	Point3 point1 = Point3(cuboid.min_x, 0, 0); // left face plane point
-	Point3 point2 = Point3(cuboid.max_x, 0, 0); // right face plane point
-	Point3 point3 = Point3(0, cuboid.min_y, 0); // top face plane point
-	Point3 point4 = Point3(0, cuboid.max_y, 0); // bottom face plane point
-	Point3 point5 = Point3(0, 0, cuboid.min_z); // front face plane point
-	Point3 point6 = Point3(0, 0, cuboid.max_z); // rear face plane point
+	glm::dvec3 point1 = glm::dvec3(cuboid.min_x, 0, 0); // left face plane point
+	glm::dvec3 point2 = glm::dvec3(cuboid.max_x, 0, 0); // right face plane point
+	glm::dvec3 point3 = glm::dvec3(0, cuboid.min_y, 0); // top face plane point
+	glm::dvec3 point4 = glm::dvec3(0, cuboid.max_y, 0); // bottom face plane point
+	glm::dvec3 point5 = glm::dvec3(0, 0, cuboid.min_z); // front face plane point
+	glm::dvec3 point6 = glm::dvec3(0, 0, cuboid.max_z); // rear face plane point
 
 	// temporarily store ray-plane intersection tests
-	std::vector<std::pair<Point3, Vector3>> intersections; // intersection point / normal vector
+	std::vector<std::pair<glm::dvec3, glm::dvec3>> intersections; // intersection point / normal vector
 
 	// compute individual ray-plane intersections
 	// left face

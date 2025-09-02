@@ -59,22 +59,22 @@ private:
 	void deposit(Photon& photon);
 	void scatter(Photon& photon);
 	void cross(Photon& photon);
-	void radiate(Photon& photon, Vector3& direction, double weight);
+	void radiate(Photon& photon, glm::dvec3& direction, double weight);
 	void roulette(Photon& photon);
 	void normalize();
 
 	// physical computation
 	void specular_reflection(Source& source);
-	double internal_reflection(Photon& photon, double& eta_t, Vector3& tran, Vector3& refl);
+	double internal_reflection(Photon& photon, double& eta_t, glm::dvec3& tran, glm::dvec3& refl);
 
 	// voxel computation
-	Voxel* voxel_at(Point3& position);
-	Point3 voxel_center(Voxel* voxel);
+	Voxel* voxel_at(glm::dvec3& position);
+	glm::dvec3 voxel_center(Voxel* voxel);
 	Cuboid voxel_corners(Voxel* voxel);
 
 	// point translation
-	Point3 move(Point3& position, Vector3& direction, double d);
-	Point3 move_delta(Point3& position, Vector3& direction);
+	glm::dvec3 move(glm::dvec3& position, glm::dvec3& direction, double d);
+	glm::dvec3 move_delta(glm::dvec3& position, glm::dvec3& direction);
 
 	// MCML 3.0.0 algorithms
 	void generate_step_size(Photon& photon);
@@ -98,4 +98,7 @@ private:
 	bool initialize_grid();
 	bool initialize_data();
 	bool voxelize_layers();
+	
+	// data management
+	void reset_simulation_data();
 };

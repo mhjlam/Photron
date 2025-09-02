@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../structs/point3.hpp"
+#include "../structs/glm_types.hpp"
 
 #include <vector>
 
@@ -21,6 +21,19 @@ public:
 
 	static void write_to_file();
 	static void print_report();
+	static void reset();  // Reset all accumulated data
+	
+	// Getters for UI display
+	static double get_path_length() { return path_length_; }
+	static double get_scatter_events() { return scatter_events_; }
+	static double get_average_step_size() { return average_step_size_; }
+	static double get_diffusion_distance() { return diffusion_distance_; }
+	static double get_total_absorption() { return total_absorption_; }
+	static double get_total_reflection() { return total_reflection_; }
+	static double get_total_transmission() { return total_transmission_; }
+	static double get_total_diffusion() { return total_diffusion_; }
+	static double get_surface_reflection() { return surface_reflection_; }
+	static double get_surface_refraction() { return surface_refraction_; }
 
 private:
 	static uint64_t t0_, t1_;                  // start time and time passed
@@ -39,5 +52,5 @@ private:
 	static double diffusion_distance_;         // maximum distance between two points on the path
 
 	static std::vector<double> step_sizes_;    // step sizes
-	static std::vector<Point3> path_vertices_; // path vertices
+	static std::vector<glm::dvec3> path_vertices_; // path vertices
 };

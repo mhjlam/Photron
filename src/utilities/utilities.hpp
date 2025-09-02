@@ -1,10 +1,9 @@
 #pragma once
 
 #include "../structs/cuboid.hpp"
-#include "../structs/point3.hpp"
+#include "../structs/glm_types.hpp"
 #include "../structs/ray.hpp"
 #include "../structs/triangle.hpp"
-#include "../structs/vector3.hpp"
 
 #include <list>
 #include <ostream>
@@ -76,7 +75,7 @@ T str2num(const std::string& str, T def) {
  ***********************************************************/
 
 double sq(double n);
-double distribution_(Point3& p, Point3& q);
+double distribution_(glm::dvec3& p, glm::dvec3& q);
 
 #ifndef _WIN32
 double round(double n, int precision);
@@ -117,22 +116,22 @@ std::vector<std::pair<std::string, std::string> > parameter_values(std::list<std
  * LINEAR ALGEBRA
  ***********************************************************/
 
-double dot(Vector3& v, Vector3& w);
-Vector3 cross(Vector3& v, Vector3& w);
-Vector3 subtract(Point3& v, Point3& w);
+double dot(glm::dvec3& v, glm::dvec3& w);
+glm::dvec3 cross(glm::dvec3& v, glm::dvec3& w);
+glm::dvec3 subtract(glm::dvec3& v, glm::dvec3& w);
 
 /***********************************************************
  * INTERSECTION TESTS
  ***********************************************************/
 
-bool ray_triangle_intersect(Ray& ray, Triangle& triangle, Point3& intersect);
-bool ray_plane_intersect(Ray& ray, Vector3& normal, Point3& point, Point3& intersect);
+bool ray_triangle_intersect(Ray& ray, Triangle& triangle, glm::dvec3& intersect);
+bool ray_plane_intersect(Ray& ray, glm::dvec3& normal, glm::dvec3& point, glm::dvec3& intersect);
 
-std::pair<bool, Point3> ray_triangle_intersect(Ray& ray, Triangle& triangle);
-void ray_triangles_intersections(Ray& ray, std::vector<Triangle>& triangles, std::vector<Point3>& intersections);
+std::pair<bool, glm::dvec3> ray_triangle_intersect(Ray& ray, Triangle& triangle);
+void ray_triangles_intersections(Ray& ray, std::vector<Triangle>& triangles, std::vector<glm::dvec3>& intersections);
 
-double first_ray_triangle_intersect(Ray& ray, std::vector<Triangle>& triangles, Point3& intersect, Triangle& triangle);
-double first_ray_cuboid_intersect_internal(Ray& ray, Cuboid& cuboid, Point3& intersect, Vector3& normal);
+double first_ray_triangle_intersect(Ray& ray, std::vector<Triangle>& triangles, glm::dvec3& intersect, Triangle& triangle);
+double first_ray_cuboid_intersect_internal(Ray& ray, Cuboid& cuboid, glm::dvec3& intersect, glm::dvec3& normal);
 
 /***********************************************************
  * GENERATING RANDOM NUMBERS

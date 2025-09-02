@@ -1,8 +1,7 @@
 #include "simulator.hpp"
 
 #include "random.hpp"
-#include "structs/index3.hpp"
-#include "structs/range1.hpp"
+#include "structs/glm_types.hpp"
 #include "structs/ray.hpp"
 #include "utilities/experimenter.hpp"
 #include "utilities/utilities.hpp"
@@ -97,6 +96,9 @@ bool Simulator::initialize(std::string file) {
 	}
 	std::cout << "Data structures initialized successfully." << std::endl;
 
+	// reset all simulation data from previous runs (after voxels are created)
+	reset_simulation_data();
+
 	// voxelize the geometry
 	if (!voxelize_layers()) {
 		std::cerr << "An error occurred during geometry voxelization." << std::endl;
@@ -114,6 +116,24 @@ bool Simulator::initialize(std::string file) {
  * Read and parse the given configuration file.
  ***********************************************************/
 bool Simulator::parse(const std::string& fconfig) {
+	// Clear existing data structures for reinitialization
+	layers.clear();
+	tissues.clear();
+	sources.clear();
+	triangles.clear();
+	photons.clear();
+	
+	// Clear paths and delete vertices
+	for (auto& path : paths) {
+		Vertex* current = path.head;
+		while (current) {
+			Vertex* next = current->next;
+			delete current;
+			current = next;
+		}
+	}
+	paths.clear();
+	
 	std::multimap<std::string, std::list<std::string>> datamap;
 
 	// attempt to extract all the data from the input file
@@ -207,24 +227,24 @@ bool Simulator::parse_source(std::list<std::string>& data) {
 			if (p.size() < 3) {
 				return false;
 			}
-			source.origin = Point3(p[0], p[1], p[2]);
+			source.origin = glm::dvec3(p[0], p[1], p[2]);
 		}
 		else if (equals(param, "direction")) {
 			std::vector<double> v = split(value, ',');
 			if (v.size() < 3) {
 				return false;
 			}
-			source.direction = Vector3(v[0], v[1], v[2]);
+			source.direction = glm::dvec3(v[0], v[1], v[2]);
 		}
 	}
 
 	// check faulty input
-	if (source.direction == Vector3(0)) {
+	if (source.direction == glm::dvec3(0)) {
 		return false;
 	}
 
 	// normalize direction
-	source.direction.normalize();
+	source.direction = glm::normalize(source.direction);
 
 	// add to collection
 	sources.push_back(source);
@@ -287,9 +307,9 @@ bool Simulator::parse_tissue(std::list<std::string>& data) {
 bool Simulator::parse_layer(std::list<std::string>& data) {
 	Layer layer;
 
-	std::vector<Index3> faces;           // vertex index tuple (faces)
-	std::vector<Point3> vertices;        // triangle vertices
-	std::vector<Vector3> normals;        // normal vectors (one per triangle)
+	std::vector<glm::uvec3> faces;           // vertex index tuple (faces)
+	std::vector<glm::dvec3> vertices;        // triangle vertices
+	std::vector<glm::dvec3> normals;        // normal vectors (one per triangle)
 	std::vector<Triangle> triangle_mesh; // constructed faces
 
 	// set layer properties
@@ -313,7 +333,7 @@ bool Simulator::parse_layer(std::list<std::string>& data) {
 				continue;
 			}
 
-			Point3 vert = Point3(v[0], v[1], v[2]);
+			glm::dvec3 vert = glm::dvec3(v[0], v[1], v[2]);
 			vertices.push_back(vert);
 		}
 		// triangle face
@@ -326,7 +346,7 @@ bool Simulator::parse_layer(std::list<std::string>& data) {
 			}
 
 			faces.push_back(
-				Index3(static_cast<uint32_t>(v[0]), static_cast<uint32_t>(v[1]), static_cast<uint32_t>(v[2])));
+				glm::uvec3(static_cast<uint32_t>(v[0]), static_cast<uint32_t>(v[1]), static_cast<uint32_t>(v[2])));
 		}
 		// normal
 		else if (equals(param, "norm3")) {
@@ -335,7 +355,7 @@ bool Simulator::parse_layer(std::list<std::string>& data) {
 				continue;
 			}
 
-			Vector3 norm = Vector3(v[0], v[1], v[2], true);
+			glm::dvec3 norm = glm::normalize(glm::dvec3(v[0], v[1], v[2]));
 			normals.push_back(norm);
 		}
 	}
@@ -371,18 +391,18 @@ bool Simulator::parse_layer(std::list<std::string>& data) {
 
 	// construct faces (triangles) from vertex faces
 	for (size_t i = 0; i < faces.size(); ++i) {
-		Index3 index = faces[i];
+		glm::uvec3 index = faces[i];
 		size_t num_verts_size = static_cast<size_t>(num_verts);
 		uint32_t index_max = static_cast<uint32_t>(num_verts_size - 1);
 
 		// check vertex index pointer correctness
-		if (!isbetween(index.a, 0, index_max) || !isbetween(index.b, 0, index_max)
-			|| !isbetween(index.c, 0, index_max)) {
+		if (!isbetween(index.x, 0, index_max) || !isbetween(index.y, 0, index_max)
+			|| !isbetween(index.z, 0, index_max)) {
 			return false;
 		}
 
 		// create new triangle for this face
-		Triangle triangle = Triangle(vertices[index.a], vertices[index.b], vertices[index.c]);
+		Triangle triangle = Triangle(vertices[index.x], vertices[index.y], vertices[index.z]);
 
 		// associate normal with triangle
 		triangle.normal = normals[i];
@@ -477,6 +497,12 @@ void Simulator::extract_block(std::ifstream& in_config, std::string section,
  * Initialize the voxel grid.
  ***********************************************************/
 bool Simulator::initialize_grid() {
+	// Clean up existing voxels if they exist (for reinitialization)
+	for (auto* voxel : voxels) {
+		delete voxel;
+	}
+	voxels.clear();
+	
 	// Initialize bounds to extreme values for proper min/max calculation
 	bounds.x_min = DBL_MAX;
 	bounds.x_max = -DBL_MAX;
@@ -489,9 +515,9 @@ bool Simulator::initialize_grid() {
 	for (const auto& layer : layers) {
 		// see if a vertex denotes a new boundary
 		for (const auto& triangle : layer.mesh) {
-			Point3 v0 = triangle.v0;
-			Point3 v1 = triangle.v1;
-			Point3 v2 = triangle.v2;
+			glm::dvec3 v0 = triangle.v0;
+			glm::dvec3 v1 = triangle.v1;
+			glm::dvec3 v2 = triangle.v2;
 
 			// get the maximum value among the previous maximum or new vertices
 			bounds.x_min = min4(bounds.x_min, v0.x, v1.x, v2.x); // left (-x)
@@ -590,7 +616,7 @@ bool Simulator::initialize_data() {
 	// associate light sources with their geometric intersections
 	for (auto& source : sources) {
 		// intersection point and triangle that is hit
-		Point3 intersect;
+		glm::dvec3 intersect;
 		Triangle triangle;
 
 		// find intersection of ray from this source with geometry (point, triangle, normal)
@@ -659,18 +685,18 @@ bool Simulator::voxelize_layers() {
 			}
 
 			// shoot ray from left to right
-			Ray ray = Ray(Point3(ray_x, vox_py, vox_pz), Vector3(1, 0, 0));
+			Ray ray = Ray(glm::dvec3(ray_x, vox_py, vox_pz), glm::dvec3(1, 0, 0));
 
 			for (auto& layer : layers) {
 				// find ray intersections with the geometry
-				std::vector<Point3> intersections;
+				std::vector<glm::dvec3> intersections;
 				ray_triangles_intersections(ray, layer.mesh, intersections);
 
 				if (intersections.size() != 2) {
 					continue;  // next layer
 				}
 
-				Point3 il, ir; // set left and right intersection point
+				glm::dvec3 il, ir; // set left and right intersection point
 				if (intersections[0].x < intersections[1].x) {
 					il = intersections[0];
 					ir = intersections[1];
@@ -915,10 +941,10 @@ void Simulator::deposit(Photon& photon) {
  ***********************************************************/
 void Simulator::cross(Photon& photon) {
 	// directions of transmission and reflection
-	Vector3 transmittance, reflectance;
+	glm::dvec3 transmittance, reflectance;
 
 	// retrieve the refractive index of the medium that is struck
-	Point3 newpos = move_delta(photon.intersect, photon.direction);
+	glm::dvec3 newpos = move_delta(photon.intersect, photon.direction);
 	Voxel* newvox = voxel_at(newpos);
 	photon.prev_voxel = photon.voxel;
 
@@ -1025,7 +1051,7 @@ void Simulator::cross(Photon& photon) {
  * Record the emittance from a photon (partially) leaving
  * the material.
  ***********************************************************/
-void Simulator::radiate(Photon& photon, Vector3& direction, double weight) {
+void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 	// set voxel emittance
 	photon.voxel->emittance += weight;
 
@@ -1044,7 +1070,7 @@ void Simulator::radiate(Photon& photon, Vector3& direction, double weight) {
 	else {
 		// cos(theta) = a.b / |a||b|
 		double cos_theta =
-			dot(photon.source.direction, direction) / (photon.source.direction.length() * direction.length());
+			glm::dot(photon.source.direction, direction) / (glm::length(photon.source.direction) * glm::length(direction));
 		double theta = acos(cos_theta);
 
 		// count as transmission or reflection
@@ -1085,10 +1111,10 @@ void Simulator::scatter(Photon& photon) {
 	scatter_photon(photon, *tissue);
 
 	// normalize direction vector (safety check)
-	photon.direction.normalize();
+	photon.direction = glm::normalize(photon.direction);
 
 	// prevent scattering into ambient medium when close to boundaries
-	Point3 newpos = move_delta(photon.position, photon.direction);
+	glm::dvec3 newpos = move_delta(photon.position, photon.direction);
 	if (!voxel_at(newpos)) {
 		photon.alive = false;
 		radiate(photon, photon.direction, photon.weight);
@@ -1146,15 +1172,15 @@ void Simulator::specular_reflection(Source& source) {
 	record.rs = (n2 != n1) ? sq((n1 - n2) / (n1 + n2)) : 0;
 
 	// reflection direction: R = V - 2(V . N)N  
-	Vector3 normal = source.triangle.normal;
-	double projection_scalar = dot(source.direction, normal);
-	Vector3 twice_projection = normal * (projection_scalar * 2.0);
-	Vector3 rsdir = Vector3(source.direction.x - twice_projection.x,
-	                        source.direction.y - twice_projection.y,
-	                        source.direction.z - twice_projection.z, true);
+	glm::dvec3 normal = source.triangle.normal;
+	double projection_scalar = glm::dot(source.direction, normal);
+	glm::dvec3 twice_projection = normal * (projection_scalar * 2.0);
+	glm::dvec3 rsdir = glm::dvec3(source.direction.x - twice_projection.x,
+	                              source.direction.y - twice_projection.y,
+	                              source.direction.z - twice_projection.z);
 
 	// Reverse the reflection direction to point outward
-	rsdir.reverse();
+	rsdir = -rsdir;
 
 	source.specular_direction = rsdir;
 }
@@ -1164,7 +1190,7 @@ void Simulator::specular_reflection(Source& source) {
  * back at an interface between two media. Also compute the
  * directions of transmission and reflection.
  ***********************************************************/
-double Simulator::internal_reflection(Photon& photon, double& eta_t, Vector3& transmittance, Vector3& reflectance) {
+double Simulator::internal_reflection(Photon& photon, double& eta_t, glm::dvec3& transmittance, glm::dvec3& reflectance) {
 	// fraction reflected
 	double reflection;
 
@@ -1227,8 +1253,8 @@ double Simulator::internal_reflection(Photon& photon, double& eta_t, Vector3& tr
 	reflectance.y = photon.direction.y - 2 * cos_t * photon.voxel_normal.y;
 	reflectance.z = photon.direction.z - 2 * cos_t * photon.voxel_normal.z;
 
-	transmittance.normalize();
-	reflectance.normalize();
+	transmittance = glm::normalize(transmittance);
+	reflectance = glm::normalize(reflectance);
 
 	return reflection;
 }
@@ -1237,7 +1263,7 @@ double Simulator::internal_reflection(Photon& photon, double& eta_t, Vector3& tr
  * Return a pointer to a voxel that encapsulates the given
  * position, or nullptr if the position is outside the medium.
  ***********************************************************/
-Voxel* Simulator::voxel_at(Point3& position) {
+Voxel* Simulator::voxel_at(glm::dvec3& position) {
 	if (!bounds.includes(position.x, position.y, position.z)) {
 		return nullptr;
 	}
@@ -1277,13 +1303,13 @@ Voxel* Simulator::voxel_at(Point3& position) {
  * voxel as a cuboid structure.
  ***********************************************************/
 Cuboid Simulator::voxel_corners(Voxel* voxel) {
-	uint32_t ix_min = voxel->ix;
-	uint32_t iy_min = voxel->iy;
-	uint32_t iz_min = voxel->iz;
+	uint32_t ix_min = voxel->ix();
+	uint32_t iy_min = voxel->iy();
+	uint32_t iz_min = voxel->iz();
 
-	uint32_t ix_max = voxel->ix + 1;
-	uint32_t iy_max = voxel->iy + 1;
-	uint32_t iz_max = voxel->iz + 1;
+	uint32_t ix_max = voxel->ix() + 1;
+	uint32_t iy_max = voxel->iy() + 1;
+	uint32_t iz_max = voxel->iz() + 1;
 
 	// minimum voxel position
 	float x_min = static_cast<float>(bounds.x_min + (config.vox_size * ix_min));
@@ -1311,8 +1337,8 @@ Cuboid Simulator::voxel_corners(Voxel* voxel) {
  * Return the destination for a given origin, direction and
  * distance.
  ***********************************************************/
-Point3 Simulator::move(Point3& position, Vector3& direction, double d) {
-	Point3 point = position;
+glm::dvec3 Simulator::move(glm::dvec3& position, glm::dvec3& direction, double d) {
+	glm::dvec3 point = position;
 
 	// return the end point of a sub-step
 	point.x = position.x + direction.x * d;
@@ -1326,8 +1352,8 @@ Point3 Simulator::move(Point3& position, Vector3& direction, double d) {
  * Return the destination for a given origin and direction
  * after making a small hop.
  ***********************************************************/
-Point3 Simulator::move_delta(Point3& position, Vector3& direction) {
-	Point3 point = position;
+glm::dvec3 Simulator::move_delta(glm::dvec3& position, glm::dvec3& direction) {
+	glm::dvec3 point = position;
 
 	// delta distance (based on voxel size)
 	double d = config.vox_size * 0.00001;
@@ -1592,4 +1618,26 @@ void Simulator::roulette_photon(Photon& photon) {
 
 void Simulator::set_rng_seed(int seed) {
 	mcml_random->seed(seed);
+}
+
+void Simulator::reset_simulation_data() {
+	// Reset global record data
+	record.at = 0.0;  // total absorption
+	record.rd = 0.0;  // diffuse reflection
+	record.rs = 0.0;  // specular reflection
+	record.td = 0.0;  // diffuse transmission
+	record.ts = 0.0;  // specular transmission
+	
+	// Reset all voxel data
+	for (auto* voxel : voxels) {
+		if (voxel) {
+			voxel->absorption = 0.0;
+			voxel->emittance = 0.0;
+		}
+	}
+	
+	// Reset experimenter accumulated data
+	Experimenter::reset();
+	
+	std::cout << "Simulation data reset completed." << std::endl;
 }

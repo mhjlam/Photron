@@ -81,6 +81,7 @@ file(GLOB_RECURSE PHOTRON_SOURCES
     ${SRC_DIR}/main.cpp
     ${SRC_DIR}/app.cpp
     ${SRC_DIR}/overlay.cpp
+    ${SRC_DIR}/camera.cpp
     ${SRC_DIR}/renderer/*.cpp
     ${SRC_DIR}/simulator/*.cpp
     ${SRC_DIR}/utilities/*.cpp

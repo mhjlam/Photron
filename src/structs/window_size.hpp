@@ -1,23 +1,25 @@
 #pragma once
 
+#include "glm_types.hpp"
 #include <cstdint>
 
 struct WindowSize {
-	uint32_t width;
-	uint32_t height;
+	glm::uvec2 size;
+
+	// Convenience accessors for backwards compatibility
+	uint32_t& width = size.x;
+	uint32_t& height = size.y;
 
 	WindowSize() {
-		width = 1280;
-		height = 720;
+		size = glm::uvec2(1280, 720);
 	}
 
 	WindowSize(uint32_t w, uint32_t h) {
-		width = static_cast<uint32_t>(w > 0 ? w : 1280);
-		height = static_cast<uint32_t>(h > 0 ? h : 720);
+		size.x = w > 0 ? w : 1280;
+		size.y = h > 0 ? h : 720;
 	}
 
 	void update(uint32_t w, uint32_t h) {
-		width = static_cast<uint32_t>(w);
-		height = static_cast<uint32_t>(h);
+		size = glm::uvec2(w, h);
 	}
 };

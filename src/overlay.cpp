@@ -1,16 +1,35 @@
 #include "overlay.hpp"
 #include "simulator/simulator.hpp"
+#include "utilities/experimenter.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 
 #include <iostream>
+#include <cstring>
+
+// Helper function for ImGui tooltips
+static void HelpMarker(const char* desc) {
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+        ImGui::TextUnformatted(desc);
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+}
 
 Overlay::Overlay()
     : show_options_window_(true)
     , show_info_window_(false)
-    , show_demo_window_(false) {
+    , show_demo_window_(false)
+    , ui_enabled_(true)
+    , show_file_dialog_(false)
+    , file_dialog_mode_(FileDialogMode::LoadConfig)
+    , current_directory_("config/") {
+    memset(file_path_buffer_, 0, sizeof(file_path_buffer_));
 }
 
 Overlay::~Overlay() {
@@ -51,6 +70,40 @@ void Overlay::shutdown() {
     }
 }
 
+void Overlay::handle_keyboard_shortcuts() {
+    ImGuiIO& io = ImGui::GetIO();
+    
+    // Only process shortcuts if UI is enabled and no text input is active
+    if (!ui_enabled_ || io.WantTextInput) {
+        return;
+    }
+    
+    bool ctrl_pressed = io.KeyCtrl;
+    
+    // Ctrl+O: Load Config
+    if (ctrl_pressed && ImGui::IsKeyPressed(ImGuiKey_O)) {
+        show_file_dialog_ = true;
+        file_dialog_mode_ = FileDialogMode::LoadConfig;
+    }
+    
+    // F5: Run Simulation
+    if (ImGui::IsKeyPressed(ImGuiKey_F5)) {
+        if (!ctrl_pressed && run_simulation_callback_) {
+            run_simulation_callback_();
+        }
+        // Ctrl+F5: Rerun Simulation
+        else if (ctrl_pressed && rerun_simulation_callback_) {
+            rerun_simulation_callback_();
+        }
+    }
+    
+    // Ctrl+S: Save Results
+    if (ctrl_pressed && ImGui::IsKeyPressed(ImGuiKey_S)) {
+        show_file_dialog_ = true;
+        file_dialog_mode_ = FileDialogMode::SaveResults;
+    }
+}
+
 void Overlay::render() {
     // Start the Dear ImGui frame
     ImGui_ImplOpenGL3_NewFrame();
@@ -71,8 +124,16 @@ void Overlay::render_with_simulator(Simulator* simulator) {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
+    // Handle keyboard shortcuts
+    handle_keyboard_shortcuts();
+
     render_main_menu_bar();
     render_control_panel(simulator);
+    
+    // Render file dialog if needed
+    if (show_file_dialog_) {
+        render_file_dialog();
+    }
 
     // Rendering
     ImGui::Render();
@@ -82,87 +143,51 @@ void Overlay::render_with_simulator(Simulator* simulator) {
 void Overlay::render_main_menu_bar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("Open Configuration...")) {
-                // TODO: Implement file dialog for configuration
+            if (ImGui::MenuItem("Load Config...", "Ctrl+O", false, ui_enabled_)) {
+                show_file_dialog_ = true;
+                file_dialog_mode_ = FileDialogMode::LoadConfig;
             }
-            if (ImGui::MenuItem("Save Screenshot...")) {
-                // TODO: Implement screenshot saving
+            ImGui::Separator();
+            if (ImGui::MenuItem("Run Simulation", "F5", false, ui_enabled_)) {
+                if (run_simulation_callback_) {
+                    run_simulation_callback_();
+                }
+            }
+            if (ImGui::MenuItem("Rerun Simulation", "Ctrl+F5", false, ui_enabled_)) {
+                if (rerun_simulation_callback_) {
+                    rerun_simulation_callback_();
+                }
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Save Results...", "Ctrl+S", false, ui_enabled_)) {
+                show_file_dialog_ = true;
+                file_dialog_mode_ = FileDialogMode::SaveResults;
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Exit")) {
-                // TODO: Implement exit
+                glfwSetWindowShouldClose(glfwGetCurrentContext(), GLFW_TRUE);
             }
             ImGui::EndMenu();
         }
         
-        if (ImGui::BeginMenu("View")) {
-            ImGui::MenuItem("Draw Bounds", nullptr, &settings_.draw_bounds);
-            ImGui::MenuItem("Draw Frame", nullptr, &settings_.draw_frame);
-            ImGui::MenuItem("Draw Paths", nullptr, &settings_.draw_paths);
-            
+        // Add controls help in the upper-right corner like VolRec
+        float menu_bar_width = ImGui::GetWindowWidth();
+        ImGui::SetCursorPosX(menu_bar_width - 30);
+        ImGui::Text("?");
+        if (ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            ImGui::Text("Controls");
             ImGui::Separator();
-            
-            // Voxel mode submenu
-            if (ImGui::BeginMenu("Voxel Mode")) {
-                bool none_selected = (settings_.voxel_mode == VoxelMode::None);
-                bool absorption_selected = (settings_.voxel_mode == VoxelMode::Absorption);
-                bool emittance_selected = (settings_.voxel_mode == VoxelMode::Emittance);
-                
-                if (ImGui::MenuItem("None", nullptr, none_selected)) {
-                    settings_.voxel_mode = VoxelMode::None;
-                }
-                if (ImGui::MenuItem("Absorption", nullptr, absorption_selected)) {
-                    settings_.voxel_mode = VoxelMode::Absorption;
-                }
-                if (ImGui::MenuItem("Emittance", nullptr, emittance_selected)) {
-                    settings_.voxel_mode = VoxelMode::Emittance;
-                }
-                ImGui::EndMenu();
-            }
-            
-            // Geometry mode submenu
-            if (ImGui::BeginMenu("Geometry Mode")) {
-                bool none_selected = (settings_.geometry_mode == GeometryMode::None);
-                bool white_selected = (settings_.geometry_mode == GeometryMode::White);
-                bool color_selected = (settings_.geometry_mode == GeometryMode::Color);
-                
-                if (ImGui::MenuItem("None", nullptr, none_selected)) {
-                    settings_.geometry_mode = GeometryMode::None;
-                }
-                if (ImGui::MenuItem("White", nullptr, white_selected)) {
-                    settings_.geometry_mode = GeometryMode::White;
-                }
-                if (ImGui::MenuItem("Color", nullptr, color_selected)) {
-                    settings_.geometry_mode = GeometryMode::Color;
-                }
-                ImGui::EndMenu();
-            }
-            
-            ImGui::EndMenu();
-        }
-        
-        if (ImGui::BeginMenu("Simulation")) {
-            if (ImGui::MenuItem("Run Simulation...")) {
-                // TODO: Implement simulation dialog
-            }
-            if (ImGui::MenuItem("Load Results...")) {
-                // TODO: Implement results loading
-            }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Reset View")) {
-                // TODO: Reset camera to default position
-            }
-            ImGui::EndMenu();
-        }
-        
-        if (ImGui::BeginMenu("Help")) {
-            if (ImGui::MenuItem("About")) {
-                // TODO: Show about dialog
-            }
-            if (ImGui::MenuItem("Controls")) {
-                // TODO: Show controls help
-            }
-            ImGui::EndMenu();
+            ImGui::Text("ESC: Exit application");
+            ImGui::Text("Orbit Mode:");
+            ImGui::BulletText("Left Mouse: Hold to orbit");
+            ImGui::BulletText("Right Mouse: Hold to zoom");
+            ImGui::BulletText("Scroll Wheel: Move along the medium layers");
+            ImGui::Text("Free Mode:");
+            ImGui::BulletText("WASD: Move forward/back/left/right");
+            ImGui::BulletText("QE: Move up/down");
+            ImGui::BulletText("Right Mouse: Hold to look around");
+            ImGui::EndTooltip();
         }
         
         ImGui::EndMainMenuBar();
@@ -174,8 +199,9 @@ void Overlay::render_options_window() {
     
     // Camera mode
     {
-        const char* camera_modes[] = { "Arc", "Free" };
+        const char* camera_modes[] = { "Orbit", "Free" };
         int current_camera = static_cast<int>(settings_.camera_mode);
+        ImGui::SetNextItemWidth(120.0f);  // Make combo box shorter
         if (ImGui::Combo("Camera Mode", &current_camera, camera_modes, IM_ARRAYSIZE(camera_modes))) {
             settings_.camera_mode = static_cast<CameraMode>(current_camera);
         }
@@ -185,6 +211,7 @@ void Overlay::render_options_window() {
     {
         const char* voxel_modes[] = { "None", "Absorption", "Emittance" };
         int current_voxel = static_cast<int>(settings_.voxel_mode);
+        ImGui::SetNextItemWidth(120.0f);  // Make combo box shorter
         if (ImGui::Combo("Voxel Mode", &current_voxel, voxel_modes, IM_ARRAYSIZE(voxel_modes))) {
             settings_.voxel_mode = static_cast<VoxelMode>(current_voxel);
         }
@@ -197,31 +224,13 @@ void Overlay::render_options_window() {
         if (ImGui::Combo("Text Mode", &current_text, text_modes, IM_ARRAYSIZE(text_modes))) {
             settings_.text_mode = static_cast<TextMode>(current_text);
         }
-    }
-    
-    // Grid mode
-    {
-        const char* grid_modes[] = { "None", "Partial", "All" };
-        int current_grid = static_cast<int>(settings_.grid_mode);
-        if (ImGui::Combo("Grid Mode", &current_grid, grid_modes, IM_ARRAYSIZE(grid_modes))) {
-            settings_.grid_mode = static_cast<GridMode>(current_grid);
-        }
-    }
-    
-    // Geometry mode
-    {
-        const char* geometry_modes[] = { "None", "White", "Color" };
-        int current_geometry = static_cast<int>(settings_.geometry_mode);
-        if (ImGui::Combo("Geometry Mode", &current_geometry, geometry_modes, IM_ARRAYSIZE(geometry_modes))) {
-            settings_.geometry_mode = static_cast<GeometryMode>(current_geometry);
-        }
+        ImGui::SameLine(); HelpMarker("Text overlay display:\n• None: No text overlays\n• HUD: Essential information only\n• All: Full information display");
     }
     
     ImGui::Separator();
     
     // Boolean toggles
     ImGui::Checkbox("Draw Paths", &settings_.draw_paths);
-    ImGui::Checkbox("Draw Frame", &settings_.draw_frame);
     ImGui::Checkbox("Draw Bounds", &settings_.draw_bounds);
     
     ImGui::End();
@@ -242,14 +251,6 @@ void Overlay::render_info_window(Simulator* simulator) {
         
         ImGui::Separator();
         
-        // Display bounds
-        ImGui::Text("Bounds:");
-        ImGui::Text("  X: [%.3f, %.3f]", simulator->bounds.x_min, simulator->bounds.x_max);
-        ImGui::Text("  Y: [%.3f, %.3f]", simulator->bounds.y_min, simulator->bounds.y_max);
-        ImGui::Text("  Z: [%.3f, %.3f]", simulator->bounds.z_min, simulator->bounds.z_max);
-        
-        ImGui::Separator();
-        
         // Display voxel count
         ImGui::Text("Total Voxels: %zu", simulator->voxels.size());
     } else {
@@ -260,75 +261,207 @@ void Overlay::render_info_window(Simulator* simulator) {
 }
 
 void Overlay::render_control_panel(Simulator* simulator) {
-    // Set window position and size to be static at top-left
+    // Set window position and size to be larger to accommodate more information
     ImGui::SetNextWindowPos(ImVec2(10, 30), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(300, 400), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(240, 480), ImGuiCond_Always);  // Force size update every time
     
     // Create non-movable, non-resizable window like VolRec
     ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
     
-    if (ImGui::Begin("Control Panel", nullptr, window_flags)) {
+    if (ImGui::Begin("##MainWindow", nullptr, window_flags)) {
         // Rendering Options Section
-        ImGui::SeparatorText("Rendering Options");
+        ImGui::SeparatorText("Rendering");
         
         // Boolean toggles
-        ImGui::Checkbox("Draw Bounds", &settings_.draw_bounds);
-        ImGui::Checkbox("Draw Frame", &settings_.draw_frame);
-        ImGui::Checkbox("Draw Paths", &settings_.draw_paths);
+        ImGui::Checkbox("Photon Paths", &settings_.draw_paths);
+        ImGui::SameLine(); HelpMarker("Show photon paths and scatter points");
+        
+        ImGui::Checkbox("Medium Bounds", &settings_.draw_bounds);
+        ImGui::SameLine(); HelpMarker("Show bounding box of the simulation volume");
+        
+        ImGui::Checkbox("Energy Labels", &settings_.draw_path_labels);
+        ImGui::SameLine(); HelpMarker("Show energy percentage labels at interaction points");
         
         ImGui::Spacing();
         
         // Camera mode
         {
-            const char* camera_modes[] = { "Arc", "Free" };
+            const char* camera_modes[] = { "Orbit", "Free" };
             int current_camera = static_cast<int>(settings_.camera_mode);
+            ImGui::SetNextItemWidth(120.0f);  // Make combo box shorter
             if (ImGui::Combo("Camera Mode", &current_camera, camera_modes, IM_ARRAYSIZE(camera_modes))) {
                 settings_.camera_mode = static_cast<CameraMode>(current_camera);
+                if (camera_mode_changed_callback_) {
+                    camera_mode_changed_callback_(settings_.camera_mode == CameraMode::Orbit);
+                }
             }
+            ImGui::SameLine(); HelpMarker("Orbit: Traditional orbit camera that rotates around the scene center.\nFree: FPS-style camera with WASD movement and mouse look.");
         }
         
         // Voxel mode
         {
             const char* voxel_modes[] = { "None", "Absorption", "Emittance" };
             int current_voxel = static_cast<int>(settings_.voxel_mode);
+            ImGui::SetNextItemWidth(120.0f);  // Make combo box shorter
             if (ImGui::Combo("Voxel Mode", &current_voxel, voxel_modes, IM_ARRAYSIZE(voxel_modes))) {
                 settings_.voxel_mode = static_cast<VoxelMode>(current_voxel);
             }
+            ImGui::SameLine(); HelpMarker("Visualization mode for voxels:\n• None: Hide voxels\n• Absorption: Color by absorbed energy\n• Emittance: Color by emitted energy");
         }
         
-        // Grid mode
-        {
-            const char* grid_modes[] = { "None", "Partial", "All" };
-            int current_grid = static_cast<int>(settings_.grid_mode);
-            if (ImGui::Combo("Grid Mode", &current_grid, grid_modes, IM_ARRAYSIZE(grid_modes))) {
-                settings_.grid_mode = static_cast<GridMode>(current_grid);
+        ImGui::Spacing();
+        
+        // Reset View button
+        if (ImGui::Button("Reset View") && ui_enabled_) {
+            if (reset_view_callback_) {
+                reset_view_callback_();
             }
         }
         
-        // Geometry mode
-        {
-            const char* geometry_modes[] = { "None", "White", "Color" };
-            int current_geometry = static_cast<int>(settings_.geometry_mode);
-            if (ImGui::Combo("Geometry Mode", &current_geometry, geometry_modes, IM_ARRAYSIZE(geometry_modes))) {
-                settings_.geometry_mode = static_cast<GeometryMode>(current_geometry);
-            }
-        }
-        
+        ImGui::Spacing();
+
         // Simulation Info Section
         if (simulator) {
-            ImGui::SeparatorText("Simulation Info");
+            ImGui::SeparatorText("Simulation Statistics");
             
-            ImGui::Text("Status: Complete");
             ImGui::Text("Grid: %dx%dx%d", simulator->config.nx, simulator->config.ny, simulator->config.nz);
-            ImGui::Text("Voxel Size: %.4f", simulator->config.vox_size);
-            ImGui::Text("Photons: %lld", simulator->config.num_photons);
-            ImGui::Text("Voxels: %zu", simulator->voxels.size());
+            ImGui::Text("Voxels: %zu (size: %.4f)", simulator->voxels.size(), simulator->config.vox_size);
             
             ImGui::Spacing();
-            ImGui::Text("Bounds:");
-            ImGui::Text("  X: [%.3f, %.3f]", simulator->bounds.x_min, simulator->bounds.x_max);
-            ImGui::Text("  Y: [%.3f, %.3f]", simulator->bounds.y_min, simulator->bounds.y_max);
-            ImGui::Text("  Z: [%.3f, %.3f]", simulator->bounds.z_min, simulator->bounds.z_max);
+            
+            // Basic simulation info
+            ImGui::Text("Total Photons: %lld", simulator->config.num_photons);
+            if (simulator->config.num_photons > 1) {
+                // Multi-photon aggregate statistics
+                ImGui::Separator();
+                ImGui::Text("Aggregate Results:");
+                
+                // Probabilities (more meaningful for multiple photons)
+                double total_weight = Experimenter::get_total_absorption() + 
+                                    Experimenter::get_total_reflection() + 
+                                    Experimenter::get_total_transmission();
+                                    
+                if (total_weight > 0) {
+                    ImGui::Text("Absorption Probability: %.1f%%", 
+                              (Experimenter::get_total_absorption() / total_weight) * 100.0);
+                    ImGui::Text("Reflection Probability: %.1f%%", 
+                              (Experimenter::get_total_reflection() / total_weight) * 100.0);
+                    ImGui::Text("Transmission Probability: %.1f%%", 
+                              (Experimenter::get_total_transmission() / total_weight) * 100.0);
+                }
+                
+                ImGui::Separator();
+                ImGui::Text("Average Per Photon:");
+                ImGui::Text("  Path Length: %.4f", Experimenter::get_path_length() / simulator->config.num_photons);
+                ImGui::Text("  Scatter Events: %.1f", Experimenter::get_scatter_events() / simulator->config.num_photons);
+                ImGui::Text("  Step Size: %.6f", Experimenter::get_average_step_size());
+                
+                ImGui::Separator();
+                ImGui::Text("Surface Interactions:");
+                ImGui::Text("  Reflection: %.6f", Experimenter::get_surface_reflection());
+                ImGui::Text("  Refraction: %.6f", Experimenter::get_surface_refraction());
+                
+            } else {
+                // Single photon statistics (original)
+                ImGui::Text("Path Length: %.5f", Experimenter::get_path_length());
+                ImGui::Text("Scatter Events: %.0f", Experimenter::get_scatter_events());
+                ImGui::Text("Average Step Size: %.6f", Experimenter::get_average_step_size());
+                ImGui::Text("Diffusion Distance: %.5f", Experimenter::get_diffusion_distance());
+                ImGui::Text("Total Absorption: %.6f", Experimenter::get_total_absorption());
+                ImGui::Text("Total Reflection: %.6f", Experimenter::get_total_reflection());
+                ImGui::Text("Total Transmission: %.6f", Experimenter::get_total_transmission());
+                ImGui::Text("Surface Reflection: %.6f", Experimenter::get_surface_reflection());
+                ImGui::Text("Surface Refraction: %.6f", Experimenter::get_surface_refraction());
+            }
+        }
+    }
+    ImGui::End();
+}
+
+void Overlay::render_file_dialog() {
+    const char* title = (file_dialog_mode_ == FileDialogMode::LoadConfig) ? 
+                       "Load Configuration File" : "Save Results File";
+    
+    ImGui::SetNextWindowSize(ImVec2(500, 400), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(200, 100), ImGuiCond_FirstUseEver);
+    
+    if (ImGui::Begin(title, &show_file_dialog_, ImGuiWindowFlags_Modal)) {
+        // File path input
+        ImGui::Text("File path:");
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputText("##filepath", file_path_buffer_, sizeof(file_path_buffer_));
+        
+        ImGui::Separator();
+        
+        // Quick access buttons for common directories and files
+        if (file_dialog_mode_ == FileDialogMode::LoadConfig) {
+            ImGui::Text("Quick Select:");
+            if (ImGui::Button("config1.in")) {
+                strcpy_s(file_path_buffer_, "config/config1.in");
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("config2.in")) {
+                strcpy_s(file_path_buffer_, "config/config2.in");
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("multi-photon-100.in")) {
+                strcpy_s(file_path_buffer_, "config/multi-photon-100.in");
+            }
+            
+            // List available config files
+            ImGui::Separator();
+            ImGui::Text("Available Config Files:");
+            ImGui::BeginChild("ConfigList", ImVec2(0, 200), true);
+            
+            // Predefined config files
+            const char* config_files[] = {
+                "config/config1.in",
+                "config/config2.in", 
+                "config/config3.in",
+                "config/config4.in",
+                "config/multi-photon-100.in",
+                "config/multi-photon-test.in"
+            };
+            
+            for (const char* file : config_files) {
+                if (ImGui::Selectable(file)) {
+                    strcpy_s(file_path_buffer_, file);
+                }
+            }
+            ImGui::EndChild();
+            
+        } else { // Save Results
+            ImGui::Text("Save as:");
+            if (ImGui::Button("results.json")) {
+                strcpy_s(file_path_buffer_, "results.json");
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("simulation_data.txt")) {
+                strcpy_s(file_path_buffer_, "simulation_data.txt");
+            }
+        }
+        
+        ImGui::Separator();
+        
+        // Dialog buttons
+        if (ImGui::Button("OK") && strlen(file_path_buffer_) > 0) {
+            if (file_dialog_mode_ == FileDialogMode::LoadConfig) {
+                if (open_config_callback_) {
+                    open_config_callback_(std::string(file_path_buffer_));
+                }
+            } else {
+                if (save_results_callback_) {
+                    save_results_callback_(std::string(file_path_buffer_));
+                }
+            }
+            show_file_dialog_ = false;
+            memset(file_path_buffer_, 0, sizeof(file_path_buffer_));
+        }
+        
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) {
+            show_file_dialog_ = false;
+            memset(file_path_buffer_, 0, sizeof(file_path_buffer_));
         }
     }
     ImGui::End();

@@ -1,35 +1,26 @@
 #pragma once
 
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/norm.hpp>
 
-// Type aliases for gradual migration from custom types to GLM
-// Use double precision for mathematical computations
-using Vec2 = glm::dvec2;
-using Vec3 = glm::dvec3;
-using Vec4 = glm::dvec4;
+// Use double precision for mathematical computations (dvec) and float for OpenGL (vec)
 
-// Matrix types
-using Mat3 = glm::dmat3;
-using Mat4 = glm::dmat4;
-
-// Float precision for OpenGL (GPU-friendly)
-using Vec2f = glm::vec2;
-using Vec3f = glm::vec3;
-using Vec4f = glm::vec4;
-using Mat3f = glm::mat3;
-using Mat4f = glm::mat4;
-
-// Conversion helpers
-inline Vec3f toFloat(const Vec3& v) {
-    return Vec3f(static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z));
+// Conversion helpers between float and double precision
+inline glm::vec3 toFloat(const glm::dvec3& v) {
+    return glm::vec3(static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z));
 }
 
-inline Vec4f toFloat(const Vec4& v) {
-    return Vec4f(static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z), static_cast<float>(v.w));
+inline glm::vec4 toFloat(const glm::dvec4& v) {
+    return glm::vec4(static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z), static_cast<float>(v.w));
 }
 
-inline Vec3 toDouble(const Vec3f& v) {
-    return Vec3(static_cast<double>(v.x), static_cast<double>(v.y), static_cast<double>(v.z));
+inline glm::dvec3 toDouble(const glm::vec3& v) {
+    return glm::dvec3(static_cast<double>(v.x), static_cast<double>(v.y), static_cast<double>(v.z));
+}
+
+inline glm::dvec2 toDouble(const glm::vec2& v) {
+    return glm::dvec2(static_cast<double>(v.x), static_cast<double>(v.y));
 }

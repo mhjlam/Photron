@@ -1,17 +1,17 @@
 #pragma once
 
-#include "point3.hpp"
+#include "glm_types.hpp"
 
 struct Segment {
-	Point3 origin;
-	Point3 target;
+	glm::dvec3 origin;
+	glm::dvec3 target;
 
 	Segment() {
-		origin = Point3(0.0f);
-		target = Point3(1.0f);
+		origin = glm::dvec3(0.0);
+		target = glm::dvec3(1.0);
 	}
 
-	Segment(Point3 p0, Point3 p1) {
+	Segment(glm::dvec3 p0, glm::dvec3 p1) {
 		origin = p0;
 		target = p1;
 	}

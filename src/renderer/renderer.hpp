@@ -6,7 +6,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include "structs/camera.hpp"
+#include "../camera.hpp"
 #include "structs/settings.hpp"
 
 #include <memory>
@@ -14,6 +14,7 @@
 #include <string>
 #include <fstream>
 #include <sstream>
+#include <functional>
 
 class Simulator;
 
@@ -32,6 +33,17 @@ public:
     void handle_mouse_move(float xpos, float ypos);
     void handle_mouse_button(int button, int action, int mods);
     void handle_mouse_scroll(float xoffset, float yoffset);
+
+    // Camera control
+    void reset_camera();
+    void set_camera_mode(bool is_arc_mode);
+    bool should_capture_mouse() const;
+    Camera& get_camera() { return camera_; }
+    
+    // Callback for camera mode changes
+    void set_camera_mode_change_callback(std::function<void(bool)> callback) { 
+        camera_mode_change_callback_ = callback; 
+    }
 
     // Settings
     void set_settings(const Settings& settings) { settings_ = settings; }
@@ -116,33 +128,26 @@ private:
     std::vector<PointVertex> point_vertices_;
     std::vector<TriangleVertex> triangle_vertices_;
 
-    // Matrix system
-    glm::mat4 projection_matrix_;
-    glm::mat4 view_matrix_;
-    glm::mat4 model_matrix_;
-    glm::mat4 mvp_matrix_;
-
-    // Camera controls
-    float camera_distance_;
-    float camera_rotation_x_;
-    float camera_rotation_y_;
-    float camera_target_x_;
-    float camera_target_y_;
-    float camera_target_z_;
-
-    // Mouse state
-    struct MouseState {
-        bool left_pressed = false;
-        bool right_pressed = false;
-        bool middle_pressed = false;
-        float last_x = 0.0f;
-        float last_y = 0.0f;
-        bool first_mouse = true;
-    } mouse_state_;
+    // Camera system
+    Camera camera_;
+    bool is_arc_camera_mode_;  // true for Orbit mode, false for Free mode
 
     Settings settings_;
     int viewport_width_;
     int viewport_height_;
+    
+    // Key state tracking for smooth movement
+    struct KeyState {
+        bool w_pressed = false;
+        bool a_pressed = false;
+        bool s_pressed = false;
+        bool d_pressed = false;
+        bool q_pressed = false;
+        bool e_pressed = false;
+    } key_state_;
+    
+    // Callback for camera mode changes
+    std::function<void(bool)> camera_mode_change_callback_;
     
     // Keep reference to current simulator
     Simulator* simulator_;

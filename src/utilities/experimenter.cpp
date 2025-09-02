@@ -29,14 +29,14 @@ double Experimenter::diffusion_distance_;
 double Experimenter::average_step_size_;
 
 std::vector<double> Experimenter::step_sizes_;
-std::vector<Point3> Experimenter::path_vertices_;
+std::vector<glm::dvec3> Experimenter::path_vertices_;
 
 void Experimenter::increment_scatters() {
 	scatter_events_++;
 }
 
 void Experimenter::add_vertex(double x, double y, double z) {
-	path_vertices_.push_back(Point3(x, y, z));
+	path_vertices_.push_back(glm::dvec3(x, y, z));
 }
 
 void Experimenter::add_step_size(double s) {
@@ -63,11 +63,11 @@ double Experimenter::compute_diffusion_distance() {
 	}
 
 	auto [min_x, max_x] = std::minmax_element(path_vertices_.begin(), path_vertices_.end(),
-											  [](const Point3& a, const Point3& b) { return a.x < b.x; });
+											  [](const glm::dvec3& a, const glm::dvec3& b) { return a.x < b.x; });
 	auto [min_y, max_y] = std::minmax_element(path_vertices_.begin(), path_vertices_.end(),
-											  [](const Point3& a, const Point3& b) { return a.y < b.y; });
+											  [](const glm::dvec3& a, const glm::dvec3& b) { return a.y < b.y; });
 	auto [min_z, max_z] = std::minmax_element(path_vertices_.begin(), path_vertices_.end(),
-											  [](const Point3& a, const Point3& b) { return a.z < b.z; });
+											  [](const glm::dvec3& a, const glm::dvec3& b) { return a.z < b.z; });
 
 	double dx = max_x->x - min_x->x;
 	double dy = max_y->y - min_y->y;
@@ -153,4 +153,28 @@ void Experimenter::print_report() {
 	std::cout << "Surface refraction " << surface_refraction_ << std::endl;
 
 	std::cout << "Total time taken   " << t1_ << " ms" << std::endl;
+}
+
+void Experimenter::reset() {
+	// Reset timing
+	t0_ = 0;
+	t1_ = 0;
+	
+	// Reset accumulated values
+	total_absorption_ = 0.0;
+	total_reflection_ = 0.0;
+	total_transmission_ = 0.0;
+	total_diffusion_ = 0.0;
+	
+	surface_reflection_ = 0.0;
+	surface_refraction_ = 0.0;
+	
+	path_length_ = 0.0;
+	scatter_events_ = 0.0;
+	diffusion_distance_ = 0.0;
+	average_step_size_ = 0.0;
+	
+	// Clear accumulated data collections
+	step_sizes_.clear();
+	path_vertices_.clear();
 }

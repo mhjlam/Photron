@@ -1,9 +1,9 @@
 #pragma once
 
-#include "point3.hpp"
+#include "glm_types.hpp"
 
 struct Vertex {
-	double x, y, z;
+	glm::dvec3 position;
 	double value;
 
 	Vertex* prev; // previous internal vertex
@@ -11,19 +11,15 @@ struct Vertex {
 	Vertex* emit; // external vertex
 
 	Vertex(double xx, double yy, double zz, double v) {
-		x = xx;
-		y = yy;
-		z = zz;
+		position = glm::dvec3(xx, yy, zz);
 		value = v;
 		prev = 0;
 		next = 0;
 		emit = 0;
 	}
 
-	Vertex(Point3 position, double v) {
-		x = position.x;
-		y = position.y;
-		z = position.z;
+	Vertex(glm::dvec3 pos, double v) {
+		position = pos;
 		value = v;
 		prev = 0;
 		next = 0;
