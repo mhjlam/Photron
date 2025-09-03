@@ -1,11 +1,12 @@
 #pragma once
 
+#include <cstdint>
+
 #include "glm_types.hpp"
 #include "triangle.hpp"
 
-#include <cstdint>
-
-struct Source {
+struct Source
+{
 	uint64_t id;                   // identifier
 	glm::dvec3 origin;             // origin
 	glm::dvec3 direction;          // direction of incidence

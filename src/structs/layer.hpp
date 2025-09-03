@@ -1,11 +1,12 @@
 #pragma once
 
-#include "triangle.hpp"
-
 #include <cstdint>
 #include <vector>
 
-struct Layer {
+#include "triangle.hpp"
+
+struct Layer
+{
 	uint8_t id;
 	uint8_t tissue_id;
 	std::vector<Triangle> mesh;

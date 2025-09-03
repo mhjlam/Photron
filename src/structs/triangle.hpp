@@ -2,7 +2,8 @@
 
 #include "glm_types.hpp"
 
-struct Triangle {
+struct Triangle
+{
 	glm::dvec3 v0;
 	glm::dvec3 v1;
 	glm::dvec3 v2;

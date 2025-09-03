@@ -3,11 +3,17 @@
   "version": "1.0.0",
   "description": "Monte Carlo Photon Transport Renderer",
   "dependencies": [
-  "opengl",
-  "glfw3",
-  "glew",
-  "glm",
-  "imgui"
+    "opengl",
+    "glfw3",
+    "glew",
+    "glm",
+    {
+      "name": "imgui",
+      "features": [
+        "glfw-binding",
+        "opengl3-binding"
+      ]
+    }
   ],
-  "builtin-baseline": "3426db05b996481ca31e95fff3734cf23e0f51bc"
+  "builtin-baseline": "ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0"
 }

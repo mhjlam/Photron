@@ -1,22 +1,22 @@
 #pragma once
 
-#include "structs/config.hpp"
-#include "structs/cuboid.hpp"
-#include "structs/graph.hpp"
-#include "structs/layer.hpp"
-#include "structs/photon.hpp"
-#include "structs/range3.hpp"
-#include "structs/record.hpp"
-#include "structs/source.hpp"
-#include "structs/tissue.hpp"
-#include "structs/triangle.hpp"
-#include "structs/voxel.hpp"
-
 #include <list>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
+
+#include "config.hpp"
+#include "cuboid.hpp"
+#include "graph.hpp"
+#include "layer.hpp"
+#include "photon.hpp"
+#include "range3.hpp"
+#include "record.hpp"
+#include "source.hpp"
+#include "tissue.hpp"
+#include "triangle.hpp"
+#include "voxel.hpp"
 
 // Forward declaration for Random class
 class Random;
@@ -98,7 +98,7 @@ private:
 	bool initialize_grid();
 	bool initialize_data();
 	bool voxelize_layers();
-	
+
 	// data management
 	void reset_simulation_data();
 };

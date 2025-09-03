@@ -1,10 +1,11 @@
 #pragma once
 
-#include "vertex.hpp"
-
 #include <cstdint>
 
-struct Graph {
+#include "vertex.hpp"
+
+struct Graph
+{
 	uint64_t id;
 	Vertex* head;
 	Vertex* last;

@@ -1,11 +1,12 @@
 #pragma once
 
+#include <vector>
+
 #include "glm_types.hpp"
 #include "voxel.hpp"
 
-#include <vector>
-
-struct Grid3D {
+struct Grid3D
+{
 	// Use GLM internally but expose original interface
 	glm::uvec3 dimensions;      // (nx, ny, nz) - number of voxels in each direction
 	uint64_t num_vox;           // number of voxels
@@ -15,12 +16,10 @@ struct Grid3D {
 
 	Grid3D() : dimensions(0), num_vox(0), vox_size(0), tensor() {}
 
-	Grid3D(double vsize, uint8_t numx, uint8_t numy, uint8_t numz) 
-		: dimensions(numx, numy, numz), vox_size(vsize) {
-		
+	Grid3D(double vsize, uint8_t numx, uint8_t numy, uint8_t numz) : dimensions(numx, numy, numz), vox_size(vsize) {
 		num_vox = dimensions.x * dimensions.y * dimensions.z;
 		tensor = std::vector<Voxel*>(num_vox, 0);
-		
+
 		for (uint8_t i = 0; i < dimensions.x; ++i) {
 			for (uint8_t j = 0; j < dimensions.y; ++j) {
 				for (uint8_t k = 0; k < dimensions.z; ++k) {
@@ -41,8 +40,8 @@ struct Grid3D {
 		return (x + y * dimensions.x + z * dimensions.x * dimensions.y);
 	}
 
-	Voxel* operator()(uint8_t x, uint8_t y, uint8_t z) { 
-		return tensor.at(x + y * dimensions.x + z * dimensions.x * dimensions.y); 
+	Voxel* operator()(uint8_t x, uint8_t y, uint8_t z) {
+		return tensor.at(x + y * dimensions.x + z * dimensions.x * dimensions.y);
 	}
 
 	// Backwards compatibility accessors

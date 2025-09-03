@@ -2,7 +2,8 @@
 
 #include "glm_types.hpp"
 
-struct Ray {
+struct Ray
+{
 	glm::dvec3 origin;
 	glm::dvec3 direction;
 

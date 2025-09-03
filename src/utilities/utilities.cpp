@@ -473,12 +473,12 @@ double first_ray_cuboid_intersect_internal(Ray& ray, Cuboid& cuboid, glm::dvec3&
 	glm::dvec3 inter1, inter2, inter3, inter4, inter5, inter6;
 
 	// voxel plane normals are pointed inwards for internal intersection test
-	glm::dvec3 normal1 = glm::dvec3(1, 0, 0);         // left face plane (inwards)
-	glm::dvec3 normal2 = glm::dvec3(-1, 0, 0);        // right face plane (inwards)
-	glm::dvec3 normal3 = glm::dvec3(0, -1, 0);        // top face plane (inwards)
-	glm::dvec3 normal4 = glm::dvec3(0, 1, 0);         // bottom face plane (inwards)
-	glm::dvec3 normal5 = glm::dvec3(0, 0, -1);        // front face plane (inwards)
-	glm::dvec3 normal6 = glm::dvec3(0, 0, 1);         // rear face plane (inwards)
+	glm::dvec3 normal1 = glm::dvec3(1, 0, 0);           // left face plane (inwards)
+	glm::dvec3 normal2 = glm::dvec3(-1, 0, 0);          // right face plane (inwards)
+	glm::dvec3 normal3 = glm::dvec3(0, -1, 0);          // top face plane (inwards)
+	glm::dvec3 normal4 = glm::dvec3(0, 1, 0);           // bottom face plane (inwards)
+	glm::dvec3 normal5 = glm::dvec3(0, 0, -1);          // front face plane (inwards)
+	glm::dvec3 normal6 = glm::dvec3(0, 0, 1);           // rear face plane (inwards)
 
 	glm::dvec3 point1 = glm::dvec3(cuboid.min_x, 0, 0); // left face plane point
 	glm::dvec3 point2 = glm::dvec3(cuboid.max_x, 0, 0); // right face plane point
@@ -544,94 +544,4 @@ double first_ray_cuboid_intersect_internal(Ray& ray, Cuboid& cuboid, glm::dvec3&
 
 	// either 0 or std::numeric_limits<double>::max()
 	return min_dist;
-}
-
-/***********************************************************
- * RANDOMIZATION
- ***********************************************************/
-
-/***********************************************************
- * Return a random double value that is between 0.0 and 1.0.
- ***********************************************************/
-double random_num(void) {
-	static int idum;
-	static bool first_time = true;
-
-	if (first_time) {
-		// use 16-bit integer as the seed
-		idum = -(int)time(nullptr) % (1 << 15);
-		rand3(&idum);
-
-		idum = 1;
-		first_time = false;
-	}
-
-	return ((double)rand3(&idum));
-}
-
-/***********************************************************
- * Randomizer from "Numerical Recipes".
- ***********************************************************/
-double rand3(int* idum) {
-	static char MZ = 0;
-	static long MSEED = 161803398;
-	static long MBIG = 1000000000;
-	static double FAC = 1.0E-9;
-
-	static int inext, inextp;
-	static long ma[56];
-	static int iff = 0;
-	long mj, mk;
-	int i, ii, k;
-
-	if (*idum < 0 || iff == 0) {
-		iff = 1;
-		mj = MSEED - (*idum < 0 ? -*idum : *idum);
-		mj %= MBIG;
-		ma[55] = mj;
-		mk = 1;
-
-		for (i = 1; i <= 54; i++) {
-			ii = (21 * i) % 55;
-			ma[ii] = mk;
-			mk = mj - mk;
-
-			if (mk < MZ) {
-				mk += MBIG;
-			}
-
-			mj = ma[ii];
-		}
-
-		for (k = 1; k <= 4; k++) {
-			for (i = 1; i <= 55; i++) {
-				ma[i] -= ma[1 + (i + 30) % 55];
-
-				if (ma[i] < MZ) {
-					ma[i] += MBIG;
-				}
-			}
-		}
-
-		inext = 0;
-		inextp = 31;
-		*idum = 1;
-	}
-
-	if (++inext == 56) {
-		inext = 1;
-	}
-
-	if (++inextp == 56) {
-		inextp = 1;
-	}
-
-	mj = ma[inext] - ma[inextp];
-
-	if (mj < MZ) {
-		mj += MBIG;
-	}
-
-	ma[inext] = mj;
-	return mj * FAC;
 }

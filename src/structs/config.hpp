@@ -2,10 +2,11 @@
 
 #include <cstdint>
 
-struct Config {
-	uint32_t nx;           // number of voxels in the x direction
-	uint32_t ny;           // number of voxels in the y direction
-	uint32_t nz;           // number of voxels in the z direction
+struct Config
+{
+	uint32_t nx;          // number of voxels in the x direction
+	uint32_t ny;          // number of voxels in the y direction
+	uint32_t nz;          // number of voxels in the z direction
 
 	uint64_t num_layers;  // number of layers
 	uint64_t num_voxels;  // number of voxels

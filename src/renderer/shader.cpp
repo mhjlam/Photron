@@ -1,10 +1,10 @@
 #include "shader.hpp"
 
-#include <glm/gtc/type_ptr.hpp>
-
 #include <fstream>
 #include <iostream>
 #include <sstream>
+
+#include <glm/gtc/type_ptr.hpp>
 
 Shader::~Shader() {
 	if (program_id_ != 0) {

@@ -2,7 +2,8 @@
 
 #include "glm_types.hpp"
 
-struct Cuboid {
+struct Cuboid
+{
 	glm::dvec3 min_point;
 	glm::dvec3 max_point;
 

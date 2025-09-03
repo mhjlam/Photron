@@ -2,7 +2,8 @@
 
 #include "glm_types.hpp"
 
-struct Vertex {
+struct Vertex
+{
 	glm::dvec3 position;
 	double value;
 

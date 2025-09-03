@@ -1,9 +1,11 @@
 #pragma once
 
-#include "glm_types.hpp"
 #include <cmath>
 
-struct Range3 {
+#include "glm_types.hpp"
+
+struct Range3
+{
 	/*
 	 * Right-handed coordinate system
 	 *
@@ -59,13 +61,10 @@ struct Range3 {
 	}
 
 	bool includes(double x, double y, double z) {
-		return (x >= x_min && y >= y_min && z >= z_min && 
-		        x <= x_max && y <= y_max && z <= z_max);
+		return (x >= x_min && y >= y_min && z >= z_min && x <= x_max && y <= y_max && z <= z_max);
 	}
 
-	bool includes(const glm::dvec3& point) {
-		return includes(point.x, point.y, point.z);
-	}
+	bool includes(const glm::dvec3& point) { return includes(point.x, point.y, point.z); }
 
 	// GLM convenience methods
 	glm::dvec3 min_bound() const { return glm::dvec3(x_min, y_min, z_min); }

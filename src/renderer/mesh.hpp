@@ -1,5 +1,8 @@
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include <glm/glm.hpp>
 
 #include "index_buffer.hpp"
@@ -7,10 +10,8 @@
 #include "vertex_array.hpp"
 #include "vertex_buffer.hpp"
 
-#include <memory>
-#include <vector>
-
-enum class PrimitiveType {
+enum class PrimitiveType
+{
 	Points = GL_POINTS,
 	Lines = GL_LINES,
 	LineStrip = GL_LINE_STRIP,

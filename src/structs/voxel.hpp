@@ -3,9 +3,10 @@
 #include "glm_types.hpp"
 #include "tissue.hpp"
 
-struct Voxel {
+struct Voxel
+{
 	// Use GLM internally but expose original interface
-	glm::uvec3 coords;     // (ix, iy, iz) coordinates
+	glm::uvec3 coords; // (ix, iy, iz) coordinates
 	double absorption;
 	double emittance;
 	Tissue* tissue;
@@ -27,7 +28,5 @@ struct Voxel {
 	const glm::uvec3& indices() const { return coords; }
 	void set_indices(const glm::uvec3& idx) { coords = idx; }
 
-	bool operator==(const Voxel& other) const {
-		return (other.coords == coords && other.tissue == tissue);
-	}
+	bool operator==(const Voxel& other) const { return (other.coords == coords && other.tissue == tissue); }
 };

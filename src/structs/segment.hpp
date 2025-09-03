@@ -2,7 +2,8 @@
 
 #include "glm_types.hpp"
 
-struct Segment {
+struct Segment
+{
 	glm::dvec3 origin;
 	glm::dvec3 target;
 

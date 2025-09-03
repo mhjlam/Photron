@@ -1,10 +1,25 @@
 #pragma once
 
-enum class CameraMode { Orbit, Free };
-enum class VoxelMode { None, Absorption, Emittance };
-enum class TextMode { None, HeadsUpDisplay, All };
+enum class CameraMode
+{
+	Orbit,
+	Free
+};
+enum class VoxelMode
+{
+	None,
+	Absorption,
+	Emittance
+};
+enum class TextMode
+{
+	None,
+	HeadsUpDisplay,
+	All
+};
 
-enum class MenuItem {
+enum class MenuItem
+{
 	DisplayMode,
 	CameraMode,
 	TextMode,
@@ -12,10 +27,11 @@ enum class MenuItem {
 	ToggleBounds
 };
 
-struct Settings {
+struct Settings
+{
 	bool draw_paths;
 	bool draw_bounds;
-	bool draw_path_labels;  // New setting for energy labels
+	bool draw_path_labels; // New setting for energy labels
 
 	CameraMode camera_mode;
 	VoxelMode voxel_mode;

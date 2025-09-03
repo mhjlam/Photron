@@ -1,13 +1,14 @@
 #pragma once
 
+#include <cstdint>
+
 #include "glm_types.hpp"
 #include "source.hpp"
 #include "voxel.hpp"
 
-#include <cstdint>
-
 // Emitted photon
-struct Emitter {
+struct Emitter
+{
 	uint64_t id;
 	glm::dvec3 position;
 	glm::dvec3 direction;
@@ -21,25 +22,26 @@ struct Emitter {
 	}
 };
 
-struct Photon {
-	uint64_t id;          // identifier
-	bool alive;           // true if photon still propagates
-	bool cross;           // true if photon crosses into another voxel in substep
+struct Photon
+{
+	uint64_t id;             // identifier
+	bool alive;              // true if photon still propagates
+	bool cross;              // true if photon crosses into another voxel in substep
 
-	double step;          // step distance between scattering
-	double sub_step;      // step distance inside a voxel
-	double weight;        // remaining weight of the photon packet
+	double step;             // step distance between scattering
+	double sub_step;         // step distance inside a voxel
+	double weight;           // remaining weight of the photon packet
 
-	glm::dvec3 position;      // position at the start of a substep
-	glm::dvec3 direction;     // propagation direction
-	Voxel* voxel;         // resident voxel at start of substep
-	Voxel* prev_voxel;    // voxel before crossing an interface
+	glm::dvec3 position;     // position at the start of a substep
+	glm::dvec3 direction;    // propagation direction
+	Voxel* voxel;            // resident voxel at start of substep
+	Voxel* prev_voxel;       // voxel before crossing an interface
 
-	glm::dvec3 intersect;     // voxel boundary intersection
-	Source source;        // source from which the photon was shot
+	glm::dvec3 intersect;    // voxel boundary intersection
+	Source source;           // source from which the photon was shot
 	glm::dvec3 voxel_normal; // voxel boundary intersection normal
 
-	bool scatters;        // true if photon path scatters at least once
+	bool scatters;           // true if photon path scatters at least once
 
 	Photon() {
 		id = 0;
@@ -83,11 +85,11 @@ struct Photon {
 		scatters = false;
 	}
 
-	double ani() {
+	double g() {
 		if (voxel == nullptr || voxel->tissue == nullptr) {
 			return 0;
 		}
-		return voxel->tissue->ani;
+		return voxel->tissue->g;
 	}
 
 	double eta() {
@@ -97,17 +99,17 @@ struct Photon {
 		return voxel->tissue->eta;
 	}
 
-	double mua() {
+	double mu_a() {
 		if (voxel == nullptr || voxel->tissue == nullptr) {
 			return 0;
 		}
-		return voxel->tissue->mua;
+		return voxel->tissue->mu_a;
 	}
 
-	double mus() {
+	double mu_s() {
 		if (voxel == nullptr || voxel->tissue == nullptr) {
 			return 0;
 		}
-		return voxel->tissue->mus;
+		return voxel->tissue->mu_s;
 	}
 };

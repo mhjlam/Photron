@@ -1,3 +1,5 @@
+#include "experimenter.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -9,7 +11,6 @@
 #include <windows.h> // for GetTickCount
 #endif
 
-#include "experimenter.hpp"
 #include "utilities.hpp"
 
 uint64_t Experimenter::t0_;
@@ -159,21 +160,21 @@ void Experimenter::reset() {
 	// Reset timing
 	t0_ = 0;
 	t1_ = 0;
-	
+
 	// Reset accumulated values
 	total_absorption_ = 0.0;
 	total_reflection_ = 0.0;
 	total_transmission_ = 0.0;
 	total_diffusion_ = 0.0;
-	
+
 	surface_reflection_ = 0.0;
 	surface_refraction_ = 0.0;
-	
+
 	path_length_ = 0.0;
 	scatter_events_ = 0.0;
 	diffusion_distance_ = 0.0;
 	average_step_size_ = 0.0;
-	
+
 	// Clear accumulated data collections
 	step_sizes_.clear();
 	path_vertices_.clear();

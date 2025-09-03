@@ -29,8 +29,8 @@ BraceWrapping:
   AfterControlStatement: false
   AfterFunction: false
   AfterClass: true
-  AfterEnum: false
-  AfterStruct: false
+  AfterEnum: true
+  AfterStruct: true
   AfterNamespace: true
   AfterExternBlock: false
   BeforeElse: true
@@ -51,6 +51,7 @@ FixNamespaceComments: true
 IncludeBlocks: Regroup
 IndentCaseLabels: true
 IndentPPDirectives: None
+IndentAccessModifiers: false
 IndentWidth: 4
 IndentWrappedFunctionNames: false
 KeepEmptyLinesAtTheStartOfBlocks: false
@@ -59,23 +60,22 @@ Language: Cpp
 NamespaceIndentation: None
 PointerAlignment: Left
 ReflowComments: true
-SortIncludes: true
+SortIncludes: CaseInsensitive
 IncludeCategories:
-  - Regex: '^"[^"]*\.h"$'
-    Priority: 0
-    SortPriority: 0
-    CaseSensitive: false
-  - Regex: '^<([a-zA-Z_]+|c[a-z]+)\.h(pp)?>$'
-    Priority: 1
-    SortPriority: 1
-    CaseSensitive: false
-  - Regex: '^<[^/]+/.*>$'
+  # Standard C/C++ library headers
+  - Regex: '^<[a-z_]+>$'
     Priority: 2
     SortPriority: 2
     CaseSensitive: false
-  - Regex: '^".*"$'
+  # External library headers (anything with / or ending with .h)
+  - Regex: '^<([^>]+/[^>]*|[^>]*\.h)>$'
     Priority: 3
     SortPriority: 3
+    CaseSensitive: false
+  # All local project headers (including associated header)
+  - Regex: '^".*"$'
+    Priority: 4
+    SortPriority: 4
     CaseSensitive: false
 SortUsingDeclarations: true
 SpaceAfterCStyleCast: false

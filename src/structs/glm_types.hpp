@@ -10,17 +10,18 @@
 
 // Conversion helpers between float and double precision
 inline glm::vec3 toFloat(const glm::dvec3& v) {
-    return glm::vec3(static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z));
+	return glm::vec3(static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z));
 }
 
 inline glm::vec4 toFloat(const glm::dvec4& v) {
-    return glm::vec4(static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z), static_cast<float>(v.w));
+	return glm::vec4(static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z),
+					 static_cast<float>(v.w));
 }
 
 inline glm::dvec3 toDouble(const glm::vec3& v) {
-    return glm::dvec3(static_cast<double>(v.x), static_cast<double>(v.y), static_cast<double>(v.z));
+	return glm::dvec3(static_cast<double>(v.x), static_cast<double>(v.y), static_cast<double>(v.z));
 }
 
 inline glm::dvec2 toDouble(const glm::vec2& v) {
-    return glm::dvec2(static_cast<double>(v.x), static_cast<double>(v.y));
+	return glm::dvec2(static_cast<double>(v.x), static_cast<double>(v.y));
 }

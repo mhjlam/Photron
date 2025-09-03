@@ -1,6 +1,7 @@
 #pragma once
 
-struct Record {
+struct Record
+{
 	double at; // total absorption
 	double rd; // diffuse reflection
 	double rs; // specular reflection

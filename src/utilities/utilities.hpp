@@ -1,15 +1,15 @@
 #pragma once
 
-#include "../structs/cuboid.hpp"
-#include "../structs/glm_types.hpp"
-#include "../structs/ray.hpp"
-#include "../structs/triangle.hpp"
-
 #include <list>
 #include <ostream>
 #include <sstream>
 #include <string>
 #include <vector>
+
+#include "cuboid.hpp"
+#include "glm_types.hpp"
+#include "ray.hpp"
+#include "triangle.hpp"
 
 /***********************************************************
  * FUNCTION TEMPLATES
@@ -130,12 +130,6 @@ bool ray_plane_intersect(Ray& ray, glm::dvec3& normal, glm::dvec3& point, glm::d
 std::pair<bool, glm::dvec3> ray_triangle_intersect(Ray& ray, Triangle& triangle);
 void ray_triangles_intersections(Ray& ray, std::vector<Triangle>& triangles, std::vector<glm::dvec3>& intersections);
 
-double first_ray_triangle_intersect(Ray& ray, std::vector<Triangle>& triangles, glm::dvec3& intersect, Triangle& triangle);
+double first_ray_triangle_intersect(Ray& ray, std::vector<Triangle>& triangles, glm::dvec3& intersect,
+									Triangle& triangle);
 double first_ray_cuboid_intersect_internal(Ray& ray, Cuboid& cuboid, glm::dvec3& intersect, glm::dvec3& normal);
-
-/***********************************************************
- * GENERATING RANDOM NUMBERS
- ***********************************************************/
-
-double rand3(int* idum);
-double random_num(void);
