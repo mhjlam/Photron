@@ -6,17 +6,20 @@
 #include <string>
 #include <vector>
 
-#include "config.hpp"
-#include "cuboid.hpp"
-#include "graph.hpp"
-#include "layer.hpp"
-#include "photon.hpp"
-#include "range3.hpp"
-#include "record.hpp"
-#include "source.hpp"
-#include "tissue.hpp"
-#include "triangle.hpp"
-#include "voxel.hpp"
+#include "math/cuboid.hpp"
+#include "math/range.hpp"
+#include "math/triangle.hpp"
+#include "math/mesh_geometry.hpp"
+#include "math/voxel_grid.hpp"
+#include "simulator/config.hpp"
+#include "simulator/graph.hpp"
+#include "simulator/layer.hpp"
+#include "simulator/metrics.hpp"
+#include "simulator/photon.hpp"
+#include "simulator/record.hpp"
+#include "simulator/source.hpp"
+#include "simulator/tissue.hpp"
+#include "simulator/voxel.hpp"
 
 // Forward declaration for Random class
 class Random;
@@ -31,21 +34,26 @@ public:
 	// main routines
 	bool initialize(std::string file);
 	void simulate();
+	void simulate_single_photon(); // Add single photon for interactive use
 	void report();
+
+	// utility functions
+	bool is_point_inside_geometry(const glm::dvec3& point) const;
+	bool is_point_inside_layer_mesh(const glm::dvec3& point, const Layer& layer) const;
 
 public:
 	Config config;
 	Record record;
 	Range3 bounds;
+	Metrics metrics;
 
 	std::vector<Graph> paths;
 	std::vector<Layer> layers;
-	std::vector<Voxel*> voxels;
+	VoxelGrid voxel_grid;
 	std::vector<Photon> photons;
 	std::vector<Tissue> tissues;
 	std::vector<Source> sources;
 	std::vector<Emitter> emitters;
-	std::vector<Triangle> triangles;
 
 	std::shared_ptr<Random> mcml_random;
 	double mcml_weight_threshold;
@@ -84,15 +92,6 @@ private:
 
 	// file parsing
 	bool parse(const std::string& fconfig);
-	bool parse_general(std::list<std::string>& data);
-	bool parse_source(std::list<std::string>& data);
-	bool parse_tissue(std::list<std::string>& data);
-	bool parse_layer(std::list<std::string>& data);
-
-	// data extraction
-	bool extract(const std::string& fconfig, std::multimap<std::string, std::list<std::string> >& datalines);
-	void extract_block(std::ifstream& inconfig, std::string section,
-					   std::multimap<std::string, std::list<std::string> >& datamap);
 
 	// initialization
 	bool initialize_grid();

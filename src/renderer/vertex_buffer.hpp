@@ -1,7 +1,7 @@
 #pragma once
 
-#include "buffer.hpp"
-#include "vertex.hpp"
+#include "renderer/buffer.hpp"
+#include "renderer/vertex.hpp"
 
 class VertexBuffer : public Buffer
 {

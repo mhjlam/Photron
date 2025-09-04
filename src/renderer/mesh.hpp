@@ -5,10 +5,10 @@
 
 #include <glm/glm.hpp>
 
-#include "index_buffer.hpp"
-#include "vertex.hpp"
-#include "vertex_array.hpp"
-#include "vertex_buffer.hpp"
+#include "renderer/index_buffer.hpp"
+#include "renderer/vertex.hpp"
+#include "renderer/vertex_array.hpp"
+#include "renderer/vertex_buffer.hpp"
 
 enum class PrimitiveType
 {

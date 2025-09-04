@@ -25,19 +25,12 @@
 #include "app.hpp"
 
 int main(int argc, char* argv[]) {
-	// Create and initialize the application
 	App app;
-
 	if (!app.initialize(argc, argv)) {
-		std::cerr << "Failed to initialize application" << std::endl;
 		return 1;
 	}
 
-	// Run the main loop
 	app.run();
-
-	// Clean shutdown
 	app.shutdown();
-
 	return 0;
 }

@@ -10,11 +10,9 @@
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 
-#include "experimenter.hpp"
-#include "overlay.hpp"
-#include "renderer.hpp"
-#include "simulator.hpp"
-#include "utilities.hpp"
+#include "renderer/overlay.hpp"
+#include "renderer/renderer.hpp"
+#include "simulator/simulator.hpp"
 
 // Static pointer for callbacks
 static App* app_instance = nullptr;
@@ -94,7 +92,7 @@ bool App::initialize(int argc, char* argv[]) {
 	std::cout << "Simulation completed!" << std::endl;
 
 	// Stop if rendering is disabled
-	if (argc > 2 && equals(argv[2], "norender")) {
+	if (argc > 2 && std::string(argv[2]) == "norender") {
 		should_close_ = true;
 		return true;
 	}
@@ -185,11 +183,8 @@ void App::setup_overlay_callbacks() {
 		// Disable UI while running
 		overlay_->set_ui_enabled(false);
 
-		// Re-run current simulation (appends to existing data)
-		std::cout << "Running simulation..." << std::endl;
-		simulator_->simulate();
-		simulator_->report();
-		std::cout << "Simulation completed!" << std::endl;
+		// Run a single additional photon instead of the full simulation
+		simulator_->simulate_single_photon();
 
 		// Invalidate energy label cache since simulation data has changed
 		if (renderer_) {
@@ -413,22 +408,22 @@ void App::save_results_as_json(const std::string& filepath) {
 	file << "{\n";
 	file << "  \"config_file\": \"" << config_file_ << "\",\n";
 	file << "  \"simulation_parameters\": {\n";
-	file << "    \"num_photons\": " << simulator_->config.num_photons << ",\n";
-	file << "    \"voxel_size\": " << simulator_->config.vox_size << ",\n";
-	file << "    \"grid_size\": [" << simulator_->config.nx << ", " << simulator_->config.ny << ", "
-		 << simulator_->config.nz << "]\n";
+	file << "    \"num_photons\": " << simulator_->config.num_photons() << ",\n";
+	file << "    \"voxel_size\": " << simulator_->config.vox_size() << ",\n";
+	file << "    \"grid_size\": [" << simulator_->config.nx() << ", " << simulator_->config.ny() << ", "
+		 << simulator_->config.nz() << "]\n";
 	file << "  },\n";
 	file << "  \"results\": {\n";
-	file << "    \"path_length\": " << Experimenter::get_path_length() << ",\n";
-	file << "    \"scatter_events\": " << Experimenter::get_scatter_events() << ",\n";
-	file << "    \"average_step_size\": " << Experimenter::get_average_step_size() << ",\n";
-	file << "    \"diffusion_distance\": " << Experimenter::get_diffusion_distance() << ",\n";
-	file << "    \"total_absorption\": " << Experimenter::get_total_absorption() << ",\n";
-	file << "    \"total_reflection\": " << Experimenter::get_total_reflection() << ",\n";
-	file << "    \"total_transmission\": " << Experimenter::get_total_transmission() << ",\n";
-	file << "    \"total_diffusion\": " << Experimenter::get_total_diffusion() << ",\n";
-	file << "    \"surface_reflection\": " << Experimenter::get_surface_reflection() << ",\n";
-	file << "    \"surface_refraction\": " << Experimenter::get_surface_refraction() << "\n";
+	file << "    \"path_length\": " << simulator_->metrics.get_path_length() << ",\n";
+	file << "    \"scatter_events\": " << simulator_->metrics.get_scatter_events() << ",\n";
+	file << "    \"average_step_size\": " << simulator_->metrics.get_average_step_size() << ",\n";
+	file << "    \"diffusion_distance\": " << simulator_->metrics.get_diffusion_distance() << ",\n";
+	file << "    \"total_absorption\": " << simulator_->metrics.get_total_absorption() << ",\n";
+	file << "    \"total_reflection\": " << simulator_->metrics.get_total_reflection() << ",\n";
+	file << "    \"total_transmission\": " << simulator_->metrics.get_total_transmission() << ",\n";
+	file << "    \"total_diffusion\": " << simulator_->metrics.get_total_diffusion() << ",\n";
+	file << "    \"surface_reflection\": " << simulator_->metrics.get_surface_reflection() << ",\n";
+	file << "    \"surface_refraction\": " << simulator_->metrics.get_surface_refraction() << "\n";
 	file << "  },\n";
 	file << "  \"tissue_properties\": [\n";
 
@@ -468,44 +463,44 @@ void App::save_results_as_text(const std::string& filepath) {
 	file << "Timestamp: " << std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) << "\n\n";
 
 	file << "Simulation Parameters:\n";
-	file << "  Number of Photons: " << simulator_->config.num_photons << "\n";
-	file << "  Voxel Size: " << simulator_->config.vox_size << "\n";
-	file << "  Grid Dimensions: " << simulator_->config.nx << " x " << simulator_->config.ny << " x "
-		 << simulator_->config.nz << "\n";
-	file << "  Total Voxels: " << simulator_->voxels.size() << "\n\n";
+	file << "  Number of Photons: " << simulator_->config.num_photons() << "\n";
+	file << "  Voxel Size: " << simulator_->config.vox_size() << "\n";
+	file << "  Grid Dimensions: " << simulator_->config.nx() << " x " << simulator_->config.ny() << " x "
+		 << simulator_->config.nz() << "\n";
+	file << "  Total Voxels: " << simulator_->voxel_grid.size() << "\n\n";
 
-	if (simulator_->config.num_photons > 1) {
+	if (simulator_->config.num_photons() > 1) {
 		file << "Multi-Photon Statistics:\n";
-		double total_weight = Experimenter::get_total_absorption() + Experimenter::get_total_reflection()
-							  + Experimenter::get_total_transmission();
+		double total_weight = simulator_->metrics.get_total_absorption() + simulator_->metrics.get_total_reflection()
+							  + simulator_->metrics.get_total_transmission();
 		if (total_weight > 0) {
-			file << "  Absorption Probability: " << (Experimenter::get_total_absorption() / total_weight) * 100.0
+			file << "  Absorption Probability: " << (simulator_->metrics.get_total_absorption() / total_weight) * 100.0
 				 << "%\n";
-			file << "  Reflection Probability: " << (Experimenter::get_total_reflection() / total_weight) * 100.0
+			file << "  Reflection Probability: " << (simulator_->metrics.get_total_reflection() / total_weight) * 100.0
 				 << "%\n";
-			file << "  Transmission Probability: " << (Experimenter::get_total_transmission() / total_weight) * 100.0
+			file << "  Transmission Probability: " << (simulator_->metrics.get_total_transmission() / total_weight) * 100.0
 				 << "%\n";
 		}
 		file << "\nAverages Per Photon:\n";
-		file << "  Path Length: " << Experimenter::get_path_length() / simulator_->config.num_photons << "\n";
-		file << "  Scatter Events: " << Experimenter::get_scatter_events() / simulator_->config.num_photons << "\n";
-		file << "  Step Size: " << Experimenter::get_average_step_size() << "\n";
+		file << "  Path Length: " << simulator_->metrics.get_path_length() / simulator_->config.num_photons() << "\n";
+		file << "  Scatter Events: " << simulator_->metrics.get_scatter_events() / simulator_->config.num_photons() << "\n";
+		file << "  Step Size: " << simulator_->metrics.get_average_step_size() << "\n";
 	}
 	else {
 		file << "Single Photon Results:\n";
-		file << "  Path Length: " << Experimenter::get_path_length() << "\n";
-		file << "  Scatter Events: " << Experimenter::get_scatter_events() << "\n";
-		file << "  Average Step Size: " << Experimenter::get_average_step_size() << "\n";
-		file << "  Diffusion Distance: " << Experimenter::get_diffusion_distance() << "\n";
+		file << "  Path Length: " << simulator_->metrics.get_path_length() << "\n";
+		file << "  Scatter Events: " << simulator_->metrics.get_scatter_events() << "\n";
+		file << "  Average Step Size: " << simulator_->metrics.get_average_step_size() << "\n";
+		file << "  Diffusion Distance: " << simulator_->metrics.get_diffusion_distance() << "\n";
 	}
 
 	file << "\nDetailed Results:\n";
-	file << "  Total Absorption: " << Experimenter::get_total_absorption() << "\n";
-	file << "  Total Reflection: " << Experimenter::get_total_reflection() << "\n";
-	file << "  Total Transmission: " << Experimenter::get_total_transmission() << "\n";
-	file << "  Total Diffusion: " << Experimenter::get_total_diffusion() << "\n";
-	file << "  Surface Reflection: " << Experimenter::get_surface_reflection() << "\n";
-	file << "  Surface Refraction: " << Experimenter::get_surface_refraction() << "\n";
+	file << "  Total Absorption: " << simulator_->metrics.get_total_absorption() << "\n";
+	file << "  Total Reflection: " << simulator_->metrics.get_total_reflection() << "\n";
+	file << "  Total Transmission: " << simulator_->metrics.get_total_transmission() << "\n";
+	file << "  Total Diffusion: " << simulator_->metrics.get_total_diffusion() << "\n";
+	file << "  Surface Reflection: " << simulator_->metrics.get_surface_reflection() << "\n";
+	file << "  Surface Refraction: " << simulator_->metrics.get_surface_refraction() << "\n";
 
 	file << "\nTissue Properties:\n";
 	for (size_t i = 0; i < simulator_->tissues.size(); ++i) {

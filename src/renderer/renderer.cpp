@@ -4,15 +4,16 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <set>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include "camera.hpp"
-#include "config.hpp"
-#include "settings.hpp"
+#include "math/range.hpp"
+#include "renderer/camera.hpp"
+#include "renderer/settings.hpp"
+#include "simulator/config.hpp"
 #include "simulator/simulator.hpp"
-#include "structs/range3.hpp"
 
 Renderer::Renderer() :
 	line_vao_(0), line_vbo_(0), point_vao_(0), point_vbo_(0), triangle_vao_(0), triangle_vbo_(0),
@@ -134,25 +135,26 @@ void Renderer::render(Simulator* simulator) {
 	update_energy_label_screen_positions();
 
 	// Draw everything based on current settings (user request 4 - re-enable ImGui menu)
-	if (settings_.draw_bounds) {
-		draw_bounds_modern(simulator);
+	if (settings_.draw_volume) {
+		draw_volume(simulator);  // Geometry-aware bounds
 	}
 
-	// Always draw voxels with current energy-based coloring (keep as default)
-	draw_voxels_modern(settings_);
+	// Clear depth buffer after drawing wireframes so voxels and lines can have proper depth ordering
+	glClear(GL_DEPTH_BUFFER_BIT);
 
+	// Always draw voxels with current energy-based coloring (keep as default)
+	draw_voxels(settings_);
+
+	// Draw paths after voxels with proper depth testing
 	if (settings_.draw_paths) {
-		draw_paths_modern(settings_); // Includes incident photon and scatter markers
+		draw_paths(settings_); // Includes incident photon and scatter markers
 	}
 
 	// Always draw current photon positions and directions
-	draw_photons_modern(settings_);
+	draw_photons(settings_);
 
 	// Draw energy labels as billboards (user request 3)
-	draw_energy_labels(settings_);
-
-	// Draw layers (tissue boundaries)
-	draw_layers_modern(simulator);
+	draw_labels(settings_);
 }
 
 void Renderer::draw_coordinate_axes() {
@@ -192,43 +194,147 @@ void Renderer::draw_test_geometry() {
 	draw_points();
 }
 
-void Renderer::draw_bounds_modern(Simulator* simulator) {
+void Renderer::draw_volume(Simulator* simulator) {
 	if (!simulator)
 		return;
 
+	// Combine wireframe (lines) and faces (triangles) for a complete boundary visualization
 	begin_lines();
+	begin_triangles();
 
-	// Get bounds
-	Range3 bounds = simulator->bounds;
-	float minX = static_cast<float>(bounds.x_min);
-	float maxX = static_cast<float>(bounds.x_max);
-	float minY = static_cast<float>(bounds.y_min);
-	float maxY = static_cast<float>(bounds.y_max);
-	float minZ = static_cast<float>(bounds.z_min);
-	float maxZ = static_cast<float>(bounds.z_max);
+	// Face culling is already disabled by default, but ensure blending is set up properly
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-	glm::vec4 bounds_color(0.7f, 0.7f, 0.7f, 0.6f); // Subtle gray bounds like backup
+	glm::vec4 wireframe_color(0.7f, 0.7f, 0.7f, 0.8f);  // Bright wireframe
+	glm::vec4 face_color(0.2f, 0.2f, 0.2f, 0.1f);       // Subtle transparent faces
 
-	// Bottom face edges
-	add_line(glm::vec3(minX, minY, minZ), glm::vec3(maxX, minY, minZ), bounds_color);
-	add_line(glm::vec3(maxX, minY, minZ), glm::vec3(maxX, maxY, minZ), bounds_color);
-	add_line(glm::vec3(maxX, maxY, minZ), glm::vec3(minX, maxY, minZ), bounds_color);
-	add_line(glm::vec3(minX, maxY, minZ), glm::vec3(minX, minY, minZ), bounds_color);
-
-	// Top face edges
-	add_line(glm::vec3(minX, minY, maxZ), glm::vec3(maxX, minY, maxZ), bounds_color);
-	add_line(glm::vec3(maxX, minY, maxZ), glm::vec3(maxX, maxY, maxZ), bounds_color);
-	add_line(glm::vec3(maxX, maxY, maxZ), glm::vec3(minX, maxY, maxZ), bounds_color);
-	add_line(glm::vec3(minX, maxY, maxZ), glm::vec3(minX, minY, maxZ), bounds_color);
-
-	// Vertical edges
-	add_line(glm::vec3(minX, minY, minZ), glm::vec3(minX, minY, maxZ), bounds_color);
-	add_line(glm::vec3(maxX, minY, minZ), glm::vec3(maxX, minY, maxZ), bounds_color);
-	add_line(glm::vec3(maxX, maxY, minZ), glm::vec3(maxX, maxY, maxZ), bounds_color);
-	add_line(glm::vec3(minX, maxY, minZ), glm::vec3(minX, maxY, maxZ), bounds_color);
+	// Process each layer's geometry
+	for (const auto& layer : simulator->layers) {
+		// For each triangle in the layer's mesh, we'll determine if it's part of a planar face
+		// and group triangles that share the same plane into faces
+		
+		std::map<std::string, std::vector<glm::vec3>> planar_faces;
+		
+		for (const auto& triangle : layer.mesh) {
+			glm::vec3 v0 = to_float(triangle.v0());
+			glm::vec3 v1 = to_float(triangle.v1());
+			glm::vec3 v2 = to_float(triangle.v2());
+			
+			// Calculate the triangle normal
+			glm::vec3 normal = normalize(cross(v1 - v0, v2 - v0));
+			
+			// Calculate plane equation: ax + by + cz = d
+			float d = dot(normal, v0);
+			
+			// Create a key for this plane (quantized to handle floating point precision)
+			std::string plane_key = 
+				std::to_string(int(normal.x * 1000)) + "," +
+				std::to_string(int(normal.y * 1000)) + "," +
+				std::to_string(int(normal.z * 1000)) + "," +
+				std::to_string(int(d * 1000));
+			
+			// Add vertices to this plane's face
+			auto& face_vertices = planar_faces[plane_key];
+			face_vertices.push_back(v0);
+			face_vertices.push_back(v1);
+			face_vertices.push_back(v2);
+		}
+		
+		// Now process each planar face
+		for (const auto& face_pair : planar_faces) {
+			const std::vector<glm::vec3>& vertices = face_pair.second;
+			
+			if (vertices.size() == 3) {
+				// Single triangle - render as triangle
+				add_triangle(vertices[0], vertices[1], vertices[2], face_color);
+				
+				// Add wireframe edges
+				add_line(vertices[0], vertices[1], wireframe_color);
+				add_line(vertices[1], vertices[2], wireframe_color);
+				add_line(vertices[2], vertices[0], wireframe_color);
+			}
+			else if (vertices.size() >= 6 && vertices.size() % 3 == 0) {
+				// Multiple triangles forming a face - check if they form a quad
+				
+				// For now, let's find unique vertices and try to form a quadrilateral
+				std::vector<glm::vec3> unique_vertices;
+				const float epsilon = 0.001f;
+				
+				// Collect unique vertices
+				for (const auto& v : vertices) {
+					bool is_unique = true;
+					for (const auto& uv : unique_vertices) {
+						if (length(v - uv) < epsilon) {
+							is_unique = false;
+							break;
+						}
+					}
+					if (is_unique) {
+						unique_vertices.push_back(v);
+					}
+				}
+				
+				if (unique_vertices.size() == 4) {
+					// We have a quadrilateral! Order the vertices properly
+					// Find the centroid
+					glm::vec3 center(0.0f);
+					for (const auto& v : unique_vertices) {
+						center += v;
+					}
+					center /= static_cast<float>(unique_vertices.size());
+					
+					// Calculate the face normal from first triangle
+					glm::vec3 normal = normalize(cross(vertices[1] - vertices[0], vertices[2] - vertices[0]));
+					
+					// Create a reference vector perpendicular to normal
+					glm::vec3 ref_vec = abs(normal.x) < 0.9f ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+					glm::vec3 tangent = normalize(cross(normal, ref_vec));
+					glm::vec3 bitangent = normalize(cross(normal, tangent));
+					
+					// Sort vertices by angle around the center
+					std::sort(unique_vertices.begin(), unique_vertices.end(), 
+						[&center, &tangent, &bitangent](const glm::vec3& a, const glm::vec3& b) {
+							glm::vec3 dir_a = a - center;
+							glm::vec3 dir_b = b - center;
+							
+							float angle_a = atan2f(dot(dir_a, bitangent), dot(dir_a, tangent));
+							float angle_b = atan2f(dot(dir_b, bitangent), dot(dir_b, tangent));
+							
+							return angle_a < angle_b;
+						});
+					
+					// Render as two triangles forming a quad
+					add_triangle(unique_vertices[0], unique_vertices[1], unique_vertices[2], face_color);
+					add_triangle(unique_vertices[0], unique_vertices[2], unique_vertices[3], face_color);
+					
+					// Add wireframe edges for the quad
+					add_line(unique_vertices[0], unique_vertices[1], wireframe_color);
+					add_line(unique_vertices[1], unique_vertices[2], wireframe_color);
+					add_line(unique_vertices[2], unique_vertices[3], wireframe_color);
+					add_line(unique_vertices[3], unique_vertices[0], wireframe_color);
+				}
+				else {
+					// Fallback: render all triangles individually
+					for (size_t i = 0; i < vertices.size(); i += 3) {
+						add_triangle(vertices[i], vertices[i+1], vertices[i+2], face_color);
+						
+						// Add wireframe edges
+						add_line(vertices[i], vertices[i+1], wireframe_color);
+						add_line(vertices[i+1], vertices[i+2], wireframe_color);
+						add_line(vertices[i+2], vertices[i], wireframe_color);
+					}
+				}
+			}
+		}
+	}
 
 	end_lines();
+	end_triangles();
 	draw_lines();
+	draw_triangles();
+
+	// No need to change OpenGL state - keep defaults (face culling disabled, blending enabled)
 }
 
 void Renderer::update_camera() {
@@ -244,13 +350,11 @@ void Renderer::update_camera_target(Simulator* simulator) {
 	Range3 bounds = simulator->bounds;
 
 	// Set camera target to center of bounds
-	glm::vec3 center(static_cast<float>((bounds.x_min + bounds.x_max) * 0.5),
-					 static_cast<float>((bounds.y_min + bounds.y_max) * 0.5),
-					 static_cast<float>((bounds.z_min + bounds.z_max) * 0.5));
+	glm::vec3 center = to_float(bounds.center());
 	camera_.set_target(center);
 
 	// Set tissue elevation bounds for scroll wheel constraint (Y-axis)
-	camera_.set_elevation_bounds(static_cast<float>(bounds.y_min), static_cast<float>(bounds.y_max));
+	camera_.set_elevation_bounds(static_cast<float>(bounds.min_bounds.y), static_cast<float>(bounds.max_bounds.y));
 }
 
 void Renderer::set_viewport(int width, int height) {
@@ -263,7 +367,7 @@ void Renderer::set_viewport(int width, int height) {
 }
 
 // Input handlers (simplified for now)
-void Renderer::handle_key_input(int key, int scancode, int action, int mods) {
+void Renderer::handle_key_input(int key, int /*scancode*/, int action, int /*mods*/) {
 	// Check if WASD is pressed while in Orbit mode - switch to Free mode automatically
 	if (is_arc_camera_mode_ && action == GLFW_PRESS) {
 		if (key == GLFW_KEY_W || key == GLFW_KEY_A || key == GLFW_KEY_S || key == GLFW_KEY_D) {
@@ -298,11 +402,11 @@ void Renderer::handle_mouse_move(float xpos, float ypos) {
 	camera_state_changed_ = true;
 }
 
-void Renderer::handle_mouse_button(int button, int action, int mods) {
+void Renderer::handle_mouse_button(int button, int action, int /*mods*/) {
 	camera_.handle_mouse_button(button, action);
 }
 
-void Renderer::handle_mouse_scroll(float xoffset, float yoffset) {
+void Renderer::handle_mouse_scroll(float /*xoffset*/, float yoffset) {
 	camera_.handle_mouse_scroll(yoffset);
 }
 
@@ -320,29 +424,38 @@ bool Renderer::should_capture_mouse() const {
 	return camera_.should_capture_mouse();
 }
 
-void Renderer::draw_voxels_modern(const Settings& settings) {
+void Renderer::draw_voxels(const Settings& settings) {
 	if (!simulator_) {
 		return;
 	}
 
-	// Only draw voxels if voxel mode is not None (user request 4)
-	if (settings.voxel_mode == VoxelMode::None) {
+	// Only draw voxels if voxel rendering is enabled
+	if (!settings.draw_voxels) {
 		return;
 	}
 
-	// Draw actual voxels using MCML's EXACT grid system like backup
+	// Simple and robust approach: use the simulator's voxelization data
+	// No complex clipping planes needed - just trust the inside/outside classification
+
+	// Setup OpenGL state for transparent voxel rendering
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glDepthMask(GL_FALSE);   // Don't write to depth buffer for transparent voxels
-	glDisable(GL_CULL_FACE); // Ensure all faces render regardless of angle (user request 2)
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_FALSE); // Disable depth writing for transparency
+	glDisable(GL_CULL_FACE);
+
+	// Enable global clipping planes (disabled - using per-voxel clipping instead)
+	// for (size_t i = 0; i < std::min(clipping_planes.size(), size_t(6)); i++) {
+	//     glEnable(GL_CLIP_DISTANCE0 + i);
+	// }
 
 	begin_triangles();
 
 	// Get MCML grid parameters - EXACTLY like backup
-	int nx = simulator_->config.nx;
-	int ny = simulator_->config.ny;
-	int nz = simulator_->config.nz;
-	double voxsize = simulator_->config.vox_size;
+	int nx = simulator_->config.nx();
+	int ny = simulator_->config.ny();
+	int nz = simulator_->config.nz();
+	double voxsize = simulator_->config.vox_size();
 	double half_voxsize = voxsize * 0.5;
 
 	// Collect voxels with distance for depth sorting (user request 4)
@@ -366,10 +479,13 @@ void Renderer::draw_voxels_modern(const Settings& settings) {
 	for (int iz = 0; iz < nz; iz++) {
 		for (int iy = 0; iy < ny; iy++) {
 			for (int ix = 0; ix < nx; ix++) {
-				int voxel_index = iz * nx * ny + iy * nx + ix;
-
-				if (voxel_index >= 0 && static_cast<size_t>(voxel_index) < simulator_->voxels.size()) {
-					Voxel* voxel = simulator_->voxels[static_cast<size_t>(voxel_index)];
+				// Use VoxelGrid coordinate-based access instead of linear indexing
+				if (ix >= 0 && iy >= 0 && iz >= 0 && 
+					static_cast<uint32_t>(ix) < static_cast<uint32_t>(nx) && 
+					static_cast<uint32_t>(iy) < static_cast<uint32_t>(ny) && 
+					static_cast<uint32_t>(iz) < static_cast<uint32_t>(nz)) {
+					
+					Voxel* voxel = simulator_->voxel_grid(static_cast<uint32_t>(ix), static_cast<uint32_t>(iy), static_cast<uint32_t>(iz));
 
 					if (voxel) {
 						float absorption = static_cast<float>(voxel->absorption);
@@ -381,6 +497,10 @@ void Renderer::draw_voxels_modern(const Settings& settings) {
 						}
 						else if (settings.voxel_mode == VoxelMode::Emittance) {
 							total_energy = emittance;
+						}
+						else if (settings.voxel_mode == VoxelMode::Layers) {
+							// For Layers mode, use a constant value for all voxels with tissue
+							total_energy = (voxel->tissue != nullptr) ? 1.0f : 0.0f;
 						}
 						else {
 							total_energy = absorption + emittance;
@@ -416,17 +536,60 @@ void Renderer::draw_voxels_modern(const Settings& settings) {
 	for (int iz = 0; iz < nz; iz++) {
 		for (int iy = 0; iy < ny; iy++) {
 			for (int ix = 0; ix < nx; ix++) {
-				// Calculate the voxel index using MCML's exact formula
-				int voxel_index = iz * nx * ny + iy * nx + ix;
-
-				if (voxel_index >= 0 && static_cast<size_t>(voxel_index) < simulator_->voxels.size()) {
-					Voxel* voxel = simulator_->voxels[static_cast<size_t>(voxel_index)];
+				// Use VoxelGrid coordinate-based access
+				if (ix >= 0 && iy >= 0 && iz >= 0 && 
+					static_cast<uint32_t>(ix) < static_cast<uint32_t>(nx) && 
+					static_cast<uint32_t>(iy) < static_cast<uint32_t>(ny) && 
+					static_cast<uint32_t>(iz) < static_cast<uint32_t>(nz)) {
+					
+					Voxel* voxel = simulator_->voxel_grid(static_cast<uint32_t>(ix), static_cast<uint32_t>(iy), static_cast<uint32_t>(iz));
 
 					if (voxel) {
 						// Calculate center position using MCML's exact formula
-						double x = simulator_->bounds.x_min + (voxsize * ix) + half_voxsize;
-						double y = simulator_->bounds.y_min + (voxsize * iy) + half_voxsize;
-						double z = simulator_->bounds.z_min + (voxsize * iz) + half_voxsize;
+						double x = simulator_->bounds.min_bounds.x + (voxsize * ix) + half_voxsize;
+						double y = simulator_->bounds.min_bounds.y + (voxsize * iy) + half_voxsize;
+						double z = simulator_->bounds.min_bounds.z + (voxsize * iz) + half_voxsize;
+
+						// Check if this voxel is actually inside the mesh geometry AND has tissue
+						bool is_in_geometry = simulator_->is_point_inside_geometry({x,y,z});
+						bool has_tissue = (voxel->tissue != nullptr);
+						
+						// For complex geometries like pyramids, we need to check if any part of the voxel
+						// intersects with the geometry, not just the center point
+						bool voxel_intersects_geometry = false;
+						
+						if (has_tissue) {
+							// Check voxel center first (fastest check)
+							if (is_in_geometry) {
+								voxel_intersects_geometry = true;
+							} else {
+								// If center is outside, check the 8 corners to see if any are inside
+								double half_voxel = voxsize * 0.5;
+								std::vector<glm::dvec3> corners = {
+									{x - half_voxel, y - half_voxel, z - half_voxel},
+									{x + half_voxel, y - half_voxel, z - half_voxel},
+									{x - half_voxel, y + half_voxel, z - half_voxel},
+									{x + half_voxel, y + half_voxel, z - half_voxel},
+									{x - half_voxel, y - half_voxel, z + half_voxel},
+									{x + half_voxel, y - half_voxel, z + half_voxel},
+									{x - half_voxel, y + half_voxel, z + half_voxel},
+									{x + half_voxel, y + half_voxel, z + half_voxel}
+								};
+								
+								// If any corner is inside the geometry, this voxel intersects
+								for (const auto& corner : corners) {
+									if (simulator_->is_point_inside_geometry(corner)) {
+										voxel_intersects_geometry = true;
+										break;
+									}
+								}
+							}
+						}
+						
+						// Only render voxels that have tissue AND intersect with the geometry
+						if (!has_tissue || !voxel_intersects_geometry) {
+							continue;
+						}
 
 						float fx = static_cast<float>(x);
 						float fy = static_cast<float>(y);
@@ -454,9 +617,9 @@ void Renderer::draw_voxels_modern(const Settings& settings) {
 								surface_y = -1000.0f;
 								for (const auto& layer : simulator_->layers) {
 									for (const auto& triangle : layer.mesh) {
-										surface_y = std::max({surface_y, static_cast<float>(triangle.v0.y),
-															  static_cast<float>(triangle.v1.y),
-															  static_cast<float>(triangle.v2.y)});
+										surface_y = std::max({surface_y, static_cast<float>(triangle.v0().y),
+															  static_cast<float>(triangle.v1().y),
+															  static_cast<float>(triangle.v2().y)});
 									}
 								}
 							}
@@ -473,7 +636,8 @@ void Renderer::draw_voxels_modern(const Settings& settings) {
 								if (distance < voxel_tolerance) {
 									// Only add surface reflection as emittance in Emittance mode
 									if (settings.voxel_mode == VoxelMode::Emittance) {
-										float surface_scattering = static_cast<float>(simulator_->record.rs);
+										float surface_scattering =
+											static_cast<float>(simulator_->record.specular_reflection);
 										emittance += surface_scattering;
 									}
 								}
@@ -487,57 +651,82 @@ void Renderer::draw_voxels_modern(const Settings& settings) {
 						else if (settings.voxel_mode == VoxelMode::Emittance) {
 							total_energy = emittance;
 						}
+						else if (settings.voxel_mode == VoxelMode::Layers) {
+							// For Layers mode, we ignore energy and just show tissue types
+							total_energy = 1.0f;                   // Constant energy for all voxels with tissue
+						}
 						else {
 							total_energy = absorption + emittance; // Fallback to combined
 						}
 
 						// Show even the tiniest energy interactions
-						glm::vec4 color(0.0f, 0.0f, 0.0f, 0.0f);                // Default transparent
+						glm::vec4 color(0.0f, 0.0f, 0.0f, 0.0f); // Default transparent
 
-						if (total_energy > 1e-8f || voxel->tissue != nullptr) { // Much lower threshold
-							// Calculate percentage of total energy for this voxel
-							float energy_percentage = (total_accumulated_energy > 0.0f)
-														  ? (total_energy / total_accumulated_energy) * 100.0f
-														  : 0.0f;
+						// Check if this voxel is actually inside the mesh geometry
+						glm::dvec3 voxel_center = glm::dvec3(x, y, z);
+						bool is_inside_geometry = simulator_->is_point_inside_geometry(voxel_center);
 
-							// Use gamma correction for better mid-range contrast
-							float normalized_energy = (total_energy - min_energy) / (max_energy - min_energy);
-							normalized_energy = std::clamp(normalized_energy, 0.0f, 1.0f);
+						// In Layers mode, show all voxels with tissue regardless of energy
+						bool should_render_voxel = false;
+						if (settings.voxel_mode == VoxelMode::Layers) {
+							should_render_voxel = (voxel->tissue != nullptr) && is_inside_geometry;
+						}
+						else {
+							should_render_voxel = (total_energy > 1e-8f || voxel->tissue != nullptr) && is_inside_geometry;
+						}
 
-							// Apply gamma correction for better contrast (gamma = 0.5 brightens mid-tones)
-							float gamma_corrected = std::pow(normalized_energy, 0.5f);
-
-							// Calculate distance from origin for depth-based alpha
-							float max_dist = glm::length(glm::vec3(static_cast<float>(simulator_->bounds.x_max),
-																   static_cast<float>(simulator_->bounds.y_max),
-																   static_cast<float>(simulator_->bounds.z_max)));
-							float dist_from_origin = glm::length(voxel_pos);
-							float normalized_dist = glm::clamp(dist_from_origin / max_dist, 0.0f, 1.0f);
-
-							// More visible alpha scaling based on gamma-corrected energy
-							float min_alpha = 0.2f; // Higher minimum for emittance visibility
-							float max_alpha = 0.9f; // Higher maximum visibility
-
-							// Special case for emittance mode: boost visibility significantly
-							if (settings.voxel_mode == VoxelMode::Emittance) {
-								min_alpha = 0.6f; // Much more visible
-								max_alpha = 1.0f; // Full opacity for high emittance
+						if (should_render_voxel) {
+							// For Layers mode, use simplified rendering logic
+							if (settings.voxel_mode == VoxelMode::Layers) {
+								if (voxel->tissue != nullptr) {
+									// Match the appearance of Absorption mode when there's no absorption
+									// Use the same energy and alpha values as "no energy" voxels in absorption mode
+									color = get_layer_specific_energy_color(1e-8f, min_energy, max_energy,
+																			voxel->tissue->id);
+									color.a = 0.05f; // Same very faint alpha as no-absorption voxels
+								}
 							}
+							else {
+								// Original energy-based rendering logic for other modes
 
-							float alpha =
-								min_alpha + (max_alpha - min_alpha) * gamma_corrected * (1.0f - 0.2f * normalized_dist);
+								// Use gamma correction for better mid-range contrast
+								float normalized_energy = (total_energy - min_energy) / (max_energy - min_energy);
+								normalized_energy = std::clamp(normalized_energy, 0.0f, 1.0f);
 
-							// Use layer-specific energy color mapping with dynamic range
-							if (total_energy > 1e-8f) { // Lower threshold
-								color = get_layer_specific_energy_color(total_energy, min_energy, max_energy,
-																		voxel->tissue->id);
-								color.a = alpha;
-							}
-							else if (voxel->tissue != nullptr) {
-								// Voxel in medium but no recorded energy: very faint tissue-colored hint
-								color =
-									get_layer_specific_energy_color(1e-8f, min_energy, max_energy, voxel->tissue->id);
-								color.a = 0.05f; // Slightly more visible
+								// Apply gamma correction for better contrast (gamma = 0.5 brightens mid-tones)
+								float gamma_corrected = std::pow(normalized_energy, 0.5f);
+
+								// Calculate distance from origin for depth-based alpha
+								float max_dist = glm::length(to_float(simulator_->bounds.max_bounds));
+								float dist_from_origin = glm::length(voxel_pos);
+								float normalized_dist = glm::clamp(dist_from_origin / max_dist, 0.0f, 1.0f);
+
+								// More visible alpha scaling based on gamma-corrected energy
+								float min_alpha = 0.2f; // Higher minimum for emittance visibility
+								float max_alpha = 0.9f; // Higher maximum visibility
+
+								// Special case for emittance mode: boost visibility significantly
+								if (settings.voxel_mode == VoxelMode::Emittance) {
+									min_alpha = 0.6f; // Much more visible
+									max_alpha = 1.0f; // Full opacity for high emittance
+								}
+
+								float alpha =
+									min_alpha
+									+ (max_alpha - min_alpha) * gamma_corrected * (1.0f - 0.2f * normalized_dist);
+
+								// Use layer-specific energy color mapping with dynamic range
+								if (total_energy > 1e-8f) { // Lower threshold
+									color = get_layer_specific_energy_color(total_energy, min_energy, max_energy,
+																			voxel->tissue->id);
+									color.a = alpha;
+								}
+								else if (voxel->tissue != nullptr) {
+									// Voxel in medium but no recorded energy: very faint tissue-colored hint
+									color = get_layer_specific_energy_color(1e-8f, min_energy, max_energy,
+																			voxel->tissue->id);
+									color.a = 0.05f; // Slightly more visible
+								}
 							}
 
 							// Calculate distance to camera for depth sorting
@@ -575,8 +764,8 @@ void Renderer::draw_voxels_modern(const Settings& settings) {
 			float depth_offset = static_cast<float>(i) * 0.000001f;
 			pos.z += depth_offset;
 
-			// Define the 8 corners of the voxel cube exactly like backup
-			glm::vec3 vertices[8] = {
+			// Create voxel corners
+			glm::vec3 corners[8] = {
 				glm::vec3(pos.x - half, pos.y - half, pos.z - half), // 0
 				glm::vec3(pos.x + half, pos.y - half, pos.z - half), // 1
 				glm::vec3(pos.x + half, pos.y + half, pos.z - half), // 2
@@ -587,45 +776,39 @@ void Renderer::draw_voxels_modern(const Settings& settings) {
 				glm::vec3(pos.x - half, pos.y + half, pos.z + half)  // 7
 			};
 
-			// Draw all 6 quad faces using triangles to emulate GL_QUADS exactly like backup
-			// Front face (z+)
-			add_triangle(vertices[4], vertices[5], vertices[6], voxel_data.color);
-			add_triangle(vertices[4], vertices[6], vertices[7], voxel_data.color);
-
-			// Back face (z-)
-			add_triangle(vertices[1], vertices[0], vertices[3], voxel_data.color);
-			add_triangle(vertices[1], vertices[3], vertices[2], voxel_data.color);
-
-			// Left face (x-)
-			add_triangle(vertices[0], vertices[4], vertices[7], voxel_data.color);
-			add_triangle(vertices[0], vertices[7], vertices[3], voxel_data.color);
-
-			// Right face (x+)
-			add_triangle(vertices[5], vertices[1], vertices[2], voxel_data.color);
-			add_triangle(vertices[5], vertices[2], vertices[6], voxel_data.color);
-
-			// Top face (y+)
-			add_triangle(vertices[3], vertices[7], vertices[6], voxel_data.color);
-			add_triangle(vertices[3], vertices[6], vertices[2], voxel_data.color);
-
-			// Bottom face (y-)
-			add_triangle(vertices[0], vertices[1], vertices[5], voxel_data.color);
-			add_triangle(vertices[0], vertices[5], vertices[4], voxel_data.color);
+			// Render complete voxel - trust the simulator's voxelization
+			// The simulator already determined this voxel should be rendered
+			add_triangle(corners[4], corners[5], corners[6], voxel_data.color);
+			add_triangle(corners[4], corners[6], corners[7], voxel_data.color);
+			add_triangle(corners[1], corners[0], corners[3], voxel_data.color);
+			add_triangle(corners[1], corners[3], corners[2], voxel_data.color);
+			add_triangle(corners[0], corners[4], corners[7], voxel_data.color);
+			add_triangle(corners[0], corners[7], corners[3], voxel_data.color);
+			add_triangle(corners[1], corners[2], corners[6], voxel_data.color);
+			add_triangle(corners[1], corners[6], corners[5], voxel_data.color);
+			add_triangle(corners[0], corners[1], corners[5], voxel_data.color);
+			add_triangle(corners[0], corners[5], corners[4], voxel_data.color);
+			add_triangle(corners[3], corners[7], corners[6], voxel_data.color);
+			add_triangle(corners[3], corners[6], corners[2], voxel_data.color);
 		}
+		end_triangles(); // End the current batch
 
-		// Upload vertex data to GPU
-		end_triangles();
-
-		// Render current batch
+		// Render current batch normally (no clipping planes needed)
 		draw_triangles();
 	}
 
-	// Restore OpenGL state
-	glDepthMask(GL_TRUE);   // Re-enable depth writing
-	glEnable(GL_CULL_FACE); // Re-enable face culling
+	// Restore OpenGL state to defaults
+	glDepthMask(GL_TRUE);      // Re-enable depth writing
+	glEnable(GL_DEPTH_TEST);   // Re-enable depth testing
+	glDisable(GL_CULL_FACE);   // Keep face culling disabled (default state)
+	
+	// Disable all clipping planes
+	for (int i = 0; i < 6; i++) {
+		glDisable(GL_CLIP_DISTANCE0 + i);
+	}
 }
 
-void Renderer::draw_paths_modern(const Settings& settings) {
+void Renderer::draw_paths(const Settings& /*settings*/) {
 	if (!simulator_)
 		return;
 
@@ -686,9 +869,9 @@ void Renderer::draw_paths_modern(const Settings& settings) {
 					surface_y = -1000.0f; // Start very low
 					for (const auto& layer : simulator_->layers) {
 						for (const auto& triangle : layer.mesh) {
-							float y0 = static_cast<float>(triangle.v0.y);
-							float y1 = static_cast<float>(triangle.v1.y);
-							float y2 = static_cast<float>(triangle.v2.y);
+							float y0 = static_cast<float>(triangle.v0().y);
+							float y1 = static_cast<float>(triangle.v1().y);
+							float y2 = static_cast<float>(triangle.v2().y);
 							if (y0 > surface_y)
 								surface_y = y0;
 							if (y1 > surface_y)
@@ -741,6 +924,7 @@ void Renderer::draw_paths_modern(const Settings& settings) {
 					glm::vec3 seg_start = start + t1 * (end - start);
 					glm::vec3 seg_end = start + t2 * (end - start);
 
+					// Always draw the segment - don't check geometry intersection as it causes gaps
 					glm::vec4 seg_color = start_color * (1.0f - (t1 + t2) * 0.5f) + end_color * ((t1 + t2) * 0.5f);
 					seg_color.a = 1.0f;
 
@@ -767,8 +951,8 @@ void Renderer::draw_paths_modern(const Settings& settings) {
 					glm::vec3 emit_end(static_cast<float>(current->emit->position.x),
 									   static_cast<float>(current->emit->position.y),
 									   static_cast<float>(current->emit->position.z));
-
-					// Use the original direction - trust the simulator's calculation
+					
+					// Always draw emitted paths - don't check geometry intersection
 					add_line(start, emit_end, emit_color);
 				}
 				current = current->next;
@@ -868,7 +1052,7 @@ void Renderer::draw_paths_modern(const Settings& settings) {
 	draw_points();
 }
 
-void Renderer::draw_photons_modern(const Settings& settings) {
+void Renderer::draw_photons(const Settings& /*settings*/) {
 	if (!simulator_)
 		return;
 
@@ -940,89 +1124,79 @@ void Renderer::draw_photons_modern(const Settings& settings) {
 	draw_lines();
 }
 
-void Renderer::draw_layers_modern(Simulator* simulator) {
-	if (!simulator)
-		return;
-
-	// For now, disable tissue interface visualization completely
-	// You can enable it later with a UI toggle if desired
-	// draw_tissue_interfaces(simulator);
-}
-
-void Renderer::draw_tissue_interfaces(Simulator* simulator) {
-	if (!simulator || simulator->voxels.empty()) {
+void Renderer::draw_emitters(const Settings& settings) {
+	if (!simulator_ || simulator_->emitters.empty()) {
 		return;
 	}
 
-	// Much more subtle approach - only draw a few key boundary indicators
-	begin_lines();
-
-	// Very subtle colors - barely visible
-	std::vector<glm::vec4> tissue_colors = {
-		glm::vec4(0.3f, 0.3f, 0.3f, 0.1f), // Very faint gray for tissue 0
-		glm::vec4(0.4f, 0.2f, 0.2f, 0.1f), // Very faint red for tissue 1
-		glm::vec4(0.2f, 0.4f, 0.2f, 0.1f), // Very faint green for tissue 2
-		glm::vec4(0.2f, 0.2f, 0.4f, 0.1f), // Very faint blue for tissue 3
-		glm::vec4(0.4f, 0.4f, 0.2f, 0.1f), // Very faint yellow for tissue 4
-		glm::vec4(0.4f, 0.2f, 0.4f, 0.1f), // Very faint magenta for tissue 5
-	};
-
-	// Get MCML grid parameters
-	int nx = simulator->config.nx;
-	int ny = simulator->config.ny;
-	int nz = simulator->config.nz;
-	double voxsize = simulator->config.vox_size;
-	double half_voxsize = voxsize * 0.5;
-
-	// Only draw horizontal lines at Y boundaries where tissues actually change (layer interfaces)
-	// Skip most voxels to reduce visual clutter dramatically
-	for (int iz = 0; iz < nz; iz += 4) {         // Only every 4th slice
-		for (int iy = 0; iy < ny; ++iy) {
-			for (int ix = 0; ix < nx; ix += 4) { // Only every 4th voxel
-				size_t voxel_index = static_cast<size_t>(iz) * static_cast<size_t>(nx) * static_cast<size_t>(ny)
-									 + static_cast<size_t>(iy) * static_cast<size_t>(nx) + static_cast<size_t>(ix);
-
-				if (voxel_index >= simulator->voxels.size())
-					continue;
-
-				Voxel* current_voxel = simulator->voxels[voxel_index];
-				if (!current_voxel || !current_voxel->tissue)
-					continue;
-
-				// Only check Y+1 neighbor for horizontal layer boundaries
-				if (iy + 1 < ny) {
-					size_t neighbor_index = static_cast<size_t>(iz) * static_cast<size_t>(nx) * static_cast<size_t>(ny)
-											+ static_cast<size_t>(iy + 1) * static_cast<size_t>(nx)
-											+ static_cast<size_t>(ix);
-					if (neighbor_index < simulator->voxels.size()) {
-						Voxel* neighbor = simulator->voxels[neighbor_index];
-						if (!neighbor || !neighbor->tissue || neighbor->tissue->id != current_voxel->tissue->id) {
-							// Found a tissue boundary - draw just a small horizontal line indicator
-							double x = simulator->bounds.x_min + (voxsize * ix) + half_voxsize;
-							double y = simulator->bounds.y_min + (voxsize * iy) + half_voxsize;
-							double z = simulator->bounds.z_min + (voxsize * iz) + half_voxsize;
-
-							float interface_y = static_cast<float>(y + half_voxsize);
-							glm::vec4 tissue_color = tissue_colors[current_voxel->tissue->id % tissue_colors.size()];
-							tissue_color.a = 0.2f; // Slightly more visible at boundaries
-
-							// Just draw a small cross mark, not full wireframe
-							float mark_size = static_cast<float>(voxsize * 0.3);
-							glm::vec3 center(static_cast<float>(x), interface_y, static_cast<float>(z));
-
-							add_line(center - glm::vec3(mark_size, 0, 0), center + glm::vec3(mark_size, 0, 0),
-									 tissue_color);
-							add_line(center - glm::vec3(0, 0, mark_size), center + glm::vec3(0, 0, mark_size),
-									 tissue_color);
-						}
-					}
+	// Draw exit points as bright colored points at the true geometry boundary
+	begin_points();
+	
+	for (const auto& emitter : simulator_->emitters) {
+		// Convert position to float
+		glm::vec3 exit_pos(
+			static_cast<float>(emitter.position.x),
+			static_cast<float>(emitter.position.y), 
+			static_cast<float>(emitter.position.z)
+		);
+		
+		// Color based on emitted weight - bright colors for high-energy exits
+		float weight = static_cast<float>(emitter.weight);
+		glm::vec4 exit_color;
+		
+		if (weight > 0.7f) {
+			// High energy: bright white/yellow
+			exit_color = glm::vec4(1.0f, 1.0f, 0.8f + 0.2f * weight, 1.0f);
+		} else if (weight > 0.4f) {
+			// Medium energy: orange to yellow
+			float t = (weight - 0.4f) / 0.3f;
+			exit_color = glm::vec4(1.0f, 0.6f + 0.4f * t, 0.2f * t, 1.0f);
+		} else {
+			// Low energy: red
+			float t = weight / 0.4f;
+			exit_color = glm::vec4(0.8f + 0.2f * t, 0.2f * t, 0.1f * t, 1.0f);
+		}
+		
+		add_point(exit_pos, exit_color);
+	}
+	
+	end_points();
+	draw_points();
+	
+	// Optionally draw exit direction vectors
+	if (settings.draw_paths) {  // Use existing draw_paths setting
+		begin_lines();
+		
+		for (const auto& emitter : simulator_->emitters) {
+			if (emitter.weight > 0.01) { // Only show significant exits
+				glm::vec3 start_pos(
+					static_cast<float>(emitter.position.x),
+					static_cast<float>(emitter.position.y),
+					static_cast<float>(emitter.position.z)
+				);
+				
+				glm::vec3 end_pos(
+					static_cast<float>(emitter.position.x + emitter.direction.x * 0.05),
+					static_cast<float>(emitter.position.y + emitter.direction.y * 0.05),
+					static_cast<float>(emitter.position.z + emitter.direction.z * 0.05)
+				);
+				
+				// Direction line color - dimmer than the exit point
+				float weight = static_cast<float>(emitter.weight);
+				glm::vec4 direction_color;
+				if (weight > 0.7f) {
+					direction_color = glm::vec4(0.8f, 0.8f, 0.6f, 0.8f);
+				} else {
+					direction_color = glm::vec4(0.6f, 0.4f, 0.2f, 0.6f);
 				}
+				
+				add_line(start_pos, end_pos, direction_color);
 			}
 		}
+		
+		end_lines();
+		draw_lines();
 	}
-
-	end_lines();
-	draw_lines();
 }
 
 // ========================================
@@ -1116,6 +1290,12 @@ void Renderer::end_triangles() {
 }
 
 void Renderer::draw_triangles() {
+	// Call with empty clipping planes for normal rendering
+	std::vector<glm::vec4> empty_planes;
+	draw_triangles_with_clipping(empty_planes);
+}
+
+void Renderer::draw_triangles_with_clipping(const std::vector<glm::vec4>& clipping_planes) {
 	if (triangle_vertices_.empty() || !triangle_shader_program_)
 		return;
 
@@ -1125,9 +1305,30 @@ void Renderer::draw_triangles() {
 	glm::mat4 mvp = camera_.get_mvp_matrix();
 	glUniformMatrix4fv(mvp_location, 1, GL_FALSE, glm::value_ptr(mvp));
 
+	// Set clipping plane uniforms
+	GLint num_planes_location = glGetUniformLocation(triangle_shader_program_, "uNumClipPlanes");
+	GLint clip_planes_location = glGetUniformLocation(triangle_shader_program_, "uClipPlanes");
+	
+	int num_planes = std::min(static_cast<int>(clipping_planes.size()), 6);
+	glUniform1i(num_planes_location, num_planes);
+	
+	// Enable OpenGL clipping planes
+	for (int i = 0; i < num_planes && i < 6; i++) {
+		glEnable(GL_CLIP_DISTANCE0 + i);
+	}
+	
+	if (num_planes > 0 && clip_planes_location != -1) {
+		glUniform4fv(clip_planes_location, num_planes, glm::value_ptr(clipping_planes[0]));
+	}
+
 	glBindVertexArray(triangle_vao_);
 	glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(triangle_vertices_.size()));
 	glBindVertexArray(0);
+	
+	// Disable clipping planes after rendering
+	for (int i = 0; i < num_planes && i < 6; i++) {
+		glDisable(GL_CLIP_DISTANCE0 + i);
+	}
 }
 
 bool Renderer::setup_line_rendering() {
@@ -1368,9 +1569,9 @@ void Renderer::cache_energy_labels() {
 						bottom_y = 1000.0f; // Start very high
 						for (const auto& layer : simulator_->layers) {
 							for (const auto& triangle : layer.mesh) {
-								float y0 = static_cast<float>(triangle.v0.y);
-								float y1 = static_cast<float>(triangle.v1.y);
-								float y2 = static_cast<float>(triangle.v2.y);
+								float y0 = static_cast<float>(triangle.v0().y);
+								float y1 = static_cast<float>(triangle.v1().y);
+								float y2 = static_cast<float>(triangle.v2().y);
 								if (y0 < bottom_y)
 									bottom_y = y0;
 								if (y1 < bottom_y)
@@ -1387,9 +1588,9 @@ void Renderer::cache_energy_labels() {
 						top_y = -1000.0f; // Start very low
 						for (const auto& layer : simulator_->layers) {
 							for (const auto& triangle : layer.mesh) {
-								float y0 = static_cast<float>(triangle.v0.y);
-								float y1 = static_cast<float>(triangle.v1.y);
-								float y2 = static_cast<float>(triangle.v2.y);
+								float y0 = static_cast<float>(triangle.v0().y);
+								float y1 = static_cast<float>(triangle.v1().y);
+								float y2 = static_cast<float>(triangle.v2().y);
 								if (y0 > top_y)
 									top_y = y0;
 								if (y1 > top_y)
@@ -1471,9 +1672,9 @@ void Renderer::cache_energy_labels() {
 								bottom_y = 1000.0f;
 								for (const auto& layer : simulator_->layers) {
 									for (const auto& triangle : layer.mesh) {
-										float y0 = static_cast<float>(triangle.v0.y);
-										float y1 = static_cast<float>(triangle.v1.y);
-										float y2 = static_cast<float>(triangle.v2.y);
+										float y0 = static_cast<float>(triangle.v0().y);
+										float y1 = static_cast<float>(triangle.v1().y);
+										float y2 = static_cast<float>(triangle.v2().y);
 										if (y0 > top_y)
 											top_y = y0;
 										if (y1 > top_y)
@@ -1561,7 +1762,7 @@ void Renderer::cache_energy_labels() {
 	}
 
 	// Add surface scattering label at incident point (unified with other energy labels)
-	if (simulator_->record.rs > 0.0) {
+	if (simulator_->record.specular_reflection > 0.0) {
 		// Calculate incident surface position
 		glm::vec3 source_pos(0.05f, 0.0f, 0.05f); // From the incident ray calculations
 		glm::vec3 source_dir(0.0f, 1.0f, 0.0f);   // Upward direction
@@ -1572,9 +1773,9 @@ void Renderer::cache_energy_labels() {
 			surface_y = -1000.0f;
 			for (const auto& layer : simulator_->layers) {
 				for (const auto& triangle : layer.mesh) {
-					float y0 = static_cast<float>(triangle.v0.y);
-					float y1 = static_cast<float>(triangle.v1.y);
-					float y2 = static_cast<float>(triangle.v2.y);
+					float y0 = static_cast<float>(triangle.v0().y);
+					float y1 = static_cast<float>(triangle.v1().y);
+					float y2 = static_cast<float>(triangle.v2().y);
 					if (y0 > surface_y)
 						surface_y = y0;
 					if (y1 > surface_y)
@@ -1591,7 +1792,7 @@ void Renderer::cache_energy_labels() {
 			glm::vec3 surface_entry = source_pos + t * source_dir;
 
 			// Add surface scattering label
-			float surface_scattering = static_cast<float>(simulator_->record.rs);
+			float surface_scattering = static_cast<float>(simulator_->record.specular_reflection);
 			float scatter_percent = surface_scattering * 100.0f;
 
 			std::string label_text;
@@ -1658,8 +1859,8 @@ void Renderer::update_energy_label_screen_positions() {
 	}
 }
 
-void Renderer::draw_energy_labels(const Settings& settings) {
-	if (!simulator_ || !settings.draw_path_labels)
+void Renderer::draw_labels(const Settings& settings) {
+	if (!simulator_ || !settings.draw_labels)
 		return;
 
 	// Cache energy labels if not already cached
@@ -1868,4 +2069,125 @@ glm::vec2 Renderer::world_to_screen(const glm::vec3& world_pos, int screen_width
 	float screen_y = (1.0f - ndc.y) * 0.5f * screen_height; // Flip Y for screen coordinates
 
 	return glm::vec2(screen_x, screen_y);
+}
+
+/**
+ * Check if a point is inside the mesh geometry
+ */
+bool Renderer::is_point_inside_mesh(const glm::vec3& point, Simulator* simulator) const {
+	if (!simulator) return false;
+	
+	glm::dvec3 dpoint(point.x, point.y, point.z);
+	return simulator->is_point_inside_geometry(dpoint);
+}
+
+/**
+ * Draw a voxel clipped to the mesh boundaries
+ */
+void Renderer::draw_clipped_voxel(const glm::vec3& voxel_center, float voxel_size, const glm::vec4& color, Simulator* simulator) {
+	float half_size = voxel_size * 0.5f;
+	
+	// Generate voxel corners
+	std::vector<glm::vec3> corners = {
+		voxel_center + glm::vec3(-half_size, -half_size, -half_size), // 0: min corner
+		voxel_center + glm::vec3( half_size, -half_size, -half_size), // 1: +x
+		voxel_center + glm::vec3(-half_size,  half_size, -half_size), // 2: +y
+		voxel_center + glm::vec3( half_size,  half_size, -half_size), // 3: +x+y
+		voxel_center + glm::vec3(-half_size, -half_size,  half_size), // 4: +z
+		voxel_center + glm::vec3( half_size, -half_size,  half_size), // 5: +x+z
+		voxel_center + glm::vec3(-half_size,  half_size,  half_size), // 6: +y+z
+		voxel_center + glm::vec3( half_size,  half_size,  half_size)  // 7: max corner
+	};
+	
+	// Check which corners are inside the mesh
+	std::vector<bool> inside(8);
+	int inside_count = 0;
+	for (int i = 0; i < 8; i++) {
+		inside[i] = is_point_inside_mesh(corners[i], simulator);
+		if (inside[i]) inside_count++;
+	}
+	
+	// If no corners are inside, don't render
+	if (inside_count == 0) {
+		return;
+	}
+	
+	// If all corners are inside, render as normal cube
+	if (inside_count == 8) {
+		// Draw complete voxel using standard cube faces
+		// Front face (z+)
+		add_triangle(corners[4], corners[5], corners[7], color);
+		add_triangle(corners[4], corners[7], corners[6], color);
+		// Back face (z-)
+		add_triangle(corners[0], corners[2], corners[3], color);
+		add_triangle(corners[0], corners[3], corners[1], color);
+		// Left face (x-)
+		add_triangle(corners[0], corners[4], corners[6], color);
+		add_triangle(corners[0], corners[6], corners[2], color);
+		// Right face (x+)
+		add_triangle(corners[1], corners[3], corners[7], color);
+		add_triangle(corners[1], corners[7], corners[5], color);
+		// Bottom face (y-)
+		add_triangle(corners[0], corners[1], corners[5], color);
+		add_triangle(corners[0], corners[5], corners[4], color);
+		// Top face (y+)
+		add_triangle(corners[2], corners[6], corners[7], color);
+		add_triangle(corners[2], corners[7], corners[3], color);
+		return;
+	}
+	
+	// For partial voxels, we need to render only the parts inside the mesh
+	// This is a complex operation - for now, render a simplified version
+	// by sampling the voxel more densely and only rendering sub-voxels that are inside
+	
+	int subdivisions = 4; // Subdivide each voxel into 4x4x4 sub-voxels
+	float sub_size = voxel_size / subdivisions;
+	float sub_half = sub_size * 0.5f;
+	
+	for (int sx = 0; sx < subdivisions; sx++) {
+		for (int sy = 0; sy < subdivisions; sy++) {
+			for (int sz = 0; sz < subdivisions; sz++) {
+				glm::vec3 sub_center = voxel_center + glm::vec3(
+					(sx - subdivisions/2.0f + 0.5f) * sub_size,
+					(sy - subdivisions/2.0f + 0.5f) * sub_size,
+					(sz - subdivisions/2.0f + 0.5f) * sub_size
+				);
+				
+				// Check if this sub-voxel center is inside the mesh
+				if (is_point_inside_mesh(sub_center, simulator)) {
+					// Render this sub-voxel as a small cube
+					std::vector<glm::vec3> sub_corners = {
+						sub_center + glm::vec3(-sub_half, -sub_half, -sub_half),
+						sub_center + glm::vec3( sub_half, -sub_half, -sub_half),
+						sub_center + glm::vec3(-sub_half,  sub_half, -sub_half),
+						sub_center + glm::vec3( sub_half,  sub_half, -sub_half),
+						sub_center + glm::vec3(-sub_half, -sub_half,  sub_half),
+						sub_center + glm::vec3( sub_half, -sub_half,  sub_half),
+						sub_center + glm::vec3(-sub_half,  sub_half,  sub_half),
+						sub_center + glm::vec3( sub_half,  sub_half,  sub_half)
+					};
+					
+					// Draw sub-voxel faces
+					// Front face (z+)
+					add_triangle(sub_corners[4], sub_corners[5], sub_corners[7], color);
+					add_triangle(sub_corners[4], sub_corners[7], sub_corners[6], color);
+					// Back face (z-)
+					add_triangle(sub_corners[0], sub_corners[2], sub_corners[3], color);
+					add_triangle(sub_corners[0], sub_corners[3], sub_corners[1], color);
+					// Left face (x-)
+					add_triangle(sub_corners[0], sub_corners[4], sub_corners[6], color);
+					add_triangle(sub_corners[0], sub_corners[6], sub_corners[2], color);
+					// Right face (x+)
+					add_triangle(sub_corners[1], sub_corners[3], sub_corners[7], color);
+					add_triangle(sub_corners[1], sub_corners[7], sub_corners[5], color);
+					// Bottom face (y-)
+					add_triangle(sub_corners[0], sub_corners[1], sub_corners[5], color);
+					add_triangle(sub_corners[0], sub_corners[5], sub_corners[4], color);
+					// Top face (y+)
+					add_triangle(sub_corners[2], sub_corners[6], sub_corners[7], color);
+					add_triangle(sub_corners[2], sub_corners[7], sub_corners[3], color);
+				}
+			}
+		}
+	}
 }

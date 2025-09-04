@@ -29,8 +29,17 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Enable vcpkg manifest mode if vcpkg.json is present
-if(DEFINED ENV{VCPKG_ROOT} AND EXISTS "${CMAKE_SOURCE_DIR}/vcpkg.json")
+if(DEFINED ENV{VCPKG_ROOT})
     set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "Vcpkg toolchain file")
+    # Enable manifest mode and point to the correct vcpkg.json location
+    if(EXISTS "${CMAKE_SOURCE_DIR}/../vcpkg.json")
+        set(VCPKG_MANIFEST_DIR "${CMAKE_SOURCE_DIR}/.." CACHE STRING "Vcpkg manifest directory")
+        set(VCPKG_MANIFEST_MODE ON CACHE BOOL "Enable vcpkg manifest mode")
+        # For Visual Studio generator, automatically enable vcpkg manifest in MSBuild
+        if(CMAKE_GENERATOR MATCHES "Visual Studio")
+            set(CMAKE_VS_GLOBALS "VcpkgEnableManifest=true")
+        endif()
+    endif()
 endif()
 
 # Enable modern CMake policies
@@ -80,11 +89,9 @@ file(MAKE_DIRECTORY ${BIN_DIR})
 file(GLOB_RECURSE PHOTRON_SOURCES
     ${SRC_DIR}/main.cpp
     ${SRC_DIR}/app.cpp
-    ${SRC_DIR}/overlay.cpp
-    ${SRC_DIR}/camera.cpp
+    ${SRC_DIR}/math/*.cpp
     ${SRC_DIR}/renderer/*.cpp
     ${SRC_DIR}/simulator/*.cpp
-    ${SRC_DIR}/utilities/*.cpp
 )
 
 # Combine Photron and MCML sources
@@ -93,10 +100,9 @@ set(ALL_SOURCES ${PHOTRON_SOURCES})
 # Collect all header files (for IDE integration)
 file(GLOB_RECURSE PHOTRON_HEADERS
     ${SRC_DIR}/*.hpp
-    ${SRC_DIR}/structs/*.hpp
+    ${SRC_DIR}/math/*.hpp
     ${SRC_DIR}/renderer/*.hpp
     ${SRC_DIR}/simulator/*.hpp
-    ${SRC_DIR}/utilities/*.hpp
 )
 
 # Print discovered files for debugging
@@ -121,7 +127,6 @@ target_include_directories(Photron PRIVATE
     ${SRC_DIR}/structs
     ${SRC_DIR}/renderer
     ${SRC_DIR}/simulator
-    ${SRC_DIR}/utilities
 )
 
 # Link libraries using vcpkg targets

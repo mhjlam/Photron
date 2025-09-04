@@ -13,8 +13,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include "camera.hpp"
-#include "structs/settings.hpp"
+#include "renderer/camera.hpp"
+#include "renderer/settings.hpp"
 
 class Simulator;
 
@@ -66,9 +66,10 @@ public:
 					  const glm::vec4& color = glm::vec4(1.0f));
 	void end_triangles();
 	void draw_triangles();
+	void draw_triangles_with_clipping(const std::vector<glm::vec4>& clipping_planes);
 
 	// Text billboard rendering for energy labels
-	void draw_energy_labels(const Settings& settings);
+	void draw_labels(const Settings& settings);
 	void cache_energy_labels();                  // Cache energy labels from current simulation data
 	void invalidate_energy_label_cache();        // Force recalculation of energy labels
 	void update_energy_label_screen_positions(); // Update screen positions once per frame
@@ -90,15 +91,18 @@ private:
 	void update_camera();
 	void update_camera_target(Simulator* simulator);
 
-	// Modern shader-based drawing functions
-	void draw_bounds_modern(Simulator* simulator);
+	// Shader-based drawing functions
+	void draw_volume(Simulator* simulator);
 	void draw_coordinate_axes();
 	void draw_test_geometry();
-	void draw_voxels_modern(const Settings& settings);
-	void draw_paths_modern(const Settings& settings);
-	void draw_photons_modern(const Settings& settings);
-	void draw_layers_modern(Simulator* simulator);
-	void draw_tissue_interfaces(Simulator* simulator);
+	void draw_voxels(const Settings& settings);
+	void draw_paths(const Settings& settings);
+	void draw_photons(const Settings& settings);
+	void draw_emitters(const Settings& settings);  // Draw true exit points
+	
+	// Voxel clipping helpers
+	void draw_clipped_voxel(const glm::vec3& voxel_center, float voxel_size, const glm::vec4& color, Simulator* simulator);
+	bool is_point_inside_mesh(const glm::vec3& point, Simulator* simulator) const;
 
 	// Shader management methods
 	bool setup_line_rendering();
