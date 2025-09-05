@@ -10,7 +10,7 @@
 #include "math/range.hpp"
 #include "math/triangle.hpp"
 #include "math/mesh_geometry.hpp"
-#include "math/voxel_grid.hpp"
+#include "math/voxel_volume.hpp"
 #include "simulator/config.hpp"
 #include "simulator/graph.hpp"
 #include "simulator/layer.hpp"
@@ -49,7 +49,7 @@ public:
 
 	std::vector<Graph> paths;
 	std::vector<Layer> layers;
-	VoxelGrid voxel_grid;
+	VoxelVolume voxel_grid;
 	std::vector<Photon> photons;
 	std::vector<Tissue> tissues;
 	std::vector<Source> sources;

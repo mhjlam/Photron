@@ -181,3 +181,53 @@ double Cuboid::intersect_ray_internal(const Ray& ray, glm::dvec3& intersection, 
 	
 	return t;
 }
+
+// BVH-style ray intersection method (from AABB)
+bool Cuboid::intersect_ray(const Ray& ray, double& t_min, double& t_max) const {
+    // Modern AABB-ray intersection using slab method with consistent epsilon
+    constexpr double EPSILON = 1e-12;
+    
+    const glm::dvec3& ray_origin = ray.origin();
+    const glm::dvec3& ray_dir = ray.direction(); // Use direction directly, no need to normalize for slab test
+    
+    t_min = 0.0;
+    t_max = std::numeric_limits<double>::max();
+    
+    // Test intersection with each axis-aligned slab
+    for (int axis = 0; axis < 3; ++axis) {
+        const double axis_min = min_point_[axis];
+        const double axis_max = max_point_[axis];
+        const double ray_orig_axis = ray_origin[axis];
+        const double ray_dir_axis = ray_dir[axis];
+        
+        if (std::abs(ray_dir_axis) < EPSILON) {
+            // Ray is parallel to the slab - check if ray origin is within slab bounds
+            if (ray_orig_axis < axis_min || ray_orig_axis > axis_max) {
+                return false;
+            }
+            // Ray is within the slab, continue to next axis
+        } else {
+            // Calculate intersection distances with slab faces
+            const double inv_ray_dir = 1.0 / ray_dir_axis;
+            double t1 = (axis_min - ray_orig_axis) * inv_ray_dir;
+            double t2 = (axis_max - ray_orig_axis) * inv_ray_dir;
+            
+            // Ensure t1 <= t2
+            if (t1 > t2) {
+                std::swap(t1, t2);
+            }
+            
+            // Update intersection interval
+            t_min = std::max(t_min, t1);
+            t_max = std::min(t_max, t2);
+            
+            // Early exit if intervals don't overlap
+            if (t_min > t_max) {
+                return false;
+            }
+        }
+    }
+    
+    // Ray intersects AABB if t_max is non-negative
+    return t_max >= 0.0;
+}

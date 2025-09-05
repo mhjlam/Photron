@@ -461,7 +461,7 @@ void Renderer::draw_voxels(const Settings& settings) {
 	for (int iz = 0; iz < nz; iz++) {
 		for (int iy = 0; iy < ny; iy++) {
 			for (int ix = 0; ix < nx; ix++) {
-				// Use VoxelGrid coordinate-based access instead of linear indexing
+				// Use VoxelVolume coordinate-based access instead of linear indexing
 				if (ix >= 0 && iy >= 0 && iz >= 0 && 
 					static_cast<uint32_t>(ix) < static_cast<uint32_t>(nx) && 
 					static_cast<uint32_t>(iy) < static_cast<uint32_t>(ny) && 
@@ -519,7 +519,7 @@ void Renderer::draw_voxels(const Settings& settings) {
 	for (int iz = 0; iz < nz; iz++) {
 		for (int iy = 0; iy < ny; iy++) {
 			for (int ix = 0; ix < nx; ix++) {
-				// Use VoxelGrid coordinate-based access
+				// Use VoxelVolume coordinate-based access
 				if (ix >= 0 && iy >= 0 && iz >= 0 && 
 					static_cast<uint32_t>(ix) < static_cast<uint32_t>(nx) && 
 					static_cast<uint32_t>(iy) < static_cast<uint32_t>(ny) && 
@@ -799,7 +799,7 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 	std::vector<float> all_energies;
 	for (const Graph& path : simulator_->paths) {
 		if (path.head) {
-			Vertex* current = path.head;
+			auto current = path.head;
 			while (current) {
 				float energy = static_cast<float>(current->value);
 				if (energy > 0.0f) {
@@ -829,8 +829,8 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 	for (const Graph& path : simulator_->paths) {
 		if (path.head) {
 			// Draw connected line segments with energy gradient exactly like backup
-			Vertex* current = path.head;
-			Vertex* next = current ? current->next : nullptr;
+			auto current = path.head;
+			auto next = current ? current->next : nullptr;
 
 			// Draw physically correct incident ray from source to tissue surface
 			if (current && !simulator_->sources.empty()) {
@@ -951,20 +951,20 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 
 	for (const Graph& path : simulator_->paths) {
 		if (path.head) {
-			Vertex* current = path.head;
+			auto current = path.head;
 			int vertex_count = 0;
 
 			// Count total vertices to identify key points properly
-			Vertex* temp = current;
+			auto temp = current;
 			while (temp) {
 				vertex_count++;
 				temp = temp->next;
 			}
 
 			// Only add markers at specific key points: incident, scatter, exit (user request 2)
-			Vertex* path_current = path.head;
-			Vertex* prev = nullptr;
-			Vertex* next = nullptr;
+			auto path_current = path.head;
+			std::shared_ptr<Vertex> prev = nullptr;
+			std::shared_ptr<Vertex> next = nullptr;
 			int current_index = 0;
 
 			while (path_current) {
@@ -1490,11 +1490,11 @@ void Renderer::cache_energy_labels() {
 	// Collect energy labels from photon paths
 	for (const Graph& path : simulator_->paths) {
 		if (path.head) {
-			Vertex* current = path.head;
+			auto current = path.head;
 			int vertex_count = 0;
 
 			// Count vertices
-			Vertex* temp = current;
+			auto temp = current;
 			while (temp) {
 				vertex_count++;
 				temp = temp->next;

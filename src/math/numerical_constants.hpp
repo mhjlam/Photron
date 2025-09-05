@@ -1,5 +1,7 @@
 #pragma once
 
+#include <numbers>
+
 /**
  * @file numerical_constants.hpp
  * @brief Centralized numerical constants for consistent precision handling across the codebase
@@ -33,7 +35,7 @@ namespace NumericalConstants {
     
     // Mathematical constants
     namespace Math {
-        constexpr double PI = 3.141592653589793238462643383279502884;
+        constexpr double PI = std::numbers::pi;
         constexpr double TWO_PI = 2.0 * PI;
         constexpr double HALF_PI = PI / 2.0;
         constexpr double INV_PI = 1.0 / PI;

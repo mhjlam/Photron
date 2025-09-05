@@ -4,63 +4,16 @@
 #include "triangle.hpp"
 #include "ray.hpp"
 #include "concepts.hpp"
+#include "cuboid.hpp"
 #include <vector>
 #include <memory>
 
 /**
- * Axis-Aligned Bounding Box for BVH nodes
- */
-struct AABB {
-    glm::dvec3 min_point{DBL_MAX};
-    glm::dvec3 max_point{-DBL_MAX};
-    
-    AABB() = default;
-    
-    template<Point3D P>
-    AABB(const P& min_pt, const P& max_pt) noexcept
-        : min_point(min_pt), max_point(max_pt) {}
-    
-    // Expand to include another AABB
-    void expand(const AABB& other) noexcept {
-        min_point = glm::min(min_point, other.min_point);
-        max_point = glm::max(max_point, other.max_point);
-    }
-    
-    // Expand to include a point
-    template<Point3D P>
-    void expand(const P& point) noexcept {
-        min_point = glm::min(min_point, static_cast<glm::dvec3>(point));
-        max_point = glm::max(max_point, static_cast<glm::dvec3>(point));
-    }
-    
-    // Check if ray intersects this AABB
-    [[nodiscard]] bool intersect_ray(const Ray& ray, double& t_min, double& t_max) const;
-    
-    // Check if point is inside AABB
-    template<Point3D P>
-    [[nodiscard]] bool contains(const P& point) const noexcept {
-        return point.x >= min_point.x && point.x <= max_point.x &&
-               point.y >= min_point.y && point.y <= max_point.y &&
-               point.z >= min_point.z && point.z <= max_point.z;
-    }
-    
-    // Get the center of the AABB
-    [[nodiscard]] glm::dvec3 center() const noexcept {
-        return (min_point + max_point) * 0.5;
-    }
-    
-    // Get the surface area (for SAH heuristic)
-    [[nodiscard]] constexpr double surface_area() const noexcept {
-        const auto extent = max_point - min_point;
-        return 2.0 * (extent.x * extent.y + extent.y * extent.z + extent.z * extent.x);
-    }
-};
-
-/**
  * BVH Node - can be either internal or leaf
+ * Uses unified Cuboid class for bounding boxes
  */
 struct BVHNode {
-    AABB bounds;
+    Cuboid bounds;
     std::unique_ptr<BVHNode> left;
     std::unique_ptr<BVHNode> right;
     std::vector<int> triangle_indices; // Only used for leaf nodes
@@ -82,8 +35,8 @@ private:
     // Build the BVH recursively
     std::unique_ptr<BVHNode> build_recursive(std::vector<int>& triangle_indices, int depth = 0);
     
-    // Calculate AABB for a set of triangles
-    [[nodiscard]] AABB calculate_bounds(const std::vector<int>& triangle_indices) const;
+    // Calculate Cuboid bounds for a set of triangles
+    [[nodiscard]] Cuboid calculate_bounds(const std::vector<int>& triangle_indices) const;
     
     // Find best split using Surface Area Heuristic (SAH)
     [[nodiscard]] int find_best_split(std::vector<int>& triangle_indices, int& best_axis) const;

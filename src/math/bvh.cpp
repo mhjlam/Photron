@@ -4,55 +4,6 @@
 #include <limits>
 #include <numeric>
 
-bool AABB::intersect_ray(const Ray& ray, double& t_min, double& t_max) const {
-    // Modern AABB-ray intersection using slab method with consistent epsilon
-    constexpr double EPSILON = 1e-12;
-    
-    const glm::dvec3& ray_origin = ray.origin();
-    const glm::dvec3& ray_dir = ray.direction(); // Use direction directly, no need to normalize for slab test
-    
-    t_min = 0.0;
-    t_max = std::numeric_limits<double>::max();
-    
-    // Test intersection with each axis-aligned slab
-    for (int axis = 0; axis < 3; ++axis) {
-        const double axis_min = min_point[axis];
-        const double axis_max = max_point[axis];
-        const double ray_orig_axis = ray_origin[axis];
-        const double ray_dir_axis = ray_dir[axis];
-        
-        if (std::abs(ray_dir_axis) < EPSILON) {
-            // Ray is parallel to the slab - check if ray origin is within slab bounds
-            if (ray_orig_axis < axis_min || ray_orig_axis > axis_max) {
-                return false;
-            }
-            // Ray is within the slab, continue to next axis
-        } else {
-            // Calculate intersection distances with slab faces
-            const double inv_ray_dir = 1.0 / ray_dir_axis;
-            double t1 = (axis_min - ray_orig_axis) * inv_ray_dir;
-            double t2 = (axis_max - ray_orig_axis) * inv_ray_dir;
-            
-            // Ensure t1 <= t2
-            if (t1 > t2) {
-                std::swap(t1, t2);
-            }
-            
-            // Update intersection interval
-            t_min = std::max(t_min, t1);
-            t_max = std::min(t_max, t2);
-            
-            // Early exit if intervals don't overlap
-            if (t_min > t_max) {
-                return false;
-            }
-        }
-    }
-    
-    // Ray intersects AABB if t_max is non-negative
-    return t_max >= 0.0;
-}
-
 BVH::BVH(const std::vector<Triangle>& triangles) {
     build(triangles);
 }
@@ -114,8 +65,8 @@ std::unique_ptr<BVHNode> BVH::build_recursive(std::vector<int>& triangle_indices
     return node;
 }
 
-AABB BVH::calculate_bounds(const std::vector<int>& triangle_indices) const {
-    AABB bounds;
+Cuboid BVH::calculate_bounds(const std::vector<int>& triangle_indices) const {
+    Cuboid bounds; // Default constructor creates empty bounds ready for expansion
     
     for (int idx : triangle_indices) {
         const Triangle& triangle = triangles_[idx];
@@ -132,8 +83,8 @@ int BVH::find_best_split(std::vector<int>& triangle_indices, int& best_axis) con
     int best_split = triangle_indices.size() / 2; // Default: split in middle
     
     // Simple heuristic: choose the axis with the largest extent
-    AABB total_bounds = calculate_bounds(triangle_indices);
-    glm::dvec3 extent = total_bounds.max_point - total_bounds.min_point;
+    Cuboid total_bounds = calculate_bounds(triangle_indices);
+    glm::dvec3 extent = total_bounds.max_point() - total_bounds.min_point();
     
     if (extent.y > extent.x && extent.y > extent.z) {
         best_axis = 1; // Y axis

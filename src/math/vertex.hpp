@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include "glm_types.hpp"
 
 struct Vertex
@@ -7,9 +8,9 @@ struct Vertex
 	glm::dvec3 position;
 	double value;
 
-	Vertex* prev = nullptr; // previous internal vertex
-	Vertex* next = nullptr; // next internal vertex  
-	Vertex* emit = nullptr; // external vertex
+	std::shared_ptr<Vertex> prev = nullptr; // previous internal vertex
+	std::shared_ptr<Vertex> next = nullptr; // next internal vertex  
+	std::shared_ptr<Vertex> emit = nullptr; // external vertex
 
 	Vertex(double xx, double yy, double zz, double v) noexcept
 		: position(xx, yy, zz), value(v) {

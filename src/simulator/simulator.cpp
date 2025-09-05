@@ -14,7 +14,6 @@
 #include "math/glm_types.hpp"
 #include "math/random.hpp"
 #include "math/ray.hpp"
-#include "math/voxel_volume_calculator.hpp"
 
 constexpr double HALF_PI = std::numbers::pi / 2.0;
 
@@ -36,7 +35,7 @@ Simulator::Simulator() : mcml_random(std::make_shared<Random>()), mcml_weight_th
 	tissues.reserve(5);
 	sources.reserve(5);
 	
-	// VoxelGrid manages its own memory automatically
+	// VoxelVolume manages its own memory automatically
 
 	// Initialize MCML random number generator
 	mcml_random->seed(static_cast<int>(std::time(nullptr)));
@@ -46,26 +45,8 @@ Simulator::Simulator() : mcml_random(std::make_shared<Random>()), mcml_weight_th
  * Simulator destructor.
  ***********************************************************/
 Simulator::~Simulator() {
-	// VoxelGrid automatically cleans up its own memory
-
-	// delete path vertices
-	for (uint32_t i = 0; i < paths.size(); ++i) {
-		Graph path = paths[i];
-		Vertex* item = path.head;
-
-		if (path.head->prev) {
-			delete path.head->prev;
-			path.head->prev = nullptr;
-		}
-
-		while (item) {
-			Vertex* old = item;
-			item = item->next;
-
-			delete old;
-			old = nullptr;
-		}
-	}
+	// VoxelVolume automatically cleans up its own memory
+	// Smart pointers will automatically clean up vertex memory
 }
 
 /***********************************************************
@@ -128,12 +109,7 @@ bool Simulator::parse(const std::string& fconfig) {
 
 	// Clear paths and delete vertices
 	for (auto& path : paths) {
-		Vertex* current = path.head;
-		while (current) {
-			Vertex* next = current->next;
-			delete current;
-			current = next;
-		}
+		// Smart pointers will automatically clean up when cleared
 	}
 	paths.clear();
 
@@ -155,7 +131,7 @@ bool Simulator::parse(const std::string& fconfig) {
  * Initialize the voxel grid.
  ***********************************************************/
 bool Simulator::initialize_grid() {
-	// VoxelGrid will be initialized after we calculate the bounds and dimensions
+	// VoxelVolume will be initialized after we calculate the bounds and dimensions
 
 	// Initialize bounds to extreme values for proper min/max calculation
 	bounds.min_bounds = glm::dvec3(DBL_MAX);
@@ -224,7 +200,7 @@ bool Simulator::initialize_grid() {
 	}
 
 	// Initialize the voxel grid with proper dimensions
-	voxel_grid = VoxelGrid(config.vox_size(), config.nx(), config.ny(), config.nz());
+	voxel_grid = VoxelVolume(config.vox_size(), config.nx(), config.ny(), config.nz());
 
 	return true;
 }
@@ -429,20 +405,20 @@ bool Simulator::voxelize_layers() {
 							voxel->is_boundary_voxel = false;
 						} else {
 							// Partial voxel - compute accurate volume fractions
-							voxel->volume_fraction_inside = VoxelVolumeCalculator::compute_volume_fraction_inside_fast(
+							voxel->volume_fraction_inside = voxel_grid.compute_volume_fraction_inside_fast(
 								voxel_min, voxel_max, this, 2);
 							voxel->volume_fraction_outside = 1.0 - voxel->volume_fraction_inside;
 							voxel->is_boundary_voxel = true;
 						}
 					} else if (center_inside) {
 						// Center inside but some corners outside - partial
-						voxel->volume_fraction_inside = VoxelVolumeCalculator::compute_volume_fraction_inside_fast(
+						voxel->volume_fraction_inside = voxel_grid.compute_volume_fraction_inside_fast(
 							voxel_min, voxel_max, this, 2);
 						voxel->volume_fraction_outside = 1.0 - voxel->volume_fraction_inside;
 						voxel->is_boundary_voxel = true;
 					} else {
 						// Only corners inside - partial
-						voxel->volume_fraction_inside = VoxelVolumeCalculator::compute_volume_fraction_inside_fast(
+						voxel->volume_fraction_inside = voxel_grid.compute_volume_fraction_inside_fast(
 							voxel_min, voxel_max, this, 2);
 						voxel->volume_fraction_outside = 1.0 - voxel->volume_fraction_inside;
 						voxel->is_boundary_voxel = true;
@@ -570,9 +546,9 @@ void Simulator::launch(Photon& photon, Source& source) {
 	photon.voxel = voxel_at(photon.position);
 
 	// create vertices for new light path
-	Vertex* light = new Vertex(source.origin, photon.weight);
-	Vertex* intersection = new Vertex(source.intersect, photon.weight);
-	Vertex* reflection = new Vertex(move(source.intersect, source.specular_direction, 0.1), record.specular_reflection);
+	auto light = std::make_shared<Vertex>(source.origin, photon.weight);
+	auto intersection = std::make_shared<Vertex>(source.intersect, photon.weight);
+	auto reflection = std::make_shared<Vertex>(move(source.intersect, source.specular_direction, 0.1), record.specular_reflection);
 
 	light->next = intersection;      // intersection vertex/node
 	intersection->prev = light;      // light source origin
@@ -1073,8 +1049,8 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 	photon.voxel->emittance += effective_weight;
 
 	// add regular vertex that stops at boundary
-	paths.back().add_internal_vertex(new Vertex(photon.intersect, weight));
-	paths.back().add_external_vertex(new Vertex(move(photon.intersect, direction, 0.1), weight));
+	paths.back().add_internal_vertex(std::make_shared<Vertex>(photon.intersect, weight));
+	paths.back().add_external_vertex(std::make_shared<Vertex>(move(photon.intersect, direction, 0.1), weight));
 	metrics.add_vertex(photon.intersect.x, photon.intersect.y, photon.intersect.z);
 
 	// add emitter at this position
@@ -1140,7 +1116,7 @@ void Simulator::scatter(Photon& photon) {
 	metrics.increment_scatters();
 
 	// add new internal position to path
-	paths.back().add_internal_vertex(new Vertex(photon.position, photon.weight));
+	paths.back().add_internal_vertex(std::make_shared<Vertex>(photon.position, photon.weight));
 }
 
 /***********************************************************
@@ -1293,7 +1269,7 @@ Voxel* Simulator::voxel_at(glm::dvec3& position) {
 		iz = config.nz() - 1;
 	}
 
-	// retrieve the voxel at the position using the VoxelGrid
+	// retrieve the voxel at the position using the VoxelVolume
 	if (!voxel_grid.is_valid_coordinate(ix, iy, iz)) {
 		return nullptr;
 	}
