@@ -461,7 +461,7 @@ void Renderer::draw_voxels(const Settings& settings) {
 	for (int iz = 0; iz < nz; iz++) {
 		for (int iy = 0; iy < ny; iy++) {
 			for (int ix = 0; ix < nx; ix++) {
-				// Use VoxelVolume coordinate-based access instead of linear indexing
+				// Use Volume coordinate-based access instead of linear indexing
 				if (ix >= 0 && iy >= 0 && iz >= 0 && 
 					static_cast<uint32_t>(ix) < static_cast<uint32_t>(nx) && 
 					static_cast<uint32_t>(iy) < static_cast<uint32_t>(ny) && 
@@ -519,7 +519,7 @@ void Renderer::draw_voxels(const Settings& settings) {
 	for (int iz = 0; iz < nz; iz++) {
 		for (int iy = 0; iy < ny; iy++) {
 			for (int ix = 0; ix < nx; ix++) {
-				// Use VoxelVolume coordinate-based access
+				// Use Volume coordinate-based access
 				if (ix >= 0 && iy >= 0 && iz >= 0 && 
 					static_cast<uint32_t>(ix) < static_cast<uint32_t>(nx) && 
 					static_cast<uint32_t>(iy) < static_cast<uint32_t>(ny) && 
@@ -797,7 +797,7 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 
 	// First pass: analyze energy distribution for adaptive logarithmic mapping
 	std::vector<float> all_energies;
-	for (const Graph& path : simulator_->paths) {
+	for (const PhotonPath& path : simulator_->paths) {
 		if (path.head) {
 			auto current = path.head;
 			while (current) {
@@ -826,7 +826,7 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 	// Draw photon path histories with adaptive energy-based coloring
 	begin_lines();
 
-	for (const Graph& path : simulator_->paths) {
+	for (const PhotonPath& path : simulator_->paths) {
 		if (path.head) {
 			// Draw connected line segments with energy gradient exactly like backup
 			auto current = path.head;
@@ -949,7 +949,7 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 	// Draw scatter/interaction markers with better visualization (user feedback)
 	begin_points();
 
-	for (const Graph& path : simulator_->paths) {
+	for (const PhotonPath& path : simulator_->paths) {
 		if (path.head) {
 			auto current = path.head;
 			int vertex_count = 0;
@@ -963,8 +963,8 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 
 			// Only add markers at specific key points: incident, scatter, exit (user request 2)
 			auto path_current = path.head;
-			std::shared_ptr<Vertex> prev = nullptr;
-			std::shared_ptr<Vertex> next = nullptr;
+			std::shared_ptr<PhotonNode> prev = nullptr;
+			std::shared_ptr<PhotonNode> next = nullptr;
 			int current_index = 0;
 
 			while (path_current) {
@@ -1488,7 +1488,7 @@ void Renderer::cache_energy_labels() {
 		return;
 
 	// Collect energy labels from photon paths
-	for (const Graph& path : simulator_->paths) {
+	for (const PhotonPath& path : simulator_->paths) {
 		if (path.head) {
 			auto current = path.head;
 			int vertex_count = 0;

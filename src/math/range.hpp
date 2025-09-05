@@ -1,13 +1,6 @@
 #pragma once
 
-#include <cmath>
-#include <concepts>
-
-#include "glm_types.hpp"
-
-// C++20 concept for arithmetic types
-template<typename T>
-concept Arithmetic = std::is_arithmetic_v<T>;
+#include "math.hpp"
 
 // Simple templated range class with C++20 concepts
 template<int N, Arithmetic T = double>
@@ -18,8 +11,8 @@ struct Range
 		N == 1, T,
 		std::conditional_t<N == 2, glm::vec<2, T>, std::conditional_t<N == 3, glm::vec<3, T>, glm::vec<4, T>>>>;
 
-	VecType min_bounds{T(0)};
-	VecType max_bounds{T(0)};
+	VecType min_bounds {T(0)};
+	VecType max_bounds {T(0)};
 
 	// Default constructor uses default member initialization
 	Range() = default;

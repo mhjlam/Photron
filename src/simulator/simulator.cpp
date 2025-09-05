@@ -11,7 +11,7 @@
 #include <numbers>
 #include <sstream>
 
-#include "math/glm_types.hpp"
+#include "math/math.hpp"
 #include "math/random.hpp"
 #include "math/ray.hpp"
 
@@ -27,15 +27,15 @@ Simulator::Simulator() : mcml_random(std::make_shared<Random>()), mcml_weight_th
 	photons.clear();
 	tissues.clear();
 	sources.clear();
-	
+
 	// Reserve space for common use cases
 	paths.reserve(1000);
 	photons.reserve(10000);
 	layers.reserve(10);
 	tissues.reserve(5);
 	sources.reserve(5);
-	
-	// VoxelVolume manages its own memory automatically
+
+	// Volume manages its own memory automatically
 
 	// Initialize MCML random number generator
 	mcml_random->seed(static_cast<int>(std::time(nullptr)));
@@ -45,7 +45,7 @@ Simulator::Simulator() : mcml_random(std::make_shared<Random>()), mcml_weight_th
  * Simulator destructor.
  ***********************************************************/
 Simulator::~Simulator() {
-	// VoxelVolume automatically cleans up its own memory
+	// Volume automatically cleans up its own memory
 	// Smart pointers will automatically clean up vertex memory
 }
 
@@ -106,11 +106,6 @@ bool Simulator::parse(const std::string& fconfig) {
 	tissues.clear();
 	sources.clear();
 	photons.clear();
-
-	// Clear paths and delete vertices
-	for (auto& path : paths) {
-		// Smart pointers will automatically clean up when cleared
-	}
 	paths.clear();
 
 	// Use Config class to parse the entire configuration file
@@ -131,7 +126,7 @@ bool Simulator::parse(const std::string& fconfig) {
  * Initialize the voxel grid.
  ***********************************************************/
 bool Simulator::initialize_grid() {
-	// VoxelVolume will be initialized after we calculate the bounds and dimensions
+	// Volume will be initialized after we calculate the bounds and dimensions
 
 	// Initialize bounds to extreme values for proper min/max calculation
 	bounds.min_bounds = glm::dvec3(DBL_MAX);
@@ -173,7 +168,7 @@ bool Simulator::initialize_grid() {
 
 	// Get the size vector and extract individual dimensions
 	auto size_vec = bounds.size();
-	
+
 	// number of voxels in each dimension (as float)
 	float nx = static_cast<float>(size_vec.x / config.vox_size());
 	float ny = static_cast<float>(size_vec.y / config.vox_size());
@@ -189,8 +184,7 @@ bool Simulator::initialize_grid() {
 						  * static_cast<uint64_t>(config.nz()));
 
 	// check for voxel sizes that are too large
-	if (config.vox_size() > size_vec.x || config.vox_size() > size_vec.y
-		|| config.vox_size() > size_vec.z) {
+	if (config.vox_size() > size_vec.x || config.vox_size() > size_vec.y || config.vox_size() > size_vec.z) {
 		return false;
 	}
 
@@ -200,7 +194,7 @@ bool Simulator::initialize_grid() {
 	}
 
 	// Initialize the voxel grid with proper dimensions
-	voxel_grid = VoxelVolume(config.vox_size(), config.nx(), config.ny(), config.nz());
+	voxel_grid = Volume(config.vox_size(), config.nx(), config.ny(), config.nz());
 
 	return true;
 }
@@ -286,18 +280,19 @@ bool Simulator::initialize_data() {
 bool Simulator::voxelize_layers() {
 	// Use point-in-mesh testing for each voxel center
 	// This is more accurate than ray-casting for complex geometries
-	
+
 	uint32_t nx = config.nx();
-	uint32_t ny = config.ny(); 
+	uint32_t ny = config.ny();
 	uint32_t nz = config.nz();
 	double vox_size = config.vox_size();
-	double half_vox_size = vox_size * 0.5;
 
 	std::cout << "Voxelizing geometry using point-containment method..." << std::endl;
-	std::cout << "Grid dimensions: " << nx << "x" << ny << "x" << nz << " (total: " << (nx*ny*nz) << " voxels)" << std::endl;
+	std::cout << "Grid dimensions: " << nx << "x" << ny << "x" << nz << " (total: " << (nx * ny * nz) << " voxels)"
+			  << std::endl;
 	std::cout << "Voxel size: " << vox_size << std::endl;
-	std::cout << "Grid bounds: min(" << bounds.min_bounds.x << "," << bounds.min_bounds.y << "," << bounds.min_bounds.z 
-			  << ") max(" << bounds.max_bounds.x << "," << bounds.max_bounds.y << "," << bounds.max_bounds.z << ")" << std::endl;
+	std::cout << "Grid bounds: min(" << bounds.min_bounds.x << "," << bounds.min_bounds.y << "," << bounds.min_bounds.z
+			  << ") max(" << bounds.max_bounds.x << "," << bounds.max_bounds.y << "," << bounds.max_bounds.z << ")"
+			  << std::endl;
 
 	int total_voxels_assigned = 0;
 	int partial_voxels = 0;
@@ -306,24 +301,20 @@ bool Simulator::voxelize_layers() {
 		for (uint32_t iy = 0; iy < ny; iy++) {
 			for (uint32_t ix = 0; ix < nx; ix++) {
 				// Calculate voxel center in world coordinates
-				glm::dvec3 voxel_center = glm::dvec3(
-					bounds.min_bounds.x + (ix + 0.5) * vox_size,
-					bounds.min_bounds.y + (iy + 0.5) * vox_size, 
-					bounds.min_bounds.z + (iz + 0.5) * vox_size
-				);
+				glm::dvec3 voxel_center =
+					glm::dvec3(bounds.min_bounds.x + (ix + 0.5) * vox_size, bounds.min_bounds.y + (iy + 0.5) * vox_size,
+							   bounds.min_bounds.z + (iz + 0.5) * vox_size);
 
 				// Calculate voxel corners to check for partial intersection
-				glm::dvec3 voxel_min = glm::dvec3(
-					bounds.min_bounds.x + ix * vox_size,
-					bounds.min_bounds.y + iy * vox_size,
-					bounds.min_bounds.z + iz * vox_size
-				);
+				glm::dvec3 voxel_min =
+					glm::dvec3(bounds.min_bounds.x + ix * vox_size, bounds.min_bounds.y + iy * vox_size,
+							   bounds.min_bounds.z + iz * vox_size);
 				glm::dvec3 voxel_max = voxel_min + glm::dvec3(vox_size);
 
 				// Check if voxel intersects with geometry
 				bool center_inside = false;
 				bool any_corner_inside = false;
-				
+
 				// Test center and corners
 				for (const auto& layer : layers) {
 					if (is_point_inside_layer_mesh(voxel_center, layer)) {
@@ -331,19 +322,17 @@ bool Simulator::voxelize_layers() {
 						break;
 					}
 				}
-				
+
 				// Test corners to detect partial intersection
-				std::vector<glm::dvec3> corners = {
-					voxel_min,
-					{voxel_max.x, voxel_min.y, voxel_min.z},
-					{voxel_min.x, voxel_max.y, voxel_min.z},
-					{voxel_max.x, voxel_max.y, voxel_min.z},
-					{voxel_min.x, voxel_min.y, voxel_max.z},
-					{voxel_max.x, voxel_min.y, voxel_max.z},
-					{voxel_min.x, voxel_max.y, voxel_max.z},
-					voxel_max
-				};
-				
+				std::vector<glm::dvec3> corners = {voxel_min,
+												   {voxel_max.x, voxel_min.y, voxel_min.z},
+												   {voxel_min.x, voxel_max.y, voxel_min.z},
+												   {voxel_max.x, voxel_max.y, voxel_min.z},
+												   {voxel_min.x, voxel_min.y, voxel_max.z},
+												   {voxel_max.x, voxel_min.y, voxel_max.z},
+												   {voxel_min.x, voxel_max.y, voxel_max.z},
+												   voxel_max};
+
 				for (const auto& corner : corners) {
 					for (const auto& layer : layers) {
 						if (is_point_inside_layer_mesh(corner, layer)) {
@@ -351,13 +340,14 @@ bool Simulator::voxelize_layers() {
 							break;
 						}
 					}
-					if (any_corner_inside) break;
+					if (any_corner_inside)
+						break;
 				}
 
 				// Assign tissue if center is inside OR any corner is inside (partial voxel)
 				if (center_inside || any_corner_inside) {
 					Voxel* voxel = voxel_grid(ix, iy, iz);
-					
+
 					// Find which specific layer contains this voxel (check center point)
 					for (const auto& layer : layers) {
 						if (is_point_inside_layer_mesh(voxel_center, layer)) {
@@ -365,8 +355,8 @@ bool Simulator::voxelize_layers() {
 							break;
 						}
 					}
-					
-					// If center point didn't hit any layer but corners did, 
+
+					// If center point didn't hit any layer but corners did,
 					// use the first layer that contains any corner
 					if (voxel->tissue == nullptr) {
 						for (const auto& corner : corners) {
@@ -376,10 +366,11 @@ bool Simulator::voxelize_layers() {
 									break;
 								}
 							}
-							if (voxel->tissue != nullptr) break;
+							if (voxel->tissue != nullptr)
+								break;
 						}
 					}
-					
+
 					// Compute volume fractions for proper boundary physics
 					if (center_inside && any_corner_inside) {
 						// Check if this is actually a boundary voxel
@@ -397,35 +388,38 @@ bool Simulator::voxelize_layers() {
 								break;
 							}
 						}
-						
+
 						if (all_corners_inside) {
 							// Fully inside
 							voxel->volume_fraction_inside = 1.0;
 							voxel->volume_fraction_outside = 0.0;
 							voxel->is_boundary_voxel = false;
-						} else {
+						}
+						else {
 							// Partial voxel - compute accurate volume fractions
-							voxel->volume_fraction_inside = voxel_grid.compute_volume_fraction_inside_fast(
-								voxel_min, voxel_max, this, 2);
+							voxel->volume_fraction_inside =
+								voxel_grid.compute_volume_fraction_inside_fast(voxel_min, voxel_max, *this, 2);
 							voxel->volume_fraction_outside = 1.0 - voxel->volume_fraction_inside;
 							voxel->is_boundary_voxel = true;
 						}
-					} else if (center_inside) {
+					}
+					else if (center_inside) {
 						// Center inside but some corners outside - partial
-						voxel->volume_fraction_inside = voxel_grid.compute_volume_fraction_inside_fast(
-							voxel_min, voxel_max, this, 2);
-						voxel->volume_fraction_outside = 1.0 - voxel->volume_fraction_inside;
-						voxel->is_boundary_voxel = true;
-					} else {
-						// Only corners inside - partial
-						voxel->volume_fraction_inside = voxel_grid.compute_volume_fraction_inside_fast(
-							voxel_min, voxel_max, this, 2);
+						voxel->volume_fraction_inside =
+							voxel_grid.compute_volume_fraction_inside_fast(voxel_min, voxel_max, *this, 2);
 						voxel->volume_fraction_outside = 1.0 - voxel->volume_fraction_inside;
 						voxel->is_boundary_voxel = true;
 					}
-					
+					else {
+						// Only corners inside - partial
+						voxel->volume_fraction_inside =
+							voxel_grid.compute_volume_fraction_inside_fast(voxel_min, voxel_max, *this, 2);
+						voxel->volume_fraction_outside = 1.0 - voxel->volume_fraction_inside;
+						voxel->is_boundary_voxel = true;
+					}
+
 					total_voxels_assigned++;
-					
+
 					if (voxel->is_boundary_voxel) {
 						partial_voxels++;
 					}
@@ -434,8 +428,8 @@ bool Simulator::voxelize_layers() {
 		}
 	}
 
-	std::cout << "Point-containment voxelization completed. Assigned tissue to " << total_voxels_assigned 
-			  << " voxels (" << partial_voxels << " partial)." << std::endl;
+	std::cout << "Point-containment voxelization completed. Assigned tissue to " << total_voxels_assigned << " voxels ("
+			  << partial_voxels << " partial)." << std::endl;
 	return true;
 }
 
@@ -469,16 +463,18 @@ void Simulator::simulate() {
 
 			while (photons[p].alive) {
 				photon_iteration_counter++;
-		if (photon_iteration_counter > max_photon_iterations) {
-			std::cerr << "Warning: Photon " << photons[p].id << " exceeded maximum iterations, terminating." << std::endl;
-			photons[p].alive = false;
-			break;
-		}				step_size(photon); // Set new step size
+				if (photon_iteration_counter > max_photon_iterations) {
+					std::cerr << "Warning: Photon " << photons[p].id << " exceeded maximum iterations, terminating."
+							  << std::endl;
+					photons[p].alive = false;
+					break;
+				}
+				step_size(photon); // Set new step size
 				transfer(photon);  // Propagate photon through the medium in substeps
 				roulette(photon);  // Determine photon termination
 				scatter(photon);   // Scatter photon into a new direction
 			}
-			
+
 			p++;
 		}
 	}
@@ -502,20 +498,20 @@ void Simulator::simulate_single_photon() {
 		std::cerr << "Error: No light sources available for single photon simulation" << std::endl;
 		return;
 	}
-	
+
 	Source& source = sources[0];
-	
+
 	// Create a new photon with unique ID
 	uint64_t new_photon_id = photons.size();
 	Photon new_photon(new_photon_id);
-	
+
 	// Launch the photon
 	launch(new_photon, source);
-	
+
 	// Safety mechanism to prevent infinite photon loops
 	int photon_iteration_counter = 0;
 	const int max_photon_iterations = 1000000;
-	
+
 	while (new_photon.alive) {
 		photon_iteration_counter++;
 		if (photon_iteration_counter > max_photon_iterations) {
@@ -523,13 +519,13 @@ void Simulator::simulate_single_photon() {
 			new_photon.alive = false;
 			break;
 		}
-		
-		step_size(new_photon);    // Set new step size
-		transfer(new_photon);     // Propagate photon through the medium in substeps
-		roulette(new_photon);     // Determine photon termination
-		scatter(new_photon);      // Scatter photon into a new direction
+
+		step_size(new_photon); // Set new step size
+		transfer(new_photon);  // Propagate photon through the medium in substeps
+		roulette(new_photon);  // Determine photon termination
+		scatter(new_photon);   // Scatter photon into a new direction
 	}
-	
+
 	// Add the completed photon to the photons vector for rendering
 	photons.push_back(new_photon);
 }
@@ -546,16 +542,17 @@ void Simulator::launch(Photon& photon, Source& source) {
 	photon.voxel = voxel_at(photon.position);
 
 	// create vertices for new light path
-	auto light = std::make_shared<Vertex>(source.origin, photon.weight);
-	auto intersection = std::make_shared<Vertex>(source.intersect, photon.weight);
-	auto reflection = std::make_shared<Vertex>(move(source.intersect, source.specular_direction, 0.1), record.specular_reflection);
+	auto light = std::make_shared<PhotonNode>(source.origin, photon.weight);
+	auto intersection = std::make_shared<PhotonNode>(source.intersect, photon.weight);
+	auto reflection = std::make_shared<PhotonNode>(move(source.intersect, source.specular_direction, 0.1),
+												   record.specular_reflection);
 
 	light->next = intersection;      // intersection vertex/node
 	intersection->prev = light;      // light source origin
 	intersection->emit = reflection; // specular reflection
 
 	// use intersection point as head
-	Graph path = Graph(static_cast<long>(photon.id), intersection);
+	PhotonPath path = PhotonPath(static_cast<long>(photon.id), intersection);
 	paths.push_back(path);
 
 	metrics.add_vertex(photon.position.x, photon.position.y, photon.position.z);
@@ -591,7 +588,7 @@ void Simulator::transfer(Photon& photon) {
 	// Safety mechanism to prevent infinite loops
 	int substep_counter = 0;
 	const int max_substeps = 100000;
-	
+
 	while (photon.step >= 1E-10 && photon.alive) {
 		substep_counter++;
 		if (substep_counter > max_substeps) {
@@ -599,7 +596,7 @@ void Simulator::transfer(Photon& photon) {
 			photon.alive = false;
 			break;
 		}
-		
+
 		// set substep - this will handle mesh boundary detection
 		sub_step(photon);
 
@@ -636,12 +633,12 @@ void Simulator::transfer(Photon& photon) {
 void Simulator::sub_step(Photon& photon) {
 	// Get voxel boundaries
 	Cuboid box = voxel_corners(photon.voxel);
-	
+
 	// Check if photon is exactly on a voxel boundary and nudge if necessary
 	constexpr double BOUNDARY_EPSILON = 2e-9; // Increased to handle floating-point precision issues
 	bool on_boundary = false;
 	glm::dvec3 adjusted_position = photon.position;
-	
+
 	// Check each axis for boundary conditions
 	double x_diff_min = std::abs(photon.position.x - box.min_point().x);
 	double x_diff_max = std::abs(photon.position.x - box.max_point().x);
@@ -649,56 +646,65 @@ void Simulator::sub_step(Photon& photon) {
 	double y_diff_max = std::abs(photon.position.y - box.max_point().y);
 	double z_diff_min = std::abs(photon.position.z - box.min_point().z);
 	double z_diff_max = std::abs(photon.position.z - box.max_point().z);
-	
+
 	if (x_diff_min < BOUNDARY_EPSILON) {
 		adjusted_position.x = box.min_point().x + BOUNDARY_EPSILON;
 		on_boundary = true;
-	} else if (x_diff_max < BOUNDARY_EPSILON) {
+	}
+	else if (x_diff_max < BOUNDARY_EPSILON) {
 		adjusted_position.x = box.max_point().x - BOUNDARY_EPSILON;
 		on_boundary = true;
 	}
-	
+
 	if (y_diff_min < BOUNDARY_EPSILON) {
 		adjusted_position.y = box.min_point().y + BOUNDARY_EPSILON;
 		on_boundary = true;
-	} else if (y_diff_max < BOUNDARY_EPSILON) {
+	}
+	else if (y_diff_max < BOUNDARY_EPSILON) {
 		adjusted_position.y = box.max_point().y - BOUNDARY_EPSILON;
 		on_boundary = true;
 	}
-	
+
 	if (z_diff_min < BOUNDARY_EPSILON) {
 		adjusted_position.z = box.min_point().z + BOUNDARY_EPSILON;
 		on_boundary = true;
-	} else if (z_diff_max < BOUNDARY_EPSILON) {
+	}
+	else if (z_diff_max < BOUNDARY_EPSILON) {
 		adjusted_position.z = box.max_point().z - BOUNDARY_EPSILON;
 		on_boundary = true;
 	}
-	
+
 	// Create ray from (possibly adjusted) photon position and direction
 	Ray ray = Ray(adjusted_position, photon.direction);
-	
+
 	double voxdist = ray.intersect_cuboid_internal(box, photon.intersect, photon.voxel_normal);
 
 	// Check if no voxel intersections were found
 	if (voxdist == std::numeric_limits<double>::max()) {
 		std::cerr << "Critical error: ray-voxel intersection test failed." << std::endl;
-		std::cerr << "  Ray origin: " << ray.origin().x << ", " << ray.origin().y << ", " << ray.origin().z << std::endl;
-		std::cerr << "  Ray direction: " << ray.direction().x << ", " << ray.direction().y << ", " << ray.direction().z << std::endl;
+		std::cerr << "  Ray origin: " << ray.origin().x << ", " << ray.origin().y << ", " << ray.origin().z
+				  << std::endl;
+		std::cerr << "  Ray direction: " << ray.direction().x << ", " << ray.direction().y << ", " << ray.direction().z
+				  << std::endl;
 		std::cerr << "  Ray direction length: " << glm::length(ray.direction()) << std::endl;
-		std::cerr << "  Voxel bounds: min(" << box.min_point().x << ", " << box.min_point().y << ", " << box.min_point().z 
-		          << ") max(" << box.max_point().x << ", " << box.max_point().y << ", " << box.max_point().z << ")" << std::endl;
-		std::cerr << "  Photon position: (" << photon.position.x << ", " << photon.position.y << ", " << photon.position.z << ")" << std::endl;
+		std::cerr << "  Voxel bounds: min(" << box.min_point().x << ", " << box.min_point().y << ", "
+				  << box.min_point().z << ") max(" << box.max_point().x << ", " << box.max_point().y << ", "
+				  << box.max_point().z << ")" << std::endl;
+		std::cerr << "  Photon position: (" << photon.position.x << ", " << photon.position.y << ", "
+				  << photon.position.z << ")" << std::endl;
 		if (on_boundary) {
 			std::cerr << "  Boundary condition detected and position adjusted." << std::endl;
-			std::cerr << "  Original position: (" << photon.position.x << ", " << photon.position.y << ", " << photon.position.z << ")" << std::endl;
-			std::cerr << "  Adjusted position: (" << adjusted_position.x << ", " << adjusted_position.y << ", " << adjusted_position.z << ")" << std::endl;
+			std::cerr << "  Original position: (" << photon.position.x << ", " << photon.position.y << ", "
+					  << photon.position.z << ")" << std::endl;
+			std::cerr << "  Adjusted position: (" << adjusted_position.x << ", " << adjusted_position.y << ", "
+					  << adjusted_position.z << ")" << std::endl;
 		}
 		std::cerr << "  Photon step: " << photon.step << std::endl;
 		std::cerr << "  Photon weight: " << photon.weight << std::endl;
-		
+
 		// Instead of crashing, try to handle this gracefully
 		std::cerr << "  Attempting graceful recovery..." << std::endl;
-		
+
 		// Terminate this photon instead of crashing the entire program
 		photon.alive = false;
 		photon.sub_step = 0.0;
@@ -711,7 +717,7 @@ void Simulator::sub_step(Photon& photon) {
 
 	// Check if photon is currently inside the mesh
 	bool photon_inside_mesh = is_point_inside_geometry(photon.position);
-	
+
 	if (!photon_inside_mesh) {
 		// Photon is outside mesh - it should have exited already
 		photon.alive = false;
@@ -720,8 +726,8 @@ void Simulator::sub_step(Photon& photon) {
 
 	// Find the closest mesh boundary intersection
 	double mesh_dist = std::numeric_limits<double>::max();
-	glm::dvec3 mesh_intersection;
-	glm::dvec3 mesh_normal;
+	glm::dvec3 mesh_intersection {0.0, 0.0, 0.0};
+	glm::dvec3 mesh_normal {0.0, 0.0, 0.0};
 	bool found_mesh_intersection = false;
 
 	// Look for exit points from the mesh
@@ -729,10 +735,10 @@ void Simulator::sub_step(Photon& photon) {
 		for (const auto& triangle : layer.mesh) {
 			Triangle triangle_copy = triangle;
 			glm::dvec3 intersection;
-			
+
 			if (ray.intersect_triangle(triangle_copy, intersection)) {
 				double dist = glm::distance(photon.position, intersection);
-				
+
 				// Only consider intersections that are forward and reasonably close
 				if (dist > 1e-10 && dist < mesh_dist) {
 					// Check if this intersection would take us outside the mesh
@@ -777,7 +783,7 @@ void Simulator::deposit(Photon& photon) {
 	if (!photon.voxel || !photon.voxel->tissue) {
 		return;
 	}
-	
+
 	// For boundary voxels, only deposit in the portion that's inside the geometry
 	double effective_volume_fraction = 1.0;
 	if (photon.voxel->is_boundary_voxel) {
@@ -788,7 +794,8 @@ void Simulator::deposit(Photon& photon) {
 		}
 		// Scale absorption by the volume fraction inside
 		effective_volume_fraction = photon.voxel->volume_fraction_inside;
-	} else {
+	}
+	else {
 		// Also check if photon is actually inside the geometry for non-boundary voxels
 		if (!is_point_inside_geometry(photon.position)) {
 			return;
@@ -833,7 +840,7 @@ void Simulator::cross(Photon& photon) {
 	// Additional check: if photon is outside geometry, it should exit
 	glm::dvec3 next_position = move(photon.position, photon.direction, photon.sub_step);
 	bool next_in_geometry = is_point_inside_geometry(next_position);
-	
+
 	if (!next_in_geometry) {
 		// Photon is exiting the medium - ensure intersect point is correct
 		// If photon.intersect wasn't set by mesh detection, compute the actual exit point
@@ -841,19 +848,19 @@ void Simulator::cross(Photon& photon) {
 		if (current_in_geometry) {
 			// Find the exact exit point by intersecting with geometry
 			Ray exit_ray(photon.position, photon.direction);
-			glm::dvec3 true_exit_point;
+			glm::dvec3 true_exit_point {0.0, 0.0, 0.0};
 			bool found_exit = false;
 			double min_exit_dist = std::numeric_limits<double>::max();
-			
+
 			// Find closest geometry exit
 			for (const auto& layer : layers) {
 				for (const auto& triangle : layer.mesh) {
 					Triangle triangle_copy = triangle;
 					glm::dvec3 intersection;
-					
+
 					if (exit_ray.intersect_triangle(triangle_copy, intersection)) {
 						double dist = glm::distance(photon.position, intersection);
-						
+
 						if (dist > 1e-10 && dist < min_exit_dist) {
 							// Verify this intersection takes us outside
 							glm::dvec3 test_point = intersection + photon.direction * 1e-6;
@@ -866,25 +873,27 @@ void Simulator::cross(Photon& photon) {
 					}
 				}
 			}
-			
+
 			// Use the correct exit point
 			if (found_exit) {
 				photon.intersect = true_exit_point;
-			} else {
+			}
+			else {
 				// Fallback: interpolate to geometry boundary
 				photon.intersect = photon.position + photon.direction * (photon.sub_step * 0.999);
 			}
-		} else {
+		}
+		else {
 			// Photon is already outside - this shouldn't happen
 			photon.intersect = photon.position;
 		}
-		
+
 		// Photon is exiting the medium - handle as ambient medium crossing
 		double eta = config.ambient_eta();
 		glm::dvec3 transmittance, reflectance;
-		
+
 		double reflection = internal_reflection(photon, eta, transmittance, reflectance);
-		
+
 		if (reflection == 0.0) {
 			// Total transmission - photon exits
 			photon.direction = transmittance;
@@ -1036,21 +1045,22 @@ void Simulator::cross(Photon& photon) {
  * the material.
  ***********************************************************/
 void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
-	if (!photon.voxel) return;
-	
+	if (!photon.voxel)
+		return;
+
 	// For boundary voxels, only record emittance in the portion that's outside the geometry
 	double effective_weight = weight;
 	if (photon.voxel->is_boundary_voxel) {
 		// Scale emittance by the volume fraction outside
 		effective_weight = weight * photon.voxel->volume_fraction_outside;
 	}
-	
+
 	// set voxel emittance (scaled for boundary voxels)
 	photon.voxel->emittance += effective_weight;
 
 	// add regular vertex that stops at boundary
-	paths.back().add_internal_vertex(std::make_shared<Vertex>(photon.intersect, weight));
-	paths.back().add_external_vertex(std::make_shared<Vertex>(move(photon.intersect, direction, 0.1), weight));
+	paths.back().add_internal_vertex(std::make_shared<PhotonNode>(photon.intersect, weight));
+	paths.back().add_external_vertex(std::make_shared<PhotonNode>(move(photon.intersect, direction, 0.1), weight));
 	metrics.add_vertex(photon.intersect.x, photon.intersect.y, photon.intersect.z);
 
 	// add emitter at this position
@@ -1116,7 +1126,7 @@ void Simulator::scatter(Photon& photon) {
 	metrics.increment_scatters();
 
 	// add new internal position to path
-	paths.back().add_internal_vertex(std::make_shared<Vertex>(photon.position, photon.weight));
+	paths.back().add_internal_vertex(std::make_shared<PhotonNode>(photon.position, photon.weight));
 }
 
 /***********************************************************
@@ -1190,14 +1200,14 @@ double Simulator::internal_reflection(Photon& photon, double& eta_t, glm::dvec3&
 	double eta_i = photon.voxel->tissue->eta;
 	double eta_ratio = eta_t / eta_i;
 	double eta_ratio_sq = eta_ratio * eta_ratio;
-	
+
 	// Use dot product with proper normalization
 	double cos_i = std::abs(glm::dot(glm::normalize(photon.direction), glm::normalize(photon.voxel_normal)));
-	cos_i = std::clamp(cos_i, 0.0, 1.0);  // Ensure valid range
-	
+	cos_i = std::clamp(cos_i, 0.0, 1.0); // Ensure valid range
+
 	double sin_i_sq = 1.0 - cos_i * cos_i;
 	double sin_t_sq = eta_ratio_sq * sin_i_sq;
-	
+
 	// Total internal reflection check with numerical tolerance
 	if (sin_t_sq >= 1.0 - 1e-12) {
 		// Total internal reflection
@@ -1207,35 +1217,35 @@ double Simulator::internal_reflection(Photon& photon, double& eta_t, glm::dvec3&
 		transmittance = glm::dvec3(0.0); // No transmission
 		return 1.0;
 	}
-	
+
 	// Calculate transmission angle with numerical stability
 	double cos_t = std::sqrt(std::max(0.0, 1.0 - sin_t_sq));
-	
+
 	// Fresnel equations for s and p polarizations
 	double r_s_num = eta_i * cos_i - eta_t * cos_t;
 	double r_s_den = eta_i * cos_i + eta_t * cos_t;
 	double r_p_num = eta_t * cos_i - eta_i * cos_t;
 	double r_p_den = eta_t * cos_i + eta_i * cos_t;
-	
+
 	// Avoid division by zero
 	double r_s = (std::abs(r_s_den) > 1e-12) ? (r_s_num * r_s_num) / (r_s_den * r_s_den) : 1.0;
 	double r_p = (std::abs(r_p_den) > 1e-12) ? (r_p_num * r_p_num) / (r_p_den * r_p_den) : 1.0;
-	
+
 	double reflection = 0.5 * (r_s + r_p);
 	reflection = std::clamp(reflection, 0.0, 1.0);
-	
+
 	// Calculate transmission and reflection directions using vector operations
 	glm::dvec3 normal = glm::normalize(photon.voxel_normal);
 	glm::dvec3 incident = glm::normalize(photon.direction);
-	
+
 	// Transmission direction (Snell's law in vector form)
 	transmittance = eta_ratio * incident + (eta_ratio * cos_i - cos_t) * normal;
 	transmittance = glm::normalize(transmittance);
-	
+
 	// Reflection direction
 	reflectance = incident - 2.0 * glm::dot(incident, normal) * normal;
 	reflectance = glm::normalize(reflectance);
-	
+
 	return reflection;
 }
 
@@ -1269,11 +1279,11 @@ Voxel* Simulator::voxel_at(glm::dvec3& position) {
 		iz = config.nz() - 1;
 	}
 
-	// retrieve the voxel at the position using the VoxelVolume
+	// retrieve the voxel at the position using the Volume
 	if (!voxel_grid.is_valid_coordinate(ix, iy, iz)) {
 		return nullptr;
 	}
-	
+
 	Voxel* voxel = voxel_grid(ix, iy, iz);
 
 	// if voxel does not have a tissue, it is outside the medium
@@ -1510,15 +1520,16 @@ void Simulator::report() {
 
 void Simulator::generate_step_size(Photon& photon) {
 	// Modern Beer-Lambert law implementation with improved numerical stability
-	if (photon.step < 1e-12) {  // Higher precision threshold
+	if (photon.step < 1e-12) { // Higher precision threshold
 		double rnd;
 		// More robust zero-avoidance for random number generation
 		// Use std::numeric_limits for better precision handling
 		constexpr double min_random = std::numeric_limits<double>::epsilon();
 		do {
 			rnd = mcml_random->next();
-		} while (rnd <= min_random);
-		
+		}
+		while (rnd <= min_random);
+
 		// Use high-precision logarithm for step size calculation
 		photon.step = -std::log(rnd);
 	}
@@ -1558,26 +1569,20 @@ void Simulator::scatter_photon(Photon& photon, const Tissue& tissue) {
 	// Modernized direction update using GLM vector operations and rotation matrices
 	// This replaces the manual coordinate transformation with more robust methods
 	glm::dvec3 old_direction = photon.direction;
-	
+
 	// Use Rodrigues' rotation formula for more stable direction update
 	if (std::abs(old_direction.z) > 0.99999) {
 		// Special case: nearly aligned with z-axis - use direct coordinate assignment
-		photon.direction = glm::dvec3(
-			sin_theta * cos_phi,
-			sin_theta * sin_phi,
-			cos_theta * (old_direction.z > 0 ? 1.0 : -1.0)
-		);
+		photon.direction =
+			glm::dvec3(sin_theta * cos_phi, sin_theta * sin_phi, cos_theta * (old_direction.z > 0 ? 1.0 : -1.0));
 	}
 	else {
 		// General case: Use stable rotation about axis perpendicular to incident direction
 		// Create orthonormal basis vectors
-		glm::dvec3 w = old_direction;  // incident direction
-		glm::dvec3 u = glm::normalize(glm::cross(
-			std::abs(w.z) < 0.9 ? glm::dvec3(0, 0, 1) : glm::dvec3(1, 0, 0), 
-			w
-		));
+		glm::dvec3 w = old_direction; // incident direction
+		glm::dvec3 u = glm::normalize(glm::cross(std::abs(w.z) < 0.9 ? glm::dvec3(0, 0, 1) : glm::dvec3(1, 0, 0), w));
 		glm::dvec3 v = glm::cross(w, u);
-		
+
 		// Construct scattered direction in local coordinate system
 		photon.direction = sin_theta * cos_phi * u + sin_theta * sin_phi * v + cos_theta * w;
 	}
@@ -1596,7 +1601,7 @@ void Simulator::roulette_photon(Photon& photon) {
 		// This is more efficient than fixed 10% survival rate
 		double survival_probability = std::max(0.1, photon.weight / mcml_weight_threshold);
 		survival_probability = std::min(survival_probability, 0.5); // Cap at 50% for stability
-		
+
 		if (mcml_random->next() <= survival_probability) {
 			// Survive with proper weight normalization
 			photon.weight /= survival_probability;
@@ -1638,15 +1643,15 @@ void Simulator::reset_simulation_data() {
 bool Simulator::is_point_inside_geometry(const glm::dvec3& point) const {
 	// Test if the point is inside any layer's geometry
 	for (const auto& layer : layers) {
-		if (layer.geometry.contains(point)) {
+		if (layer.contains_point(point)) {
 			return true;
 		}
 	}
-	
+
 	return false;
 }
 
 bool Simulator::is_point_inside_layer_mesh(const glm::dvec3& point, const Layer& layer) const {
-	// Use the MeshGeometry's containment test
-	return layer.geometry.contains(point);
+	// Use the Layer's containment test
+	return layer.contains_point(point);
 }

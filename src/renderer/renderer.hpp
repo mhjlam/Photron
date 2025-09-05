@@ -142,16 +142,16 @@ private:
 		glm::vec3 world_position;
 		std::string text;
 		glm::vec4 color;
-		float scale = 1.0f;
+		float scale {1.0f};
 		glm::vec2 screen_position;          // Cached screen position
-		bool screen_position_valid = false; // Whether screen position is current
+		bool screen_position_valid {false}; // Whether screen position is current
 	};
 
 	// OpenGL resources for shader-based rendering
-	GLuint line_vao_ = 0, line_vbo_ = 0;
-	GLuint point_vao_ = 0, point_vbo_ = 0;
-	GLuint triangle_vao_ = 0, triangle_vbo_ = 0;
-	GLuint line_shader_program_ = 0, point_shader_program_ = 0, triangle_shader_program_ = 0;
+	GLuint line_vao_ {0}, line_vbo_ {0};
+	GLuint point_vao_ {0}, point_vbo_ {0};
+	GLuint triangle_vao_ {0}, triangle_vbo_ {0};
+	GLuint line_shader_program_ {0}, point_shader_program_ {0}, triangle_shader_program_ {0};
 
 	// Vertex data containers
 	std::vector<LineVertex> line_vertices_;
@@ -160,40 +160,40 @@ private:
 
 	// Camera system
 	Camera camera_;
-	bool is_arc_camera_mode_ = true; // true for Orbit mode, false for Free mode
+	bool is_arc_camera_mode_ {true}; // true for Orbit mode, false for Free mode
 
 	Settings settings_;
-	int viewport_width_ = 800;
-	int viewport_height_ = 600;
+	int viewport_width_ {800};
+	int viewport_height_ {600};
 
 	// Text rendering callback for ImGui-based text display
 	std::function<void(const std::string&, float, float, const glm::vec4&)> text_render_callback_;
 
 	// Cached energy labels (computed once when simulation updates)
 	std::vector<EnergyLabel> cached_energy_labels_;
-	bool energy_labels_cached_ = false;
+	bool energy_labels_cached_ {false};
 
 	// Camera state tracking for label position updates
 	glm::vec3 last_camera_position_;
 	float last_camera_distance_;
 	float last_camera_azimuth_;
 	float last_camera_elevation_;
-	bool camera_state_changed_ = true;
+	bool camera_state_changed_ {true};
 
 	// Key state tracking for smooth movement
 	struct KeyState
 	{
-		bool w_pressed = false;
-		bool a_pressed = false;
-		bool s_pressed = false;
-		bool d_pressed = false;
-		bool q_pressed = false;
-		bool e_pressed = false;
+		bool w_pressed {false};
+		bool a_pressed {false};
+		bool s_pressed {false};
+		bool d_pressed {false};
+		bool q_pressed {false};
+		bool e_pressed {false};
 	} key_state_;
 
 	// Callback for camera mode changes
 	std::function<void(bool)> camera_mode_change_callback_;
 
 	// Keep reference to current simulator
-	Simulator* simulator_ = nullptr;
+	Simulator* simulator_ {nullptr};
 };

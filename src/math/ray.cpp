@@ -4,8 +4,8 @@
 #include <limits>
 
 #include "cuboid.hpp"
+#include "simulator/layer.hpp"
 #include "triangle.hpp"
-#include "../simulator/layer.hpp"
 
 Ray::Ray(const glm::dvec3& origin, const glm::dvec3& direction, bool normalize) :
 	origin_(origin), direction_(direction) {
@@ -29,7 +29,7 @@ void Ray::set_direction(const glm::dvec3& direction, bool normalize) {
 bool Ray::intersect_triangle(Triangle& triangle, glm::dvec3& intersection) const {
 	// Use consistent epsilon throughout the system
 	constexpr double EPSILON = 1e-12;
-	
+
 	// Get triangle vertices
 	const glm::dvec3 vert0 = triangle.v0();
 	const glm::dvec3 vert1 = triangle.v1();
@@ -92,10 +92,10 @@ std::pair<bool, glm::dvec3> Ray::intersect_triangle(Triangle& triangle) const {
  ***********************************************************/
 bool Ray::intersect_plane(const glm::dvec3& normal, const glm::dvec3& point, glm::dvec3& intersection) const noexcept {
 	constexpr double EPSILON = 1e-12;
-	
+
 	// Ensure normal is normalized for accurate calculations
 	const glm::dvec3 norm = glm::normalize(normal);
-	
+
 	// Calculate denominator (ray direction dot normal)
 	const double denominator = glm::dot(direction_, norm);
 

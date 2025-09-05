@@ -36,7 +36,7 @@ public:
 	bool is_valid() const { return program_id_ != 0; }
 
 private:
-	GLuint program_id_ = 0;
+	GLuint program_id_ {0};
 
 	// Helper functions
 	std::string read_file(const std::string& path);

@@ -28,20 +28,20 @@
 class Config
 {
 private:
-	uint32_t nx_ = 0;          // number of voxels in the x direction
-	uint32_t ny_ = 0;          // number of voxels in the y direction
-	uint32_t nz_ = 0;          // number of voxels in the z direction
+	uint32_t nx_ {0};          // number of voxels in the x direction
+	uint32_t ny_ {0};          // number of voxels in the y direction
+	uint32_t nz_ {0};          // number of voxels in the z direction
 
-	uint64_t num_layers_ = 0;  // number of layers
-	uint64_t num_voxels_ = 0;  // number of voxels
-	uint64_t num_photons_ = 0; // number of photons
-	uint64_t num_sources_ = 0; // number of light sources
+	uint64_t num_layers_ {0};  // number of layers
+	uint64_t num_voxels_ {0};  // number of voxels
+	uint64_t num_photons_ {0}; // number of photons
+	uint64_t num_sources_ {0}; // number of light sources
 
-	double vox_size_ = 0.0;      // uniform size of each voxel (dx=dy=dz)
-	double ambient_eta_ = 0.0;   // refractive index of ambient medium
+	double vox_size_ {0.0};      // uniform size of each voxel (dx=dy=dz)
+	double ambient_eta_ {0.0};   // refractive index of ambient medium
 
-	bool partial_ = true;         // partial reflection
-	bool progress_ = false;        // display progress messages
+	bool partial_ {true};         // partial reflection
+	bool progress_ {false};        // display progress messages
 
 	// Parsing configuration data
 	std::vector<Source> sources_;

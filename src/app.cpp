@@ -308,7 +308,7 @@ void App::render() {
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-		overlay_->render_with_simulator(simulator_.get());
+		overlay_->render_with_simulator(*simulator_);
 
 		// Restore depth testing for next frame
 		glEnable(GL_DEPTH_TEST);

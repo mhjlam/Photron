@@ -1,14 +1,14 @@
 #pragma once
 
-#include "glm_types.hpp"
+#include <glm/glm.hpp>
 
 class Triangle
 {
 private:
-	glm::dvec3 v0_{0.0};
-	glm::dvec3 v1_{0.0};
-	glm::dvec3 v2_{0.0};
-	glm::dvec3 normal_{0.0, 1.0, 0.0};
+	glm::dvec3 v0_ {0.0};
+	glm::dvec3 v1_ {0.0};
+	glm::dvec3 v2_ {0.0};
+	glm::dvec3 normal_ {0.0, 1.0, 0.0};
 
 public:
 	Triangle() = default;

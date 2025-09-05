@@ -50,24 +50,24 @@ private:
 	// Initial camera state for reset functionality
 	struct InitialCameraState
 	{
-		float distance = 6.0f; // Closer default distance
-		float azimuth = 45.0f;
-		float elevation = 30.0f;
+		float distance {6.0f}; // Closer default distance
+		float azimuth {45.0f};
+		float elevation {30.0f};
 		glm::vec3 target{0.0f};
 	} initial_state_;
 
 	// Mouse state for camera control
 	struct MouseState
 	{
-		bool left_pressed = false;
-		bool right_pressed = false;
-		float last_x = 0.0f;
-		float last_y = 0.0f;
-		bool first_mouse = true;
+		bool left_pressed {false};
+		bool right_pressed {false};
+		float last_x {0.0f};
+		float last_y {0.0f};
+		bool first_mouse {true};
 		// Track center position for FPS mode mouse capture
-		float center_x = 0.0f;
-		float center_y = 0.0f;
-		bool center_set = false;
+		float center_x {0.0f};
+		float center_y {0.0f};
+		bool center_set {false};
 	} mouse_state_;
 
 public:

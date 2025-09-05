@@ -286,7 +286,7 @@ bool Config::parse_layer_config(std::list<std::string>& data) {
 	layer.mesh = triangle_mesh;
 	
 	// Initialize the layer's mesh geometry with triangles
-	layer.geometry.set_triangles(triangle_mesh);
+	layer.set_triangles(triangle_mesh);
 	
 	// add to collection using move semantics
 	layers_.push_back(std::move(layer));

@@ -1,14 +1,14 @@
-#include "mesh_geometry.hpp"
+#include "layer.hpp"
 
 #include <algorithm>
-#include <ranges>
 #include <limits>
+#include <ranges>
 
 /**
  * Calculate the bounding box of the mesh
  */
-void MeshGeometry::calculate_bounds() {
-	if (triangles_.empty()) {
+void Layer::calculate_bounds() {
+	if (mesh.empty()) {
 		has_bounds_ = false;
 		return;
 	}
@@ -22,7 +22,7 @@ void MeshGeometry::calculate_bounds() {
 	double max_z = -std::numeric_limits<double>::max();
 
 	// Find the min and max coordinates across all vertices
-	for (const auto& triangle : triangles_) {
+	for (const auto& triangle : mesh) {
 		const glm::dvec3& v0 = triangle.v0();
 		const glm::dvec3& v1 = triangle.v1();
 		const glm::dvec3& v2 = triangle.v2();
@@ -47,7 +47,7 @@ void MeshGeometry::calculate_bounds() {
 /**
  * Extend the current bounds to include a triangle
  */
-void MeshGeometry::extend_bounds(const Triangle& triangle) {
+void Layer::extend_bounds(const Triangle& triangle) {
 	if (!has_bounds_) {
 		calculate_bounds();
 		return;
@@ -71,8 +71,8 @@ void MeshGeometry::extend_bounds(const Triangle& triangle) {
 /**
  * Check if a point is inside the mesh using BVH-accelerated ray casting
  */
-bool MeshGeometry::contains(const glm::dvec3& point) const {
-	if (triangles_.empty() || !might_contain(point)) {
+bool Layer::contains_point(const glm::dvec3& point) const {
+	if (mesh.empty() || !might_contain(point)) {
 		return false;
 	}
 
@@ -84,8 +84,8 @@ bool MeshGeometry::contains(const glm::dvec3& point) const {
  * Find the first intersection of a ray with the mesh using BVH
  * Returns the distance to intersection and the triangle hit
  */
-std::pair<double, Triangle> MeshGeometry::find_first_intersection(const Ray& ray) const {
-	if (triangles_.empty()) {
+std::pair<double, Triangle> Layer::find_first_intersection(const Ray& ray) const {
+	if (mesh.empty()) {
 		return std::make_pair(std::numeric_limits<double>::max(), Triangle());
 	}
 
@@ -95,7 +95,8 @@ std::pair<double, Triangle> MeshGeometry::find_first_intersection(const Ray& ray
 
 	if (bvh_.intersect(ray, distance, intersection, hit_triangle)) {
 		return std::make_pair(distance, hit_triangle);
-	} else {
+	}
+	else {
 		// Return max distance and an invalid triangle to indicate no intersection
 		return std::make_pair(std::numeric_limits<double>::max(), Triangle());
 	}
@@ -104,17 +105,17 @@ std::pair<double, Triangle> MeshGeometry::find_first_intersection(const Ray& ray
 /**
  * Find all intersections of a ray with the mesh (uses BVH for initial filtering)
  */
-std::vector<std::pair<double, Triangle>> MeshGeometry::find_all_intersections(const Ray& ray) const {
-	if (triangles_.empty()) {
+std::vector<std::pair<double, Triangle>> Layer::find_all_intersections(const Ray& ray) const {
+	if (mesh.empty()) {
 		return {};
 	}
 
 	// Modern C++20: Use ranges and transform_reduce for performance
 	std::vector<std::pair<double, Triangle>> intersections;
-	intersections.reserve(triangles_.size() / 10); // Reserve space for ~10% hit rate
-	
+	intersections.reserve(mesh.size() / 10); // Reserve space for ~10% hit rate
+
 	// Use ranges::for_each with lambda capture for better performance
-	std::ranges::for_each(triangles_, [&](const Triangle& triangle) {
+	std::ranges::for_each(mesh, [&](const Triangle& triangle) {
 		Triangle triangle_copy = triangle; // Create mutable copy
 		glm::dvec3 intersection_point;
 
@@ -126,9 +127,7 @@ std::vector<std::pair<double, Triangle>> MeshGeometry::find_all_intersections(co
 	});
 
 	// Modern C++20: Use ranges::sort for cleaner syntax
-	std::ranges::sort(intersections, [](const auto& a, const auto& b) noexcept { 
-		return a.first < b.first; 
-	});
+	std::ranges::sort(intersections, [](const auto& a, const auto& b) noexcept { return a.first < b.first; });
 
 	return intersections;
 }

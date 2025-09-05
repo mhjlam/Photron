@@ -24,5 +24,5 @@ public:
 private:
 	void ensure_created() const;
 
-	mutable GLuint vao_id_ = 0;
+	mutable GLuint vao_id_ {0};
 };

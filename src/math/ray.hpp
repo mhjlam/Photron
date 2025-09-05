@@ -1,10 +1,10 @@
 #pragma once
 
-#include <vector>
 #include <span>
 #include <utility>
+#include <vector>
 
-#include "glm_types.hpp"
+#include "math.hpp"
 
 // Forward declarations
 class Triangle;

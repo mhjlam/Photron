@@ -4,12 +4,12 @@
 
 struct Tissue
 {
-	uint8_t id = 0;
+	uint8_t id {0};
 	
-	double g = 0.00;       // anisotropy coefficient
-	double eta = 1.37;     // index of refraction
-	double mu_a = 1.00;    // absorption coefficient  
-	double mu_s = 10.00;   // scattering coefficient
+	double g {0.00};       // anisotropy coefficient
+	double eta {1.37};     // index of refraction
+	double mu_a {1.00};    // absorption coefficient  
+	double mu_s {10.00};   // scattering coefficient
 
 	// Default constructor uses default member initialization
 	Tissue() = default;

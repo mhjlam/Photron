@@ -72,7 +72,7 @@ public:
 	private:
 	void ensure_created() const;
 
-	mutable GLuint buffer_id_ = 0;
+	mutable GLuint buffer_id_ {0};
 	BufferType type_;
-	size_t size_bytes_ = 0;
+	size_t size_bytes_ {0};
 };

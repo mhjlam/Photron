@@ -117,7 +117,7 @@ void Overlay::render() {
 	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
-void Overlay::render_with_simulator(Simulator* simulator) {
+void Overlay::render_with_simulator(Simulator& simulator) {
 	// Start the Dear ImGui frame
 	ImGui_ImplOpenGL3_NewFrame();
 	ImGui_ImplGlfw_NewFrame();
@@ -130,7 +130,7 @@ void Overlay::render_with_simulator(Simulator* simulator) {
 	handle_keyboard_shortcuts();
 
 	render_main_menu_bar();
-	render_control_panel(simulator);
+	render_control_panel(&simulator);
 
 	// Render file dialog if needed
 	if (show_file_dialog_) {

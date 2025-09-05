@@ -19,7 +19,7 @@ public:
 	bool initialize(GLFWwindow* window);
 	void shutdown();
 	void render();
-	void render_with_simulator(Simulator* simulator);
+	void render_with_simulator(Simulator& simulator);
 
 	// Getters for settings
 	const Settings& get_settings() const { return settings_; }

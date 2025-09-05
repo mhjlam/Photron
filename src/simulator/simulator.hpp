@@ -9,17 +9,16 @@
 #include "math/cuboid.hpp"
 #include "math/range.hpp"
 #include "math/triangle.hpp"
-#include "math/mesh_geometry.hpp"
-#include "math/voxel_volume.hpp"
 #include "simulator/config.hpp"
-#include "simulator/graph.hpp"
 #include "simulator/layer.hpp"
 #include "simulator/metrics.hpp"
 #include "simulator/photon.hpp"
+#include "simulator/photon_path.hpp"
 #include "simulator/record.hpp"
 #include "simulator/source.hpp"
 #include "simulator/tissue.hpp"
 #include "simulator/voxel.hpp"
+#include "simulator/volume.hpp"
 
 // Forward declaration for Random class
 class Random;
@@ -46,10 +45,10 @@ public:
 	Record record;
 	Range3 bounds;
 	Metrics metrics;
+	Volume voxel_grid;
 
-	std::vector<Graph> paths;
+	std::vector<PhotonPath> paths;
 	std::vector<Layer> layers;
-	VoxelVolume voxel_grid;
 	std::vector<Photon> photons;
 	std::vector<Tissue> tissues;
 	std::vector<Source> sources;
