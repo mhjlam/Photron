@@ -7,10 +7,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
-
-#ifdef _WIN32
-#include <windows.h> // for GetTickCount
-#endif
+#include <chrono>
 
 void Metrics::increment_scatters() {
 	scatter_events_++;
@@ -87,21 +84,15 @@ double Metrics::compute_path_length() {
 }
 
 void Metrics::start_clock() {
-#ifdef _WIN32
-	t0_ = GetTickCount64();
-#else
-	// Linux implementation could use clock_gettime or similar
-	t0_ = 0;
-#endif
+	// Modern C++: Cross-platform high-resolution timing
+	start_time_ = std::chrono::high_resolution_clock::now();
 }
 
 void Metrics::stop_clock() {
-#ifdef _WIN32
-	t1_ = GetTickCount64() - t0_;
-#else
-	// Linux implementation
-	t1_ = 0;
-#endif
+	// Calculate elapsed time using modern C++ chrono
+	auto end_time = std::chrono::high_resolution_clock::now();
+	auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time_);
+	elapsed_time_ms_ = duration.count() / 1000.0; // Convert microseconds to milliseconds
 }
 
 void Metrics::write_to_file() {
@@ -123,7 +114,7 @@ void Metrics::write_to_file() {
 	out << "Surface reflection " << surface_reflection_ << std::endl;
 	out << "Surface refraction " << surface_refraction_ << std::endl;
 
-	out << "Total time taken   " << t1_ << " ms" << std::endl;
+	out << "Total time taken   " << elapsed_time_ms_ << " ms" << std::endl;
 
 	out << std::endl;
 }
@@ -142,14 +133,14 @@ void Metrics::print_report() {
 	std::cout << "Surface reflection " << surface_reflection_ << std::endl;
 	std::cout << "Surface refraction " << surface_refraction_ << std::endl;
 
-	std::cout << "Total time taken   " << t1_ << " ms" << std::endl;
+	std::cout << "Total time taken   " << elapsed_time_ms_ << " ms" << std::endl;
 
 	std::cout << std::endl;
 }
 
 void Metrics::reset() {
-	t0_ = 0;
-	t1_ = 0;
+	// Reset timing
+	elapsed_time_ms_ = 0.0;
 
 	total_absorption_ = 0.0;
 	total_reflection_ = 0.0;

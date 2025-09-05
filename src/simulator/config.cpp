@@ -262,21 +262,23 @@ bool Config::parse_layer_config(std::list<std::string>& data) {
 	}
 
 	// construct faces (triangles) from vertex faces
-	for (size_t i = 0; i < faces.size(); ++i) {
-		glm::uvec3 index = faces[i];
-		size_t num_verts_size = static_cast<size_t>(num_verts);
-		uint32_t index_max = static_cast<uint32_t>(num_verts_size - 1);
+	size_t num_verts_size = static_cast<size_t>(num_verts);
+	uint32_t index_max = static_cast<uint32_t>(num_verts_size - 1);
 
+	for (size_t i = 0; i < faces.size(); ++i) {
+		const auto& face_indices = faces[i];
+		const auto& face_normal = normals[i];
+		
 		// check vertex index pointer correctness
-		if (index.x > index_max || index.y > index_max || index.z > index_max) {
+		if (face_indices.x > index_max || face_indices.y > index_max || face_indices.z > index_max) {
 			return false;
 		}
 
 		// create new triangle for this face
-		Triangle triangle = Triangle(vertices[index.x], vertices[index.y], vertices[index.z]);
+		Triangle triangle = Triangle(vertices[face_indices.x], vertices[face_indices.y], vertices[face_indices.z]);
 
 		// associate normal with triangle
-		triangle.set_normal(normals[i]);
+		triangle.set_normal(face_normal);
 
 		// add the triangle to the triangle mesh
 		triangle_mesh.push_back(triangle);

@@ -27,15 +27,15 @@ void Layer::calculate_bounds() {
 		const glm::dvec3& v1 = triangle.v1();
 		const glm::dvec3& v2 = triangle.v2();
 
-		// Update min bounds
-		min_x = std::min(min_x, std::min(v0.x, std::min(v1.x, v2.x)));
-		min_y = std::min(min_y, std::min(v0.y, std::min(v1.y, v2.y)));
-		min_z = std::min(min_z, std::min(v0.z, std::min(v1.z, v2.z)));
+		// Update min bounds using C++20 ranges
+		min_x = std::min(min_x, std::ranges::min({v0.x, v1.x, v2.x}));
+		min_y = std::min(min_y, std::ranges::min({v0.y, v1.y, v2.y}));
+		min_z = std::min(min_z, std::ranges::min({v0.z, v1.z, v2.z}));
 
-		// Update max bounds
-		max_x = std::max(max_x, std::max(v0.x, std::max(v1.x, v2.x)));
-		max_y = std::max(max_y, std::max(v0.y, std::max(v1.y, v2.y)));
-		max_z = std::max(max_z, std::max(v0.z, std::max(v1.z, v2.z)));
+		// Update max bounds using C++20 ranges
+		max_x = std::max(max_x, std::ranges::max({v0.x, v1.x, v2.x}));
+		max_y = std::max(max_y, std::ranges::max({v0.y, v1.y, v2.y}));
+		max_z = std::max(max_z, std::ranges::max({v0.z, v1.z, v2.z}));
 	}
 
 	// Set the bounds

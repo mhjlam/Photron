@@ -25,7 +25,8 @@ static void HelpMarker(const char* desc) {
 Overlay::Overlay() :
 	show_options_window_(true), show_info_window_(false), show_demo_window_(false), ui_enabled_(true),
 	show_file_dialog_(false), file_dialog_mode_(FileDialogMode::LoadConfig), current_directory_("config/") {
-	memset(file_path_buffer_, 0, sizeof(file_path_buffer_));
+	std::fill(std::begin(file_path_buffer_), std::end(file_path_buffer_), '\0');
+	file_path_.clear();
 }
 
 Overlay::~Overlay() {
@@ -223,19 +224,8 @@ void Overlay::render_control_panel(Simulator* simulator) {
 		ImGui::SameLine();
 		HelpMarker("Show actual geometry boundary with triangles/quads");
 
-		// Energy Labels - auto-disable after 10 photons but allow manual override
+		// Energy Labels - auto-disabled after 10 photons (handled by renderer)
 		bool many_photons = (simulator && simulator->paths.size() > 10);
-		static bool auto_disabled_labels = false;
-		
-		// Auto-disable when crossing the 10 photon threshold
-		if (many_photons && !auto_disabled_labels) {
-			settings_.draw_labels = false;
-			auto_disabled_labels = true;
-		}
-		// Reset auto-disable flag when photon count drops back down
-		else if (!many_photons && auto_disabled_labels) {
-			auto_disabled_labels = false;
-		}
 		
 		ImGui::Checkbox("Energy Labels", &settings_.draw_labels);
 		ImGui::SameLine();
@@ -371,7 +361,9 @@ void Overlay::render_file_dialog() {
 		// File path input
 		ImGui::Text("File path:");
 		ImGui::SetNextItemWidth(-1);
-		ImGui::InputText("##filepath", file_path_buffer_, sizeof(file_path_buffer_));
+		if (ImGui::InputText("##filepath", file_path_buffer_, sizeof(file_path_buffer_))) {
+			file_path_ = std::string(file_path_buffer_);
+		}
 
 		ImGui::Separator();
 
@@ -379,15 +371,21 @@ void Overlay::render_file_dialog() {
 		if (file_dialog_mode_ == FileDialogMode::LoadConfig) {
 			ImGui::Text("Quick Select:");
 			if (ImGui::Button("config1.in")) {
-				strcpy_s(file_path_buffer_, "config/config1.in");
+				file_path_ = "config/config1.in";
+				std::strncpy(file_path_buffer_, file_path_.c_str(), sizeof(file_path_buffer_) - 1);
+				file_path_buffer_[sizeof(file_path_buffer_) - 1] = '\0';
 			}
 			ImGui::SameLine();
 			if (ImGui::Button("config2.in")) {
-				strcpy_s(file_path_buffer_, "config/config2.in");
+				file_path_ = "config/config2.in";
+				std::strncpy(file_path_buffer_, file_path_.c_str(), sizeof(file_path_buffer_) - 1);
+				file_path_buffer_[sizeof(file_path_buffer_) - 1] = '\0';
 			}
 			ImGui::SameLine();
 			if (ImGui::Button("multi-photon-100.in")) {
-				strcpy_s(file_path_buffer_, "config/multi-photon-100.in");
+				file_path_ = "config/multi-photon-100.in";
+				std::strncpy(file_path_buffer_, file_path_.c_str(), sizeof(file_path_buffer_) - 1);
+				file_path_buffer_[sizeof(file_path_buffer_) - 1] = '\0';
 			}
 
 			// List available config files
@@ -403,7 +401,9 @@ void Overlay::render_file_dialog() {
 						if (path.extension() == ".in") {
 							std::string file_str = path.string();
 							if (ImGui::Selectable(file_str.c_str())) {
-								strcpy_s(file_path_buffer_, file_str.c_str());
+								file_path_ = file_str;
+								std::strncpy(file_path_buffer_, file_path_.c_str(), sizeof(file_path_buffer_) - 1);
+								file_path_buffer_[sizeof(file_path_buffer_) - 1] = '\0';
 							}
 						}
 					}
@@ -418,36 +418,42 @@ void Overlay::render_file_dialog() {
 		else { // Save Results
 			ImGui::Text("Save as:");
 			if (ImGui::Button("results.json")) {
-				strcpy_s(file_path_buffer_, "results.json");
+				file_path_ = "results.json";
+				std::strncpy(file_path_buffer_, file_path_.c_str(), sizeof(file_path_buffer_) - 1);
+				file_path_buffer_[sizeof(file_path_buffer_) - 1] = '\0';
 			}
 			ImGui::SameLine();
 			if (ImGui::Button("simulation_data.txt")) {
-				strcpy_s(file_path_buffer_, "simulation_data.txt");
+				file_path_ = "simulation_data.txt";
+				std::strncpy(file_path_buffer_, file_path_.c_str(), sizeof(file_path_buffer_) - 1);
+				file_path_buffer_[sizeof(file_path_buffer_) - 1] = '\0';
 			}
 		}
 
 		ImGui::Separator();
 
 		// Dialog buttons
-		if (ImGui::Button("OK") && strlen(file_path_buffer_) > 0) {
+		if (ImGui::Button("OK") && !file_path_.empty()) {
 			if (file_dialog_mode_ == FileDialogMode::LoadConfig) {
 				if (open_config_callback_) {
-					open_config_callback_(std::string(file_path_buffer_));
+					open_config_callback_(file_path_);
 				}
 			}
 			else {
 				if (save_results_callback_) {
-					save_results_callback_(std::string(file_path_buffer_));
+					save_results_callback_(file_path_);
 				}
 			}
 			show_file_dialog_ = false;
-			memset(file_path_buffer_, 0, sizeof(file_path_buffer_));
+			std::fill(std::begin(file_path_buffer_), std::end(file_path_buffer_), '\0');
+			file_path_.clear();
 		}
 
 		ImGui::SameLine();
 		if (ImGui::Button("Cancel")) {
 			show_file_dialog_ = false;
-			memset(file_path_buffer_, 0, sizeof(file_path_buffer_));
+			std::fill(std::begin(file_path_buffer_), std::end(file_path_buffer_), '\0');
+			file_path_.clear();
 		}
 	}
 	ImGui::End();

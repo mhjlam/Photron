@@ -32,21 +32,22 @@ public:
 		coords(x, y, z), absorption(0), emittance(0), tissue(nullptr), volume_fraction_inside(0.0),
 		volume_fraction_outside(0.0), is_boundary_voxel(false) {}
 
-	const uint32_t& ix() const { return coords.x; }
-	const uint32_t& iy() const { return coords.y; }
-	const uint32_t& iz() const { return coords.z; }
+	constexpr const uint32_t& ix() const { return coords.x; }
+	constexpr const uint32_t& iy() const { return coords.y; }
+	constexpr const uint32_t& iz() const { return coords.z; }
 
 	// GLM convenience methods
-	const glm::uvec3& indices() const { return coords; }
+	constexpr const glm::uvec3& indices() const { return coords; }
 	void set_indices(const glm::uvec3& idx) { coords = idx; }
 
 	// Volume fraction utilities
-	bool is_fully_inside() const { return volume_fraction_inside >= FULLY_INSIDE_THRESHOLD; }
-	bool is_fully_outside() const { return volume_fraction_outside >= FULLY_OUTSIDE_THRESHOLD; }
+	constexpr bool is_fully_inside() const { return volume_fraction_inside >= FULLY_INSIDE_THRESHOLD; }
+	constexpr bool is_fully_outside() const { return volume_fraction_outside >= FULLY_OUTSIDE_THRESHOLD; }
 	bool is_partial() const {
 		return is_boundary_voxel && volume_fraction_inside > PARTIAL_THRESHOLD
 			   && volume_fraction_outside > PARTIAL_THRESHOLD;
 	}
 
-	bool operator==(const Voxel& other) const { return (other.coords == coords && other.tissue == tissue); }
+		// Special comparison overloads
+	constexpr bool operator==(const Voxel& other) const { return (other.coords == coords && other.tissue == tissue); }
 };

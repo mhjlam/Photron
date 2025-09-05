@@ -109,9 +109,6 @@ bool BVH::intersect(const Ray& ray, double& distance, glm::dvec3& intersection, 
 
 bool BVH::intersect_recursive(const BVHNode* node, const Ray& ray, double& closest_t, glm::dvec3& intersection,
 							  Triangle& hit_triangle) const {
-	// Modern BVH traversal with consistent epsilon handling
-	constexpr double EPSILON = 1e-12;
-
 	// Test ray against node's bounding box
 	double t_min, t_max;
 	if (!node->bounds.intersect_ray(ray, t_min, t_max) || t_min > closest_t) {
@@ -131,7 +128,7 @@ bool BVH::intersect_recursive(const BVHNode* node, const Ray& ray, double& close
 				const double t = glm::length(temp_intersection - ray.origin());
 
 				// Improved self-intersection avoidance and closest intersection tracking
-				if (t > EPSILON && t < closest_t) {
+				if (t > MathConstants::GEOMETRIC_EPSILON && t < closest_t) {
 					closest_t = t;
 					intersection = temp_intersection;
 					hit_triangle = triangles_[idx];

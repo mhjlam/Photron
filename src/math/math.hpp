@@ -39,58 +39,24 @@ inline glm::vec4 to_float(const glm::dvec4& v) {
 }
 
 /**
- * @brief Centralized numerical constants for consistent precision handling across the codebase
- *
- * This file defines standard epsilon values and other numerical constants used throughout
- * the Monte Carlo simulation for robust floating-point comparisons and geometric calculations.
+ * @brief Centralized mathematical and numerical constants
+ * 
+ * All mathematical constants and epsilon values used throughout the codebase.
+ * Use these instead of defining local constants to maintain consistency.
  */
-
-namespace NumericalConstants
+namespace MathConstants 
 {
+	// Mathematical constants
+	constexpr double PI = std::numbers::pi;
+	constexpr double TWO_PI = 2.0 * PI;
+	constexpr double HALF_PI = PI / 2.0;
+	constexpr double INV_PI = 1.0 / PI;
+	constexpr double INV_TWO_PI = 1.0 / TWO_PI;
 
-// Primary epsilon for high-precision geometric calculations
-constexpr double GEOMETRIC_EPSILON = 1e-12;
-
-// Epsilon for ray-triangle intersection self-intersection avoidance
-constexpr double RAY_EPSILON = 1e-12;
-
-// Epsilon for AABB ray intersection (slab method)
-constexpr double AABB_EPSILON = 1e-12;
-
-// Epsilon for Fresnel reflection calculations
-constexpr double FRESNEL_EPSILON = 1e-12;
-
-// Epsilon for Monte Carlo step size calculations
-constexpr double MCMC_EPSILON = 1e-12;
-
-// Epsilon for photon position/direction comparisons
-constexpr double PHOTON_EPSILON = 1e-10;
-
-// Epsilon for voxel boundary calculations
-constexpr double VOXEL_EPSILON = 1e-6;
-
-// Mathematical constants
-namespace Math
-{
-
-constexpr double PI = std::numbers::pi;
-constexpr double TWO_PI = 2.0 * PI;
-constexpr double HALF_PI = PI / 2.0;
-constexpr double INV_PI = 1.0 / PI;
-constexpr double INV_TWO_PI = 1.0 / TWO_PI;
-
-} // namespace Math
-
-// Physical constants for Monte Carlo simulation
-namespace Physics
-{
-
-constexpr double MIN_PHOTON_WEIGHT = 1e-4;
-constexpr double DEFAULT_SURVIVAL_PROBABILITY = 0.1;
-constexpr double MAX_SURVIVAL_PROBABILITY = 0.5;
-
-} // namespace Physics
-} // namespace NumericalConstants
+	// Numerical precision constants
+	constexpr double GEOMETRIC_EPSILON = 1e-12;  // Used for geometric calculations
+	constexpr double BOUNDARY_EPSILON = 2e-9;    // Used for photon boundary nudging
+}
 
 namespace GeometricUtils
 {
@@ -101,7 +67,7 @@ namespace GeometricUtils
  */
 template<FloatingPoint T>
 constexpr bool approximately_equal(T a, T b,
-								   T epsilon = static_cast<T>(NumericalConstants::GEOMETRIC_EPSILON)) noexcept {
+								   T epsilon = static_cast<T>(MathConstants::GEOMETRIC_EPSILON)) noexcept {
 	return std::abs(a - b) <= epsilon;
 }
 
@@ -110,7 +76,7 @@ constexpr bool approximately_equal(T a, T b,
  * @note Enhanced with C++20 concepts and constexpr
  */
 template<FloatingPoint T>
-constexpr bool approximately_zero(T value, T epsilon = static_cast<T>(NumericalConstants::GEOMETRIC_EPSILON)) noexcept {
+constexpr bool approximately_zero(T value, T epsilon = static_cast<T>(MathConstants::GEOMETRIC_EPSILON)) noexcept {
 	return std::abs(value) <= epsilon;
 }
 
@@ -119,7 +85,7 @@ constexpr bool approximately_zero(T value, T epsilon = static_cast<T>(NumericalC
  */
 inline glm::dvec3 safe_normalize(const glm::dvec3& v) {
 	const double length_sq = glm::dot(v, v);
-	if (length_sq < NumericalConstants::GEOMETRIC_EPSILON * NumericalConstants::GEOMETRIC_EPSILON) {
+	if (length_sq < MathConstants::GEOMETRIC_EPSILON * MathConstants::GEOMETRIC_EPSILON) {
 		return glm::dvec3(1.0, 0.0, 0.0); // Default direction for zero-length vectors
 	}
 	return v / std::sqrt(length_sq);
@@ -128,7 +94,7 @@ inline glm::dvec3 safe_normalize(const glm::dvec3& v) {
 /**
  * @brief Fast squared distance calculation (avoids expensive sqrt)
  */
-inline double distance_squared(const glm::dvec3& a, const glm::dvec3& b) {
+constexpr inline double distance_squared(const glm::dvec3& a, const glm::dvec3& b) {
 	const glm::dvec3 diff = b - a;
 	return glm::dot(diff, diff);
 }
@@ -136,7 +102,7 @@ inline double distance_squared(const glm::dvec3& a, const glm::dvec3& b) {
 /**
  * @brief Robust barycentric coordinate clamping for triangle intersections
  */
-inline bool valid_barycentric_coordinates(double u, double v) {
+constexpr inline bool valid_barycentric_coordinates(double u, double v) {
 	return u >= 0.0 && v >= 0.0 && (u + v) <= 1.0;
 }
 
@@ -182,7 +148,7 @@ inline void create_orthonormal_basis(const glm::dvec3& w, glm::dvec3& u, glm::dv
  */
 template<typename T>
 inline T clamp_with_epsilon(T value, T min_val, T max_val,
-							T epsilon = static_cast<T>(NumericalConstants::GEOMETRIC_EPSILON)) {
+							T epsilon = static_cast<T>(MathConstants::GEOMETRIC_EPSILON)) {
 	if (value < min_val + epsilon)
 		return min_val;
 	if (value > max_val - epsilon)

@@ -1,5 +1,6 @@
 #include "shader_manager.hpp"
 
+#include <array>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -117,9 +118,9 @@ GLuint ShaderManager::compile_shader(const std::string& source, GLenum shader_ty
 	GLint success;
 	glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
 	if (!success) {
-		char info_log[512];
-		glGetShaderInfoLog(shader, 512, nullptr, info_log);
-		std::cerr << "Shader compilation failed: " << info_log << std::endl;
+		std::array<char, 512> info_log{};
+		glGetShaderInfoLog(shader, static_cast<GLsizei>(info_log.size()), nullptr, info_log.data());
+		std::cerr << "Shader compilation failed: " << info_log.data() << std::endl;
 		glDeleteShader(shader);
 		return 0;
 	}
@@ -147,9 +148,9 @@ GLuint ShaderManager::create_program(const std::string& vertex_source, const std
 	GLint success;
 	glGetProgramiv(program, GL_LINK_STATUS, &success);
 	if (!success) {
-		char info_log[512];
-		glGetProgramInfoLog(program, 512, nullptr, info_log);
-		std::cerr << "Program linking failed: " << info_log << std::endl;
+		std::array<char, 512> info_log{};
+		glGetProgramInfoLog(program, static_cast<GLsizei>(info_log.size()), nullptr, info_log.data());
+		std::cerr << "Program linking failed: " << info_log.data() << std::endl;
 		glDeleteProgram(program);
 		program = 0;
 	}

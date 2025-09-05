@@ -27,9 +27,6 @@ void Ray::set_direction(const glm::dvec3& direction, bool normalize) {
  * Reference: http://www.graphics.cornell.edu/pubs/1997/MT97.html
  ***********************************************************/
 bool Ray::intersect_triangle(Triangle& triangle, glm::dvec3& intersection) const {
-	// Use consistent epsilon throughout the system
-	constexpr double EPSILON = 1e-12;
-
 	// Get triangle vertices
 	const glm::dvec3 vert0 = triangle.v0();
 	const glm::dvec3 vert1 = triangle.v1();
@@ -44,7 +41,7 @@ bool Ray::intersect_triangle(Triangle& triangle, glm::dvec3& intersection) const
 	const double det = glm::dot(edge1, pvec);
 
 	// If determinant is near zero, ray lies in plane of triangle or ray is parallel to plane
-	if (std::abs(det) < EPSILON) {
+	if (std::abs(det) < MathConstants::GEOMETRIC_EPSILON) {
 		return false;
 	}
 
@@ -71,7 +68,7 @@ bool Ray::intersect_triangle(Triangle& triangle, glm::dvec3& intersection) const
 	// Calculate t, ray intersects triangle
 	const double t = glm::dot(edge2, qvec) * inv_det;
 
-	if (t <= EPSILON) { // Use consistent epsilon for self-intersection avoidance
+	if (t <= MathConstants::GEOMETRIC_EPSILON) { // Use consistent epsilon for self-intersection avoidance
 		return false;
 	}
 
@@ -91,8 +88,6 @@ std::pair<bool, glm::dvec3> Ray::intersect_triangle(Triangle& triangle) const {
  * Modern Ray-Plane intersection with vectorized operations
  ***********************************************************/
 bool Ray::intersect_plane(const glm::dvec3& normal, const glm::dvec3& point, glm::dvec3& intersection) const noexcept {
-	constexpr double EPSILON = 1e-12;
-
 	// Ensure normal is normalized for accurate calculations
 	const glm::dvec3 norm = glm::normalize(normal);
 
@@ -100,7 +95,7 @@ bool Ray::intersect_plane(const glm::dvec3& normal, const glm::dvec3& point, glm
 	const double denominator = glm::dot(direction_, norm);
 
 	// Ray is parallel to plane if denominator is near zero
-	if (std::abs(denominator) < EPSILON) {
+	if (std::abs(denominator) < MathConstants::GEOMETRIC_EPSILON) {
 		return false;
 	}
 
@@ -109,7 +104,7 @@ bool Ray::intersect_plane(const glm::dvec3& normal, const glm::dvec3& point, glm
 	const double t = glm::dot(origin_to_point, norm) / denominator;
 
 	// Intersection is behind ray origin
-	if (t <= EPSILON) {
+	if (t <= MathConstants::GEOMETRIC_EPSILON) {
 		return false;
 	}
 

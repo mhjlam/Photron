@@ -185,9 +185,6 @@ double Cuboid::intersect_ray_internal(const Ray& ray, glm::dvec3& intersection, 
 
 // BVH-style ray intersection method (from AABB)
 bool Cuboid::intersect_ray(const Ray& ray, double& t_min, double& t_max) const {
-	// Modern AABB-ray intersection using slab method with consistent epsilon
-	constexpr double EPSILON = 1e-12;
-
 	const glm::dvec3& ray_origin = ray.origin();
 	const glm::dvec3& ray_dir = ray.direction(); // Use direction directly, no need to normalize for slab test
 
@@ -201,7 +198,7 @@ bool Cuboid::intersect_ray(const Ray& ray, double& t_min, double& t_max) const {
 		const double ray_orig_axis = ray_origin[axis];
 		const double ray_dir_axis = ray_dir[axis];
 
-		if (std::abs(ray_dir_axis) < EPSILON) {
+		if (std::abs(ray_dir_axis) < MathConstants::GEOMETRIC_EPSILON) {
 			// Ray is parallel to the slab - check if ray origin is within slab bounds
 			if (ray_orig_axis < axis_min || ray_orig_axis > axis_max) {
 				return false;

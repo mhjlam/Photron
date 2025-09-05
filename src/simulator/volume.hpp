@@ -51,15 +51,15 @@ public:
 	const Voxel* at(uint32_t linear_index) const;
 
 	// Grid properties (const accessors)
-	uint32_t width() const { return dimensions_.x; }
-	uint32_t height() const { return dimensions_.y; }
-	uint32_t depth() const { return dimensions_.z; }
-	uint64_t size() const { return total_voxels_; }
+	constexpr uint32_t width() const { return dimensions_.x; }
+	constexpr uint32_t height() const { return dimensions_.y; }
+	constexpr uint32_t depth() const { return dimensions_.z; }
+	constexpr uint64_t size() const { return total_voxels_; }
 
-	uint64_t total_voxels() const { return total_voxels_; }
-	double voxel_size() const { return voxel_size_; }
+	constexpr uint64_t total_voxels() const { return total_voxels_; }
+	constexpr double voxel_size() const { return voxel_size_; }
 
-	const glm::uvec3& dimensions() const { return dimensions_; }
+	constexpr const glm::uvec3& dimensions() const { return dimensions_; }
 
 	// Grid management
 	void clear();

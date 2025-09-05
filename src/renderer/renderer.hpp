@@ -77,6 +77,7 @@ public:
 	void cache_energy_labels();                  // Cache energy labels from current simulation data
 	void invalidate_energy_label_cache();        // Force recalculation of energy labels
 	void update_energy_label_screen_positions(); // Update screen positions once per frame
+	void auto_manage_energy_labels(Settings& settings); // Auto-disable energy labels for performance
 
 	// World-to-screen coordinate conversion for text rendering
 	glm::vec2 world_to_screen(const glm::vec3& world_pos, int screen_width, int screen_height) const;

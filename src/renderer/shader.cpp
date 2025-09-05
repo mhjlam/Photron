@@ -1,5 +1,6 @@
 #include "shader.hpp"
 
+#include <array>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -112,9 +113,9 @@ GLuint Shader::compile_shader(const std::string& source, GLenum type) {
 	glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
 
 	if (!success) {
-		GLchar info_log[512];
-		glGetShaderInfoLog(shader, sizeof(info_log), nullptr, info_log);
-		std::cerr << "Error: Shader compilation failed: " << info_log << std::endl;
+		std::array<GLchar, 512> info_log{};
+		glGetShaderInfoLog(shader, static_cast<GLsizei>(info_log.size()), nullptr, info_log.data());
+		std::cerr << "Error: Shader compilation failed: " << info_log.data() << std::endl;
 		glDeleteShader(shader);
 		return 0;
 	}
@@ -133,9 +134,9 @@ bool Shader::link_program(GLuint vertex_shader, GLuint fragment_shader) {
 	glGetProgramiv(program_id_, GL_LINK_STATUS, &success);
 
 	if (!success) {
-		GLchar info_log[512];
-		glGetProgramInfoLog(program_id_, sizeof(info_log), nullptr, info_log);
-		std::cerr << "Error: Program linking failed: " << info_log << std::endl;
+		std::array<GLchar, 512> info_log{};
+		glGetProgramInfoLog(program_id_, static_cast<GLsizei>(info_log.size()), nullptr, info_log.data());
+		std::cerr << "Error: Program linking failed: " << info_log.data() << std::endl;
 		glDeleteProgram(program_id_);
 		program_id_ = 0;
 		return false;

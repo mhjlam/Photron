@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <chrono>
 
 #include <glm/glm.hpp>
 
@@ -38,9 +39,14 @@ public:
 	double get_total_diffusion() const { return total_diffusion_; }
 	double get_surface_reflection() const { return surface_reflection_; }
 	double get_surface_refraction() const { return surface_refraction_; }
+	
+	// Get elapsed time in milliseconds
+	double get_elapsed_time_ms() const { return elapsed_time_ms_; }
 
 private:
-	uint64_t t0_ {0}, t1_ {0};              // start time and time passed
+	// Modern C++ chrono timing
+	std::chrono::high_resolution_clock::time_point start_time_;
+	double elapsed_time_ms_ {0.0};          // elapsed time in milliseconds
 
 	double total_absorption_ {0.0};         // total absorption
 	double total_reflection_ {0.0};         // total reflection (diffuse + specular)

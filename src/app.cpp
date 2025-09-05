@@ -92,7 +92,7 @@ bool App::initialize(int argc, char* argv[]) {
 	std::cout << "Simulation completed!" << std::endl;
 
 	// Stop if rendering is disabled
-	if (argc > 2 && std::string(argv[2]) == "norender") {
+	if (argc > 2 && std::string(argv[2]) == "headless") {
 		should_close_ = true;
 		return true;
 	}
@@ -293,7 +293,9 @@ void App::render() {
 
 	// Update renderer settings from overlay before rendering
 	if (renderer_ && overlay_) {
-		renderer_->set_settings(overlay_->get_settings());
+		Settings& settings = overlay_->get_settings();
+		renderer_->auto_manage_energy_labels(settings);
+		renderer_->set_settings(settings);
 	}
 
 	// Render 3D scene FIRST
@@ -503,8 +505,7 @@ void App::save_results_as_text(const std::string& filepath) {
 	file << "  Surface Refraction: " << simulator_->metrics.get_surface_refraction() << "\n";
 
 	file << "\nTissue Properties:\n";
-	for (size_t i = 0; i < simulator_->tissues.size(); ++i) {
-		const auto& tissue = simulator_->tissues[i];
+	for (const auto& tissue : simulator_->tissues) {
 		file << "  Tissue " << tissue.id << ":\n";
 		file << "    Refractive Index (eta): " << tissue.eta << "\n";
 		file << "    Absorption Coefficient (mua): " << tissue.mu_a << " cm^-1\n";

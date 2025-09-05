@@ -70,6 +70,7 @@ private:
 	bool show_file_dialog_;
 	FileDialogMode file_dialog_mode_;
 	char file_path_buffer_[512];
+	std::string file_path_; // Modern C++ string for file path
 	std::string current_directory_;
 
 	// Callbacks

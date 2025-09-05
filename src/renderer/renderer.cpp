@@ -1,6 +1,7 @@
 #include "renderer.hpp"
 
 #include <algorithm>
+#include <array>
 #include <fstream>
 #include <format>
 #include <iostream>
@@ -74,8 +75,9 @@ void Renderer::setup_opengl() {
 	// Enable line width control - use thicker lines for better visibility like original
 	glLineWidth(3.0f); // Much thicker lines to match backup
 
-	// Set clear color to dark blue like original renderer (matches the image)
-	glClearColor(0.1f, 0.1f, 0.3f, 1.0f);
+	// Set clear color to dark charcoal gray - easy on the eyes and neutral
+	// Avoids conflicts with layer colors (red, blue, green, magenta, yellow, cyan)
+	glClearColor(0.15f, 0.15f, 0.15f, 1.0f);
 
 	std::cout << "OpenGL 4.5 setup complete" << std::endl;
 }
@@ -1436,9 +1438,9 @@ GLuint Renderer::create_shader_program(const std::string& vertex_source, const s
 	GLint success;
 	glGetProgramiv(program, GL_LINK_STATUS, &success);
 	if (!success) {
-		char info_log[512];
-		glGetProgramInfoLog(program, 512, nullptr, info_log);
-		std::cerr << "Program linking failed: " << info_log << std::endl;
+		std::array<char, 512> info_log{};
+		glGetProgramInfoLog(program, static_cast<GLsizei>(info_log.size()), nullptr, info_log.data());
+		std::cerr << "Program linking failed: " << info_log.data() << std::endl;
 		glDeleteProgram(program);
 		program = 0;
 	}
@@ -1458,9 +1460,9 @@ GLuint Renderer::compile_shader(const std::string& source, GLenum shader_type) {
 	GLint success;
 	glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
 	if (!success) {
-		char info_log[512];
-		glGetShaderInfoLog(shader, 512, nullptr, info_log);
-		std::cerr << "Shader compilation failed: " << info_log << std::endl;
+		std::array<char, 512> info_log{};
+		glGetShaderInfoLog(shader, static_cast<GLsizei>(info_log.size()), nullptr, info_log.data());
+		std::cerr << "Shader compilation failed: " << info_log.data() << std::endl;
 		glDeleteShader(shader);
 		return 0;
 	}
@@ -1478,6 +1480,23 @@ std::string Renderer::load_shader_source(const std::string& file_path) {
 	std::stringstream buffer;
 	buffer << file.rdbuf();
 	return buffer.str();
+}
+
+void Renderer::auto_manage_energy_labels(Settings& settings) {
+	if (!simulator_) return;
+	
+	static bool auto_disabled_labels = false;
+	bool many_photons = (simulator_->paths.size() > 10);
+	
+	// Auto-disable when crossing the 10 photon threshold
+	if (many_photons && !auto_disabled_labels) {
+		settings.draw_labels = false;
+		auto_disabled_labels = true;
+	}
+	// Reset auto-disable flag when photon count drops back down
+	else if (!many_photons && auto_disabled_labels) {
+		auto_disabled_labels = false;
+	}
 }
 
 void Renderer::cache_energy_labels() {

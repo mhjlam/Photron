@@ -15,8 +15,6 @@
 #include "math/random.hpp"
 #include "math/ray.hpp"
 
-constexpr double HALF_PI = std::numbers::pi / 2.0;
-
 /***********************************************************
  * Simulator constructor.
  ***********************************************************/
@@ -268,7 +266,7 @@ bool Simulator::initialize_data() {
 
 	// initialize photons
 	for (uint64_t i = 0; i < config.num_photons(); ++i) {
-		photons.push_back(Photon(i));
+		photons.emplace_back(i);
 	}
 
 	return true;
@@ -635,7 +633,6 @@ void Simulator::sub_step(Photon& photon) {
 	Cuboid box = voxel_corners(photon.voxel);
 
 	// Check if photon is exactly on a voxel boundary and nudge if necessary
-	constexpr double BOUNDARY_EPSILON = 2e-9; // Increased to handle floating-point precision issues
 	bool on_boundary = false;
 	glm::dvec3 adjusted_position = photon.position;
 
@@ -647,30 +644,30 @@ void Simulator::sub_step(Photon& photon) {
 	double z_diff_min = std::abs(photon.position.z - box.min_point().z);
 	double z_diff_max = std::abs(photon.position.z - box.max_point().z);
 
-	if (x_diff_min < BOUNDARY_EPSILON) {
-		adjusted_position.x = box.min_point().x + BOUNDARY_EPSILON;
+	if (x_diff_min < MathConstants::BOUNDARY_EPSILON) {
+		adjusted_position.x = box.min_point().x + MathConstants::BOUNDARY_EPSILON;
 		on_boundary = true;
 	}
-	else if (x_diff_max < BOUNDARY_EPSILON) {
-		adjusted_position.x = box.max_point().x - BOUNDARY_EPSILON;
-		on_boundary = true;
-	}
-
-	if (y_diff_min < BOUNDARY_EPSILON) {
-		adjusted_position.y = box.min_point().y + BOUNDARY_EPSILON;
-		on_boundary = true;
-	}
-	else if (y_diff_max < BOUNDARY_EPSILON) {
-		adjusted_position.y = box.max_point().y - BOUNDARY_EPSILON;
+	else if (x_diff_max < MathConstants::BOUNDARY_EPSILON) {
+		adjusted_position.x = box.max_point().x - MathConstants::BOUNDARY_EPSILON;
 		on_boundary = true;
 	}
 
-	if (z_diff_min < BOUNDARY_EPSILON) {
-		adjusted_position.z = box.min_point().z + BOUNDARY_EPSILON;
+	if (y_diff_min < MathConstants::BOUNDARY_EPSILON) {
+		adjusted_position.y = box.min_point().y + MathConstants::BOUNDARY_EPSILON;
 		on_boundary = true;
 	}
-	else if (z_diff_max < BOUNDARY_EPSILON) {
-		adjusted_position.z = box.max_point().z - BOUNDARY_EPSILON;
+	else if (y_diff_max < MathConstants::BOUNDARY_EPSILON) {
+		adjusted_position.y = box.max_point().y - MathConstants::BOUNDARY_EPSILON;
+		on_boundary = true;
+	}
+
+	if (z_diff_min < MathConstants::BOUNDARY_EPSILON) {
+		adjusted_position.z = box.min_point().z + MathConstants::BOUNDARY_EPSILON;
+		on_boundary = true;
+	}
+	else if (z_diff_max < MathConstants::BOUNDARY_EPSILON) {
+		adjusted_position.z = box.max_point().z - MathConstants::BOUNDARY_EPSILON;
 		on_boundary = true;
 	}
 
@@ -1064,7 +1061,7 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 	metrics.add_vertex(photon.intersect.x, photon.intersect.y, photon.intersect.z);
 
 	// add emitter at this position
-	emitters.push_back(Emitter(photon.id, photon.intersect, direction, weight));
+	emitters.emplace_back(photon.id, photon.intersect, direction, weight);
 
 	// specular or diffuse transmission
 	if (!photon.scatters) {
@@ -1077,7 +1074,7 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 		double theta = acos(cos_theta);
 
 		// count as transmission or reflection
-		if (theta < HALF_PI) {
+		if (theta < MathConstants::HALF_PI) {
 			record.diffuse_transmission += weight;
 		}
 		else {
@@ -1562,7 +1559,7 @@ void Simulator::scatter_photon(Photon& photon, const Tissue& tissue) {
 
 	// Uniform azimuthal angle sampling with better numerical properties
 	rnd = mcml_random->next();
-	double phi = 2.0 * std::numbers::pi * rnd;
+	double phi = MathConstants::TWO_PI * rnd;
 	cos_phi = std::cos(phi);
 	sin_phi = std::sin(phi);
 
