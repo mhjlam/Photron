@@ -4,8 +4,7 @@
 #include <iostream>
 #include <sstream>
 
-ShaderManager::ShaderManager() {
-}
+ShaderManager::ShaderManager() = default;
 
 ShaderManager::~ShaderManager() {
 	shutdown();

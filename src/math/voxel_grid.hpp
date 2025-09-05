@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <memory>
 
 #include "glm_types.hpp"
 
@@ -23,7 +24,7 @@ public:
     VoxelGrid(double voxel_size, uint32_t num_x, uint32_t num_y, uint32_t num_z);
     ~VoxelGrid();
     
-    // Delete copy constructor and copy assignment (non-copyable due to raw pointers)
+    // Delete copy constructor and copy assignment (non-copyable due to unique ownership)
     VoxelGrid(const VoxelGrid&) = delete;
     VoxelGrid& operator=(const VoxelGrid&) = delete;
     
@@ -60,19 +61,19 @@ public:
     bool is_empty() const;
     
     // Iterator support for range-based loops
-    std::vector<Voxel*>::iterator begin() { return voxels_.begin(); }
-    std::vector<Voxel*>::iterator end() { return voxels_.end(); }
-    std::vector<Voxel*>::const_iterator begin() const { return voxels_.begin(); }
-    std::vector<Voxel*>::const_iterator end() const { return voxels_.end(); }
-    std::vector<Voxel*>::const_iterator cbegin() const { return voxels_.cbegin(); }
-    std::vector<Voxel*>::const_iterator cend() const { return voxels_.cend(); }
+    auto begin() { return voxels_.begin(); }
+    auto end() { return voxels_.end(); }
+    auto begin() const { return voxels_.begin(); }
+    auto end() const { return voxels_.end(); }
+    auto cbegin() const { return voxels_.cbegin(); }
+    auto cend() const { return voxels_.cend(); }
 
 private:
     // Private data members
-    glm::uvec3 dimensions_;          ///< Grid dimensions (nx, ny, nz)
-    uint64_t total_voxels_;          ///< Total number of voxels (nx * ny * nz)
-    double voxel_size_;              ///< Size of each voxel (uniform cubic voxels)
-    std::vector<Voxel*> voxels_;     ///< Linear storage for voxel pointers
+    glm::uvec3 dimensions_{0, 0, 0};                           ///< Grid dimensions (nx, ny, nz)
+    uint64_t total_voxels_ = 0;                          ///< Total number of voxels (nx * ny * nz)
+    double voxel_size_ = 0.0;                              ///< Size of each voxel (uniform cubic voxels)
+    std::vector<std::unique_ptr<Voxel>> voxels_;     ///< Linear storage for voxel smart pointers
     
     // Private helper methods
     void initialize_voxels();

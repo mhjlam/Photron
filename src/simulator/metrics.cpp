@@ -1,6 +1,7 @@
 #include "metrics.hpp"
 
 #include <algorithm>
+#include <ranges>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
@@ -10,12 +11,6 @@
 #ifdef _WIN32
 #include <windows.h> // for GetTickCount
 #endif
-
-Metrics::Metrics() :
-	t0_(0), t1_(0), total_absorption_(0.0), total_reflection_(0.0), total_transmission_(0.0), total_diffusion_(0.0),
-	surface_reflection_(0.0), surface_refraction_(0.0), path_length_(0.0), scatter_events_(0.0),
-	diffusion_distance_(0.0), average_step_size_(0.0) {
-}
 
 void Metrics::increment_scatters() {
 	scatter_events_++;
@@ -45,27 +40,20 @@ void Metrics::collect_data(double at, double rs, double rd, double ts, double td
 
 double Metrics::compute_diffusion_distance() {
 	if (path_vertices_.empty()) {
-		return 0;
+		return 0.0;
 	}
 
-	auto min_x = std::min_element(path_vertices_.begin(), path_vertices_.end(),
-								  [](const glm::dvec3& a, const glm::dvec3& b) { return a.x < b.x; });
-	auto max_x = std::max_element(path_vertices_.begin(), path_vertices_.end(),
-								  [](const glm::dvec3& a, const glm::dvec3& b) { return a.x < b.x; });
+	// Modern C++20: Use ranges::minmax_element for better performance
+	const auto [min_x, max_x] = std::ranges::minmax_element(path_vertices_, 
+		[](const glm::dvec3& a, const glm::dvec3& b) noexcept { return a.x < b.x; });
+	const auto [min_y, max_y] = std::ranges::minmax_element(path_vertices_, 
+		[](const glm::dvec3& a, const glm::dvec3& b) noexcept { return a.y < b.y; });
+	const auto [min_z, max_z] = std::ranges::minmax_element(path_vertices_, 
+		[](const glm::dvec3& a, const glm::dvec3& b) noexcept { return a.z < b.z; });
 
-	auto min_y = std::min_element(path_vertices_.begin(), path_vertices_.end(),
-								  [](const glm::dvec3& a, const glm::dvec3& b) { return a.y < b.y; });
-	auto max_y = std::max_element(path_vertices_.begin(), path_vertices_.end(),
-								  [](const glm::dvec3& a, const glm::dvec3& b) { return a.y < b.y; });
-
-	auto min_z = std::min_element(path_vertices_.begin(), path_vertices_.end(),
-								  [](const glm::dvec3& a, const glm::dvec3& b) { return a.z < b.z; });
-	auto max_z = std::max_element(path_vertices_.begin(), path_vertices_.end(),
-								  [](const glm::dvec3& a, const glm::dvec3& b) { return a.z < b.z; });
-
-	double dx = max_x->x - min_x->x;
-	double dy = max_y->y - min_y->y;
-	double dz = max_z->z - min_z->z;
+	const double dx = max_x->x - min_x->x;
+	const double dy = max_y->y - min_y->y;
+	const double dz = max_z->z - min_z->z;
 
 	return std::sqrt(dx * dx + dy * dy + dz * dz);
 }

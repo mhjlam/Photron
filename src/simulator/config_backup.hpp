@@ -7,19 +7,6 @@
 #include <string>
 #include <string_view>
 #include <vector>
-#include <span>
-#include "math/concepts.hpp"
-#include "simulator/layer.hpp"
-#include "simulator/source.hpp"
-#include "simulator/tissue.hpp"
-
-#include <cstdint>
-#include <list>
-#include <map>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <vector>
 
 #include "simulator/layer.hpp"
 #include "simulator/source.hpp"
@@ -49,14 +36,14 @@ private:
 	std::vector<Layer> layers_;
 
 	// Utility functions for parsing
-	template<Numeric T>
-	[[nodiscard]] constexpr T str2num(std::string_view str) noexcept {
-		T num{};
-		std::stringstream ss{std::string(str)};
+	template<typename T>
+	T str2num(const std::string& str) {
+		T num;
+		std::stringstream ss(str);
 		ss >> num;
-		// Check for parsing failure or NaN
-		if (ss.fail() || (std::floating_point<T> && num != num)) {
-			return T{};
+		// isnan check
+		if (num != num) {
+			return T();
 		}
 		return num;
 	}
@@ -84,21 +71,19 @@ private:
 		}
 	}
 
-	[[nodiscard]] std::vector<double> split(std::string_view str, char split_char) {
+	std::vector<double> split(const std::string& str, char split_char) {
 		std::vector<double> dblarray;
 		dblarray.clear();
-		dblarray.reserve(8); // Reserve space for common case
 
-		auto position = str.find(split_char);
+		size_t position = str.find(split_char);
 		size_t beg = 0;
 
-		// decompose statement using ranges when possible
-		while (position != std::string_view::npos) {
-			const auto piece_view = str.substr(beg, position - beg);
-			std::string piece{piece_view}; // Convert to string for trim operations
+		// decompose statement
+		while (position != std::string::npos) {
+			std::string piece = str.substr(beg, position - beg);
 			trim_spaces(piece);
 			if (!piece.empty()) {
-				const double val = str2num<double>(piece);
+				double val = str2num<double>(piece);
 				dblarray.push_back(val);
 			}
 			beg = position + 1;
@@ -107,11 +92,10 @@ private:
 
 		// add the last piece if there's anything left
 		if (beg < str.size()) {
-			const auto piece_view = str.substr(beg);
-			std::string piece{piece_view};
+			std::string piece = str.substr(beg);
 			trim_spaces(piece);
 			if (!piece.empty()) {
-				const double val = str2num<double>(piece);
+				double val = str2num<double>(piece);
 				dblarray.push_back(val);
 			}
 		}
@@ -119,14 +103,11 @@ private:
 		return dblarray;
 	}
 
-	template<ConfigContainer Container>
-	[[nodiscard]] std::vector<std::pair<std::string, std::string>> parameter_values(const Container& lines) 
-		requires std::convertible_to<std::ranges::range_value_t<Container>, std::string> {
+	std::vector<std::pair<std::string, std::string>> parameter_values(std::list<std::string>& lines) {
 		std::vector<std::pair<std::string, std::string>> param_values;
-		param_values.reserve(std::ranges::size(lines)); // Pre-allocate for efficiency
 
 		for (const auto& line : lines) {
-			const auto delim = line.find_first_of("=");
+			size_t delim = line.find_first_of("=");
 
 			// parameter name
 			std::string param = line.substr(0, delim);
@@ -137,7 +118,7 @@ private:
 			trim_comment(value);
 			trim_spaces(value);
 
-			param_values.emplace_back(std::move(param), std::move(value));
+			param_values.push_back(std::make_pair(param, value));
 		}
 
 		return param_values;
@@ -146,37 +127,26 @@ private:
 public:
 	Config() = default;
 
-	// Getters with [[nodiscard]] for safety
-	[[nodiscard]] constexpr uint32_t nx() const noexcept { return nx_; }
-	[[nodiscard]] constexpr uint32_t ny() const noexcept { return ny_; }
-	[[nodiscard]] constexpr uint32_t nz() const noexcept { return nz_; }
-	[[nodiscard]] constexpr uint64_t num_layers() const noexcept { return num_layers_; }
-	[[nodiscard]] constexpr uint64_t num_voxels() const noexcept { return num_voxels_; }
-	[[nodiscard]] constexpr uint64_t num_photons() const noexcept { return num_photons_; }
-	[[nodiscard]] constexpr uint64_t num_sources() const noexcept { return num_sources_; }
-	[[nodiscard]] constexpr double vox_size() const noexcept { return vox_size_; }
-	[[nodiscard]] constexpr double ambient_eta() const noexcept { return ambient_eta_; }
-	[[nodiscard]] constexpr bool partial() const noexcept { return partial_; }
-	[[nodiscard]] constexpr bool progress() const noexcept { return progress_; }
+	// Getters
+	uint32_t nx() const noexcept { return nx_; }
+	uint32_t ny() const noexcept { return ny_; }
+	uint32_t nz() const noexcept { return nz_; }
+	uint64_t num_layers() const noexcept { return num_layers_; }
+	uint64_t num_voxels() const noexcept { return num_voxels_; }
+	uint64_t num_photons() const noexcept { return num_photons_; }
+	uint64_t num_sources() const noexcept { return num_sources_; }
+	double vox_size() const noexcept { return vox_size_; }
+	double ambient_eta() const noexcept { return ambient_eta_; }
+	bool partial() const noexcept { return partial_; }
+	bool progress() const noexcept { return progress_; }
 
-	// Access parsed data with span for zero-copy access
-	[[nodiscard]] std::span<const Source> sources() const noexcept { 
-		return std::span<const Source>(sources_); 
-	}
-	[[nodiscard]] std::span<const Tissue> tissues() const noexcept { 
-		return std::span<const Tissue>(tissues_); 
-	}
-	[[nodiscard]] std::span<const Layer> layers() const noexcept { 
-		return std::span<const Layer>(layers_); 
-	}
-	
-	// Compatibility accessors returning references
-	[[nodiscard]] const std::vector<Source>& sources_vector() const noexcept { return sources_; }
-	[[nodiscard]] const std::vector<Tissue>& tissues_vector() const noexcept { return tissues_; }
-	[[nodiscard]] const std::vector<Layer>& layers_vector() const noexcept { return layers_; }
+	// Access parsed data
+	const std::vector<Source>& sources() const noexcept { return sources_; }
+	const std::vector<Tissue>& tissues() const noexcept { return tissues_; }
+	const std::vector<Layer>& layers() const noexcept { return layers_; }
 	
 	// Move versions for when transferring ownership
-	[[nodiscard]] std::vector<Layer>&& move_layers() { return std::move(layers_); }
+	std::vector<Layer>&& move_layers() { return std::move(layers_); }
 
 	// Setters
 	void set_nx(uint32_t nx) noexcept { nx_ = nx; }

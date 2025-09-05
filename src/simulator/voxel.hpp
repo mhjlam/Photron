@@ -5,6 +5,13 @@
 
 struct Voxel
 {
+private:
+	// Volume fraction thresholds for classification
+	static constexpr double FULLY_INSIDE_THRESHOLD = 0.999;
+	static constexpr double FULLY_OUTSIDE_THRESHOLD = 0.999;
+	static constexpr double PARTIAL_THRESHOLD = 0.001;
+
+public:
 	// Use GLM internally but expose original interface
 	glm::uvec3 coords; // (ix, iy, iz) coordinates
 	double absorption;
@@ -31,9 +38,9 @@ struct Voxel
 	void set_indices(const glm::uvec3& idx) { coords = idx; }
 	
 	// Volume fraction utilities
-	bool is_fully_inside() const { return volume_fraction_inside >= 0.999; }
-	bool is_fully_outside() const { return volume_fraction_outside >= 0.999; }
-	bool is_partial() const { return is_boundary_voxel && volume_fraction_inside > 0.001 && volume_fraction_outside > 0.001; }
+	bool is_fully_inside() const { return volume_fraction_inside >= FULLY_INSIDE_THRESHOLD; }
+	bool is_fully_outside() const { return volume_fraction_outside >= FULLY_OUTSIDE_THRESHOLD; }
+	bool is_partial() const { return is_boundary_voxel && volume_fraction_inside > PARTIAL_THRESHOLD && volume_fraction_outside > PARTIAL_THRESHOLD; }
 
 	bool operator==(const Voxel& other) const { return (other.coords == coords && other.tissue == tissue); }
 };

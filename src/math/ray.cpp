@@ -90,7 +90,7 @@ std::pair<bool, glm::dvec3> Ray::intersect_triangle(Triangle& triangle) const {
 /***********************************************************
  * Modern Ray-Plane intersection with vectorized operations
  ***********************************************************/
-bool Ray::intersect_plane(const glm::dvec3& normal, const glm::dvec3& point, glm::dvec3& intersection) const {
+bool Ray::intersect_plane(const glm::dvec3& normal, const glm::dvec3& point, glm::dvec3& intersection) const noexcept {
 	constexpr double EPSILON = 1e-12;
 	
 	// Ensure normal is normalized for accurate calculations
@@ -118,18 +118,19 @@ bool Ray::intersect_plane(const glm::dvec3& normal, const glm::dvec3& point, glm
 	return true;
 }
 
-void Ray::intersect_triangles(std::vector<Triangle>& triangles, std::vector<glm::dvec3>& intersections) const {
+void Ray::intersect_triangles(std::span<Triangle> triangles, std::vector<glm::dvec3>& intersections) const {
 	intersections.clear();
+	intersections.reserve(triangles.size() / 10); // Reserve for ~10% hit rate
 
 	for (Triangle& triangle : triangles) {
 		auto result = intersect_triangle(triangle);
 		if (result.first) {
-			intersections.push_back(result.second);
+			intersections.emplace_back(result.second);
 		}
 	}
 }
 
-double Ray::intersect_first_triangle(std::vector<Triangle>& triangles, glm::dvec3& intersection,
+double Ray::intersect_first_triangle(std::span<Triangle> triangles, glm::dvec3& intersection,
 									 Triangle& hit_triangle) const {
 	double shortest_dist = std::numeric_limits<double>::max();
 	bool found_intersection = false;
@@ -150,7 +151,7 @@ double Ray::intersect_first_triangle(std::vector<Triangle>& triangles, glm::dvec
 	return found_intersection ? shortest_dist : -1.0;
 }
 
-double Ray::intersect_first_triangle_from_layers(const std::vector<Layer>& layers, glm::dvec3& intersection,
+double Ray::intersect_first_triangle_from_layers(std::span<const Layer> layers, glm::dvec3& intersection,
 												 Triangle& hit_triangle) const {
 	double shortest_dist = std::numeric_limits<double>::max();
 	bool found_intersection = false;
@@ -159,7 +160,7 @@ double Ray::intersect_first_triangle_from_layers(const std::vector<Layer>& layer
 		for (const auto& triangle : layer.mesh) {
 			glm::dvec3 temp_intersection;
 			if (intersect_triangle(const_cast<Triangle&>(triangle), temp_intersection)) {
-				double dist = glm::distance(origin_, temp_intersection);
+				const double dist = glm::distance(origin_, temp_intersection);
 				if (dist < shortest_dist) {
 					shortest_dist = dist;
 					intersection = temp_intersection;

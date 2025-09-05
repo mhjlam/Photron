@@ -23,21 +23,14 @@ enum class MenuItem
 
 struct Settings
 {
-	bool draw_paths;
-	bool draw_voxels; // Enable/disable voxel rendering
-	bool draw_volume; // Geometry-aware bounds
-	bool draw_labels; // Energy labels
+	bool draw_paths = true;
+	bool draw_voxels = true; // Enable/disable voxel rendering
+	bool draw_volume = true; // Geometry-aware bounds
+	bool draw_labels = true; // Energy labels
 
-	CameraMode camera_mode;
-	VoxelMode voxel_mode;
+	CameraMode camera_mode = CameraMode::Orbit;
+	VoxelMode voxel_mode = VoxelMode::Absorption;
 
-	Settings() {
-		draw_paths = true;
-		draw_voxels = true;
-		draw_volume = true;
-		draw_labels = true;
-
-		camera_mode = CameraMode::Orbit;
-		voxel_mode = VoxelMode::Absorption;
-	}
+	// Default constructor uses default member initialization
+	Settings() = default;
 };

@@ -1,5 +1,20 @@
 #include "camera.hpp"
 
+namespace {
+	// Camera defaults
+	constexpr float DEFAULT_DISTANCE = 6.0f;
+	constexpr float DEFAULT_AZIMUTH = 45.0f;
+	constexpr float DEFAULT_ELEVATION = 30.0f;
+	constexpr float DEFAULT_YAW = -90.0f;
+	constexpr float DEFAULT_PITCH = 0.0f;
+	constexpr float DEFAULT_FOV = 45.0f;
+	constexpr float DEFAULT_NEAR_PLANE = 0.1f;
+	constexpr float DEFAULT_FAR_PLANE = 100.0f;
+	constexpr float DEFAULT_ASPECT_RATIO = 1.0f;
+	constexpr float MIN_ELEVATION_DEFAULT = -10.0f;
+	constexpr float MAX_ELEVATION_DEFAULT = 10.0f;
+}
+
 Camera::Camera() {
 	// Default initialization
 	target_ = glm::vec3(0.0f);
@@ -7,24 +22,24 @@ Camera::Camera() {
 	world_up_ = glm::vec3(0.0f, 1.0f, 0.0f);
 
 	// Orbital camera defaults - more isometric view
-	distance_ = 6.0f;   // Moved closer for better default view
-	azimuth_ = 45.0f;   // 45 degrees from front
-	elevation_ = 30.0f; // 30 degrees elevation for isometric view
+	distance_ = DEFAULT_DISTANCE;   // Moved closer for better default view
+	azimuth_ = DEFAULT_AZIMUTH;     // 45 degrees from front
+	elevation_ = DEFAULT_ELEVATION; // 30 degrees elevation for isometric view
 
 	// FPS camera defaults
 	is_fps_mode_ = false;
-	yaw_ = -90.0f; // Point towards negative Z
-	pitch_ = 0.0f;
+	yaw_ = DEFAULT_YAW; // Point towards negative Z
+	pitch_ = DEFAULT_PITCH;
 	position_ = glm::vec3(0.0f, 0.0f, 3.0f);
 
-	fov_ = 45.0f;
-	near_plane_ = 0.1f;
-	far_plane_ = 100.0f;
-	aspect_ratio_ = 1.0f;
+	fov_ = DEFAULT_FOV;
+	near_plane_ = DEFAULT_NEAR_PLANE;
+	far_plane_ = DEFAULT_FAR_PLANE;
+	aspect_ratio_ = DEFAULT_ASPECT_RATIO;
 
 	// Initialize elevation bounds and camera offset
-	min_elevation_ = -10.0f;
-	max_elevation_ = 10.0f;
+	min_elevation_ = MIN_ELEVATION_DEFAULT;
+	max_elevation_ = MAX_ELEVATION_DEFAULT;
 	elevation_bounds_set_ = false;
 	camera_y_offset_ = 0.0f;
 

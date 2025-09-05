@@ -7,29 +7,18 @@
 
 struct Source
 {
-	uint64_t id;                   // identifier
-	glm::dvec3 origin;             // origin
-	glm::dvec3 direction;          // direction of incidence
-	glm::dvec3 specular_direction; // direction of specular reflectance
+	uint64_t id = 0;                   // identifier
+	glm::dvec3 origin{0.0};             // origin
+	glm::dvec3 direction{0.0};          // direction of incidence
+	glm::dvec3 specular_direction{0.0}; // direction of specular reflectance
 
-	glm::dvec3 intersect;          // intersection point
+	glm::dvec3 intersect{0.0};          // intersection point
 	Triangle triangle;             // triangle at intersection point
 
-	Source() {
-		id = 0;
-		origin = glm::dvec3(0);
-		direction = glm::dvec3(0);
-		intersect = glm::dvec3(0);
-		triangle = Triangle();
-		specular_direction = glm::dvec3(0);
-	}
+	// Default constructor uses default member initialization
+	Source() = default;
 
-	Source(uint64_t i, glm::dvec3 p, glm::dvec3 v) {
-		id = i;
-		origin = p;
-		direction = v;
-		intersect = glm::dvec3(0);
-		triangle = Triangle();
-		specular_direction = glm::dvec3(0);
+	explicit Source(uint64_t i, const glm::dvec3& p, const glm::dvec3& v) noexcept
+		: id(i), origin(p), direction(v) {
 	}
 };

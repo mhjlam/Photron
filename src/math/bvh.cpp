@@ -1,5 +1,6 @@
 #include "bvh.hpp"
 #include <algorithm>
+#include <ranges>
 #include <limits>
 #include <numeric>
 
@@ -95,13 +96,12 @@ std::unique_ptr<BVHNode> BVH::build_recursive(std::vector<int>& triangle_indices
         return node;
     }
     
-    // Sort triangles by centroid along the chosen axis
-    std::sort(triangle_indices.begin(), triangle_indices.end(), 
-        [this, best_axis](int a, int b) {
-            glm::dvec3 centroid_a = (triangles_[a].v0() + triangles_[a].v1() + triangles_[a].v2()) / 3.0;
-            glm::dvec3 centroid_b = (triangles_[b].v0() + triangles_[b].v1() + triangles_[b].v2()) / 3.0;
-            return centroid_a[best_axis] < centroid_b[best_axis];
-        });
+    // Sort triangles by centroid along the chosen axis using C++20 ranges
+    std::ranges::sort(triangle_indices, [this, best_axis](int a, int b) noexcept {
+        const glm::dvec3 centroid_a = (triangles_[a].v0() + triangles_[a].v1() + triangles_[a].v2()) / 3.0;
+        const glm::dvec3 centroid_b = (triangles_[b].v0() + triangles_[b].v1() + triangles_[b].v2()) / 3.0;
+        return centroid_a[best_axis] < centroid_b[best_axis];
+    });
     
     // Split the triangle list
     std::vector<int> left_triangles(triangle_indices.begin(), triangle_indices.begin() + split_index);

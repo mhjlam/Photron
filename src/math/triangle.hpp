@@ -5,30 +5,30 @@
 class Triangle
 {
 private:
-	glm::dvec3 v0_;
-	glm::dvec3 v1_;
-	glm::dvec3 v2_;
-	glm::dvec3 normal_;
+	glm::dvec3 v0_{0.0};
+	glm::dvec3 v1_{0.0};
+	glm::dvec3 v2_{0.0};
+	glm::dvec3 normal_{0.0, 1.0, 0.0};
 
 public:
-	Triangle();
-	Triangle(const glm::dvec3& v0, const glm::dvec3& v1, const glm::dvec3& v2);
+	Triangle() = default;
+	Triangle(const glm::dvec3& v0, const glm::dvec3& v1, const glm::dvec3& v2) noexcept;
 
 	// Getters
-	const glm::dvec3& v0() const { return v0_; }
-	const glm::dvec3& v1() const { return v1_; }
-	const glm::dvec3& v2() const { return v2_; }
-	const glm::dvec3& normal() const { return normal_; }
+	const glm::dvec3& v0() const noexcept { return v0_; }
+	const glm::dvec3& v1() const noexcept { return v1_; }
+	const glm::dvec3& v2() const noexcept { return v2_; }
+	const glm::dvec3& normal() const noexcept { return normal_; }
 
 	// Setters
-	void set_vertices(const glm::dvec3& v0, const glm::dvec3& v1, const glm::dvec3& v2);
-	void set_normal(const glm::dvec3& normal) { normal_ = normal; }
+	void set_vertices(const glm::dvec3& v0, const glm::dvec3& v1, const glm::dvec3& v2) noexcept;
+	void set_normal(const glm::dvec3& normal) noexcept { normal_ = normal; }
 
 	// Utility methods
-	bool is_invalid() const;
-	glm::dvec3 center() const;
-	double area() const;
+	bool is_invalid() const noexcept;
+	glm::dvec3 center() const noexcept;
+	double area() const noexcept;
 
 private:
-	void compute_normal();
+	void compute_normal() noexcept;
 };

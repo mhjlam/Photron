@@ -4,30 +4,41 @@
 #include "numerical_constants.hpp"
 #include <algorithm>
 #include <cmath>
+#include <concepts>
+#include <type_traits>
 
 /**
  * @file geometric_utils.hpp
  * @brief Modern geometric utility functions for robust and efficient 3D calculations
  * 
- * This file provides optimized geometric operations using GLM vectorization
- * and consistent numerical precision handling.
+ * This file provides optimized geometric operations using GLM vectorization,
+ * consistent numerical precision handling, and C++20 concepts for type safety.
  */
+
+// C++20 concepts for type safety
+template<typename T>
+concept FloatingPoint = std::floating_point<T>;
+
+template<typename T>
+concept Arithmetic = std::is_arithmetic_v<T>;
 
 namespace GeometricUtils {
     
     /**
      * @brief Safe floating-point equality comparison with epsilon tolerance
+     * @note Now uses C++20 concepts for compile-time type checking
      */
-    template<typename T>
-    inline bool approximately_equal(T a, T b, T epsilon = static_cast<T>(NumericalConstants::GEOMETRIC_EPSILON)) {
+    template<FloatingPoint T>
+    constexpr bool approximately_equal(T a, T b, T epsilon = static_cast<T>(NumericalConstants::GEOMETRIC_EPSILON)) noexcept {
         return std::abs(a - b) <= epsilon;
     }
     
     /**
      * @brief Safe floating-point zero comparison
+     * @note Enhanced with C++20 concepts and constexpr
      */
-    template<typename T>
-    inline bool approximately_zero(T value, T epsilon = static_cast<T>(NumericalConstants::GEOMETRIC_EPSILON)) {
+    template<FloatingPoint T>
+    constexpr bool approximately_zero(T value, T epsilon = static_cast<T>(NumericalConstants::GEOMETRIC_EPSILON)) noexcept {
         return std::abs(value) <= epsilon;
     }
     

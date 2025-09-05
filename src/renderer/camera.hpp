@@ -53,7 +53,7 @@ private:
 		float distance = 6.0f; // Closer default distance
 		float azimuth = 45.0f;
 		float elevation = 30.0f;
-		glm::vec3 target = glm::vec3(0.0f);
+		glm::vec3 target{0.0f};
 	} initial_state_;
 
 	// Mouse state for camera control

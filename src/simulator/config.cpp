@@ -6,11 +6,6 @@
 
 #include "math/triangle.hpp"
 
-Config::Config() :
-	nx_(0), ny_(0), nz_(0), num_layers_(0), num_voxels_(0), num_photons_(0), num_sources_(0), vox_size_(0.0),
-	ambient_eta_(0.0), partial_(true), progress_(false) {
-}
-
 bool Config::parse_config_file(const std::string& filename) {
 	// Clear existing data
 	sources_.clear();

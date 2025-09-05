@@ -42,7 +42,7 @@ ifeq ($(OS),Windows_NT)
 	else
 		# For g++, clang++, and other GCC-compatible compilers
 		CXXFLAGS = -std=c++20 -Wall -Wextra -pedantic -Wconversion -Wsign-conversion
-		LIBS = -lopengl32 -lglu32 -lglew32 -lglfw3dll -lgdi32 -luser32
+		LIBS = -lopengl32 -lglu32 -lglew32 -lglfw3dll -lgdi32 -luser32 -limgui
 		COMPILER_FOUND = $(CXX)
 		ifeq ($(BUILD_TYPE),debug)
 			CXXFLAGS += -g -O0 -DDEBUG
@@ -95,11 +95,25 @@ TEST_TARGET = $(BINDIR)/$(PROJECT)_test$(EXEEXT)
 
 # Source files (equivalent to CMake GLOB_RECURSE, matching exact CMake configuration)
 PHOTRON_SOURCES = $(SRCDIR)/main.cpp \
+                  $(SRCDIR)/app.cpp \
+                  $(SRCDIR)/math/bvh.cpp \
+                  $(SRCDIR)/math/cuboid.cpp \
+                  $(SRCDIR)/math/mesh_geometry.cpp \
+                  $(SRCDIR)/math/ray.cpp \
+                  $(SRCDIR)/math/triangle.cpp \
+                  $(SRCDIR)/math/voxel_grid.cpp \
+                  $(SRCDIR)/math/voxel_volume_calculator.cpp \
                   $(SRCDIR)/renderer/renderer.cpp \
-                  $(SRCDIR)/renderer/window.cpp \
+                  $(SRCDIR)/renderer/buffer.cpp \
+                  $(SRCDIR)/renderer/camera.cpp \
+                  $(SRCDIR)/renderer/mesh.cpp \
+                  $(SRCDIR)/renderer/overlay.cpp \
+                  $(SRCDIR)/renderer/shader.cpp \
+                  $(SRCDIR)/renderer/shader_manager.cpp \
+                  $(SRCDIR)/renderer/vertex_array.cpp \
                   $(SRCDIR)/simulator/simulator.cpp \
-                  $(SRCDIR)/utilities/experimenter.cpp \
-                  $(SRCDIR)/utilities/utilities.cpp
+                  $(SRCDIR)/simulator/config.cpp \
+                  $(SRCDIR)/simulator/metrics.cpp
 
 # MCML sources are no longer needed - only random.hpp is used via header include
 MCML_SOURCES = 
@@ -159,6 +173,14 @@ else
 endif
 
 $(BUILDDIR)/%.o: $(SRCDIR)/renderer/%.cpp $(HEADERS) | $(BUILDDIR)
+	$(ECHO) "Compiling $<..."
+ifeq ($(CXX),cl)
+	$(Q)$(CXX) $(CXXFLAGS) /c $< /Fo$@
+else
+	$(Q)$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+endif
+
+$(BUILDDIR)/%.o: $(SRCDIR)/math/%.cpp $(HEADERS) | $(BUILDDIR)
 	$(ECHO) "Compiling $<..."
 ifeq ($(CXX),cl)
 	$(Q)$(CXX) $(CXXFLAGS) /c $< /Fo$@

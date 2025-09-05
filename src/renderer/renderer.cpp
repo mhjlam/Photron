@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <format>
 #include <iostream>
 #include <sstream>
 #include <set>
@@ -15,12 +16,7 @@
 #include "simulator/config.hpp"
 #include "simulator/simulator.hpp"
 
-Renderer::Renderer() :
-	line_vao_(0), line_vbo_(0), point_vao_(0), point_vbo_(0), triangle_vao_(0), triangle_vbo_(0),
-	line_shader_program_(0), point_shader_program_(0), triangle_shader_program_(0),
-	is_arc_camera_mode_(true), // Start in Orbit mode
-	viewport_width_(800), viewport_height_(600), simulator_(nullptr) {
-}
+Renderer::Renderer() = default;
 
 Renderer::~Renderer() {
 }
@@ -106,17 +102,9 @@ void Renderer::update() {
 	}
 }
 
-void Renderer::render(Simulator* simulator) {
-	if (!simulator)
-		return;
-
-	// Check if simulator has changed and invalidate energy label cache if needed
-	if (simulator_ != simulator) {
-		invalidate_energy_label_cache();
-	}
-
+void Renderer::render(Simulator& simulator) {
 	// Store simulator reference for use in drawing functions
-	simulator_ = simulator;
+	simulator_ = &simulator;
 
 	// Update camera target based on simulation bounds
 	static bool first_frame = true;
@@ -194,10 +182,7 @@ void Renderer::draw_test_geometry() {
 	draw_points();
 }
 
-void Renderer::draw_volume(Simulator* simulator) {
-	if (!simulator)
-		return;
-
+void Renderer::draw_volume(const Simulator& simulator) {
 	// Combine wireframe (lines) and faces (triangles) for a complete boundary visualization
 	begin_lines();
 	begin_triangles();
@@ -210,7 +195,7 @@ void Renderer::draw_volume(Simulator* simulator) {
 	glm::vec4 face_color(0.2f, 0.2f, 0.2f, 0.1f);       // Subtle transparent faces
 
 	// Process each layer's geometry
-	for (const auto& layer : simulator->layers) {
+	for (const auto& layer : simulator.layers) {
 		// For each triangle in the layer's mesh, we'll determine if it's part of a planar face
 		// and group triangles that share the same plane into faces
 		
@@ -228,11 +213,11 @@ void Renderer::draw_volume(Simulator* simulator) {
 			float d = dot(normal, v0);
 			
 			// Create a key for this plane (quantized to handle floating point precision)
-			std::string plane_key = 
-				std::to_string(int(normal.x * 1000)) + "," +
-				std::to_string(int(normal.y * 1000)) + "," +
-				std::to_string(int(normal.z * 1000)) + "," +
-				std::to_string(int(d * 1000));
+			std::string plane_key = std::format("{},{},{},{}",
+				int(normal.x * 1000),
+				int(normal.y * 1000), 
+				int(normal.z * 1000),
+				int(d * 1000));
 			
 			// Add vertices to this plane's face
 			auto& face_vertices = planar_faces[plane_key];
@@ -292,14 +277,14 @@ void Renderer::draw_volume(Simulator* simulator) {
 					glm::vec3 tangent = normalize(cross(normal, ref_vec));
 					glm::vec3 bitangent = normalize(cross(normal, tangent));
 					
-					// Sort vertices by angle around the center
-					std::sort(unique_vertices.begin(), unique_vertices.end(), 
-						[&center, &tangent, &bitangent](const glm::vec3& a, const glm::vec3& b) {
-							glm::vec3 dir_a = a - center;
-							glm::vec3 dir_b = b - center;
+					// Sort vertices by angle around the center - Modern C++20
+					std::ranges::sort(unique_vertices, 
+						[&center, &tangent, &bitangent](const glm::vec3& a, const glm::vec3& b) noexcept {
+							const glm::vec3 dir_a = a - center;
+							const glm::vec3 dir_b = b - center;
 							
-							float angle_a = atan2f(dot(dir_a, bitangent), dot(dir_a, tangent));
-							float angle_b = atan2f(dot(dir_b, bitangent), dot(dir_b, tangent));
+							const float angle_a = atan2f(dot(dir_a, bitangent), dot(dir_a, tangent));
+							const float angle_b = atan2f(dot(dir_b, bitangent), dot(dir_b, tangent));
 							
 							return angle_a < angle_b;
 						});
@@ -343,11 +328,8 @@ void Renderer::update_camera() {
 	camera_.set_aspect_ratio(aspect);
 }
 
-void Renderer::update_camera_target(Simulator* simulator) {
-	if (!simulator)
-		return;
-
-	Range3 bounds = simulator->bounds;
+void Renderer::update_camera_target(const Simulator& simulator) {
+	Range3 bounds = simulator.bounds;
 
 	// Set camera target to center of bounds
 	glm::vec3 center = to_float(bounds.center());
@@ -521,12 +503,13 @@ void Renderer::draw_voxels(const Settings& settings) {
 	float max_energy = 0.01f; // Default fallback
 
 	if (!all_energies.empty()) {
-		std::sort(all_energies.begin(), all_energies.end());
+		// Modern C++20: Use ranges::sort for cleaner syntax
+		std::ranges::sort(all_energies);
 
 		// Use percentile-based scaling for better contrast
-		size_t count = all_energies.size();
-		float p5 = all_energies[static_cast<size_t>(count * 0.05)];  // 5th percentile
-		float p95 = all_energies[static_cast<size_t>(count * 0.95)]; // 95th percentile
+		const size_t count = all_energies.size();
+		const float p5 = all_energies[static_cast<size_t>(count * 0.05)];  // 5th percentile
+		const float p95 = all_energies[static_cast<size_t>(count * 0.95)]; // 95th percentile
 
 		min_energy = std::max(p5, 1e-8f);                            // Lower minimum
 		max_energy = std::max(p95, min_energy * 10.0f);              // Ensure reasonable range
@@ -741,8 +724,8 @@ void Renderer::draw_voxels(const Settings& settings) {
 		}
 	}
 
-	// Sort voxels back-to-front for proper transparency blending (user request 4)
-	std::sort(voxels_to_render.begin(), voxels_to_render.end(), [](const VoxelRenderData& a, const VoxelRenderData& b) {
+	// Sort voxels back-to-front for proper transparency blending (user request 4) - Modern C++20
+	std::ranges::sort(voxels_to_render, [](const VoxelRenderData& a, const VoxelRenderData& b) noexcept {
 		return a.distance_to_camera > b.distance_to_camera; // Furthest first
 	});
 
@@ -830,9 +813,9 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 	// Calculate adaptive logarithmic mapping parameters
 	float min_energy = 1.0f, max_energy = 0.0f;
 	if (!all_energies.empty()) {
-		auto minmax = std::minmax_element(all_energies.begin(), all_energies.end());
-		min_energy = *minmax.first;
-		max_energy = *minmax.second;
+		auto [min_it, max_it] = std::minmax_element(all_energies.begin(), all_energies.end());
+		min_energy = *min_it;
+		max_energy = *max_it;
 	}
 
 	// Create adaptive logarithmic mapping function using helper method
@@ -1541,7 +1524,7 @@ void Renderer::cache_energy_labels() {
 							label_text = "Reflected: <1%";
 						}
 						else {
-							label_text = "Reflected: " + std::to_string(static_cast<int>(energy_percent)) + "%";
+							label_text = std::format("Reflected: {}%", static_cast<int>(energy_percent));
 						}
 					}
 					else {
@@ -1550,7 +1533,7 @@ void Renderer::cache_energy_labels() {
 							label_text = "<1%";
 						}
 						else {
-							label_text = std::to_string(static_cast<int>(energy_percent)) + "%";
+							label_text = std::format("{}%", static_cast<int>(energy_percent));
 						}
 					}
 					label_color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f); // White for incident
@@ -1611,7 +1594,7 @@ void Renderer::cache_energy_labels() {
 							label_text = "Reflected: <1%";
 						}
 						else {
-							label_text = "Reflected: " + std::to_string(static_cast<int>(energy_percent)) + "%";
+							label_text = std::format("Reflected: {}%", static_cast<int>(energy_percent));
 						}
 					}
 					else if (at_bottom) {
@@ -1620,7 +1603,7 @@ void Renderer::cache_energy_labels() {
 							label_text = "Transmitted: <1%";
 						}
 						else {
-							label_text = "Transmitted: " + std::to_string(static_cast<int>(energy_percent)) + "%";
+							label_text = std::format("Transmitted: {}%", static_cast<int>(energy_percent));
 						}
 					}
 					else {
@@ -1629,7 +1612,7 @@ void Renderer::cache_energy_labels() {
 							label_text = "<1%";
 						}
 						else {
-							label_text = std::to_string(static_cast<int>(energy_percent)) + "%";
+							label_text = std::format("{}%", static_cast<int>(energy_percent));
 						}
 					}
 
@@ -1700,7 +1683,7 @@ void Renderer::cache_energy_labels() {
 									label_text = "Reflected: <1%";
 								}
 								else {
-									label_text = "Reflected: " + std::to_string(static_cast<int>(energy_percent)) + "%";
+									label_text = std::format("Reflected: {}%", static_cast<int>(energy_percent));
 								}
 							}
 							else if (at_bottom) {
@@ -1709,8 +1692,7 @@ void Renderer::cache_energy_labels() {
 									label_text = "Transmitted: <1%";
 								}
 								else {
-									label_text =
-										"Transmitted: " + std::to_string(static_cast<int>(energy_percent)) + "%";
+									label_text = std::format("Transmitted: {}%", static_cast<int>(energy_percent));
 								}
 							}
 							else {
@@ -1719,7 +1701,7 @@ void Renderer::cache_energy_labels() {
 									label_text = "<1%";
 								}
 								else {
-									label_text = std::to_string(static_cast<int>(energy_percent)) + "%";
+									label_text = std::format("{}%", static_cast<int>(energy_percent));
 								}
 							}
 
@@ -1800,7 +1782,7 @@ void Renderer::cache_energy_labels() {
 				label_text = "Reflected: <1%";
 			}
 			else {
-				label_text = "Reflected: " + std::to_string(static_cast<int>(scatter_percent)) + "%";
+				label_text = std::format("Reflected: {}%", static_cast<int>(scatter_percent));
 			}
 
 			EnergyLabel surface_label;
@@ -2074,120 +2056,7 @@ glm::vec2 Renderer::world_to_screen(const glm::vec3& world_pos, int screen_width
 /**
  * Check if a point is inside the mesh geometry
  */
-bool Renderer::is_point_inside_mesh(const glm::vec3& point, Simulator* simulator) const {
-	if (!simulator) return false;
-	
+bool Renderer::is_point_inside_mesh(const glm::vec3& point, const Simulator& simulator) const {
 	glm::dvec3 dpoint(point.x, point.y, point.z);
-	return simulator->is_point_inside_geometry(dpoint);
-}
-
-/**
- * Draw a voxel clipped to the mesh boundaries
- */
-void Renderer::draw_clipped_voxel(const glm::vec3& voxel_center, float voxel_size, const glm::vec4& color, Simulator* simulator) {
-	float half_size = voxel_size * 0.5f;
-	
-	// Generate voxel corners
-	std::vector<glm::vec3> corners = {
-		voxel_center + glm::vec3(-half_size, -half_size, -half_size), // 0: min corner
-		voxel_center + glm::vec3( half_size, -half_size, -half_size), // 1: +x
-		voxel_center + glm::vec3(-half_size,  half_size, -half_size), // 2: +y
-		voxel_center + glm::vec3( half_size,  half_size, -half_size), // 3: +x+y
-		voxel_center + glm::vec3(-half_size, -half_size,  half_size), // 4: +z
-		voxel_center + glm::vec3( half_size, -half_size,  half_size), // 5: +x+z
-		voxel_center + glm::vec3(-half_size,  half_size,  half_size), // 6: +y+z
-		voxel_center + glm::vec3( half_size,  half_size,  half_size)  // 7: max corner
-	};
-	
-	// Check which corners are inside the mesh
-	std::vector<bool> inside(8);
-	int inside_count = 0;
-	for (int i = 0; i < 8; i++) {
-		inside[i] = is_point_inside_mesh(corners[i], simulator);
-		if (inside[i]) inside_count++;
-	}
-	
-	// If no corners are inside, don't render
-	if (inside_count == 0) {
-		return;
-	}
-	
-	// If all corners are inside, render as normal cube
-	if (inside_count == 8) {
-		// Draw complete voxel using standard cube faces
-		// Front face (z+)
-		add_triangle(corners[4], corners[5], corners[7], color);
-		add_triangle(corners[4], corners[7], corners[6], color);
-		// Back face (z-)
-		add_triangle(corners[0], corners[2], corners[3], color);
-		add_triangle(corners[0], corners[3], corners[1], color);
-		// Left face (x-)
-		add_triangle(corners[0], corners[4], corners[6], color);
-		add_triangle(corners[0], corners[6], corners[2], color);
-		// Right face (x+)
-		add_triangle(corners[1], corners[3], corners[7], color);
-		add_triangle(corners[1], corners[7], corners[5], color);
-		// Bottom face (y-)
-		add_triangle(corners[0], corners[1], corners[5], color);
-		add_triangle(corners[0], corners[5], corners[4], color);
-		// Top face (y+)
-		add_triangle(corners[2], corners[6], corners[7], color);
-		add_triangle(corners[2], corners[7], corners[3], color);
-		return;
-	}
-	
-	// For partial voxels, we need to render only the parts inside the mesh
-	// This is a complex operation - for now, render a simplified version
-	// by sampling the voxel more densely and only rendering sub-voxels that are inside
-	
-	int subdivisions = 4; // Subdivide each voxel into 4x4x4 sub-voxels
-	float sub_size = voxel_size / subdivisions;
-	float sub_half = sub_size * 0.5f;
-	
-	for (int sx = 0; sx < subdivisions; sx++) {
-		for (int sy = 0; sy < subdivisions; sy++) {
-			for (int sz = 0; sz < subdivisions; sz++) {
-				glm::vec3 sub_center = voxel_center + glm::vec3(
-					(sx - subdivisions/2.0f + 0.5f) * sub_size,
-					(sy - subdivisions/2.0f + 0.5f) * sub_size,
-					(sz - subdivisions/2.0f + 0.5f) * sub_size
-				);
-				
-				// Check if this sub-voxel center is inside the mesh
-				if (is_point_inside_mesh(sub_center, simulator)) {
-					// Render this sub-voxel as a small cube
-					std::vector<glm::vec3> sub_corners = {
-						sub_center + glm::vec3(-sub_half, -sub_half, -sub_half),
-						sub_center + glm::vec3( sub_half, -sub_half, -sub_half),
-						sub_center + glm::vec3(-sub_half,  sub_half, -sub_half),
-						sub_center + glm::vec3( sub_half,  sub_half, -sub_half),
-						sub_center + glm::vec3(-sub_half, -sub_half,  sub_half),
-						sub_center + glm::vec3( sub_half, -sub_half,  sub_half),
-						sub_center + glm::vec3(-sub_half,  sub_half,  sub_half),
-						sub_center + glm::vec3( sub_half,  sub_half,  sub_half)
-					};
-					
-					// Draw sub-voxel faces
-					// Front face (z+)
-					add_triangle(sub_corners[4], sub_corners[5], sub_corners[7], color);
-					add_triangle(sub_corners[4], sub_corners[7], sub_corners[6], color);
-					// Back face (z-)
-					add_triangle(sub_corners[0], sub_corners[2], sub_corners[3], color);
-					add_triangle(sub_corners[0], sub_corners[3], sub_corners[1], color);
-					// Left face (x-)
-					add_triangle(sub_corners[0], sub_corners[4], sub_corners[6], color);
-					add_triangle(sub_corners[0], sub_corners[6], sub_corners[2], color);
-					// Right face (x+)
-					add_triangle(sub_corners[1], sub_corners[3], sub_corners[7], color);
-					add_triangle(sub_corners[1], sub_corners[7], sub_corners[5], color);
-					// Bottom face (y-)
-					add_triangle(sub_corners[0], sub_corners[1], sub_corners[5], color);
-					add_triangle(sub_corners[0], sub_corners[5], sub_corners[4], color);
-					// Top face (y+)
-					add_triangle(sub_corners[2], sub_corners[6], sub_corners[7], color);
-					add_triangle(sub_corners[2], sub_corners[7], sub_corners[3], color);
-				}
-			}
-		}
-	}
+	return simulator.is_point_inside_geometry(dpoint);
 }

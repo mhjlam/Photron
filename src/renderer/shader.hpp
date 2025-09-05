@@ -8,7 +8,7 @@
 class Shader
 {
 public:
-	Shader() : program_id_(0) {}
+	Shader() = default;
 	~Shader();
 
 	// Load shaders from files
@@ -36,7 +36,7 @@ public:
 	bool is_valid() const { return program_id_ != 0; }
 
 private:
-	GLuint program_id_;
+	GLuint program_id_ = 0;
 
 	// Helper functions
 	std::string read_file(const std::string& path);

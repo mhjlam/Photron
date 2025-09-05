@@ -2,15 +2,10 @@
 #include "../simulator/voxel.hpp"
 #include <stdexcept>
 #include <algorithm>
+#include <memory>
 
 // Default constructor
-VoxelGrid::VoxelGrid() 
-    : dimensions_(0, 0, 0)
-    , total_voxels_(0)
-    , voxel_size_(0.0)
-    , voxels_()
-{
-}
+VoxelGrid::VoxelGrid() = default;
 
 // Parameterized constructor
 VoxelGrid::VoxelGrid(double voxel_size, uint32_t num_x, uint32_t num_y, uint32_t num_z)
@@ -78,14 +73,14 @@ Voxel* VoxelGrid::operator()(uint32_t x, uint32_t y, uint32_t z) {
     if (!is_valid_coordinate(x, y, z)) {
         throw std::out_of_range("Voxel coordinate out of bounds");
     }
-    return voxels_[calculate_index(x, y, z)];
+    return voxels_[calculate_index(x, y, z)].get();
 }
 
 const Voxel* VoxelGrid::operator()(uint32_t x, uint32_t y, uint32_t z) const {
     if (!is_valid_coordinate(x, y, z)) {
         throw std::out_of_range("Voxel coordinate out of bounds");
     }
-    return voxels_[calculate_index(x, y, z)];
+    return voxels_[calculate_index(x, y, z)].get();
 }
 
 // Safe access methods with bounds checking
@@ -93,14 +88,14 @@ Voxel* VoxelGrid::at(uint32_t x, uint32_t y, uint32_t z) {
     if (!is_valid_coordinate(x, y, z)) {
         throw std::out_of_range("Voxel coordinate out of bounds");
     }
-    return voxels_.at(calculate_index(x, y, z));
+    return voxels_.at(calculate_index(x, y, z)).get();
 }
 
 const Voxel* VoxelGrid::at(uint32_t x, uint32_t y, uint32_t z) const {
     if (!is_valid_coordinate(x, y, z)) {
         throw std::out_of_range("Voxel coordinate out of bounds");
     }
-    return voxels_.at(calculate_index(x, y, z));
+    return voxels_.at(calculate_index(x, y, z)).get();
 }
 
 // Linear indexing
@@ -113,14 +108,14 @@ Voxel* VoxelGrid::at(uint32_t linear_index) {
     if (!is_valid_index(linear_index)) {
         throw std::out_of_range("Linear index out of bounds");
     }
-    return voxels_.at(linear_index);
+    return voxels_.at(linear_index).get();
 }
 
 const Voxel* VoxelGrid::at(uint32_t linear_index) const {
     if (!is_valid_index(linear_index)) {
         throw std::out_of_range("Linear index out of bounds");
     }
-    return voxels_.at(linear_index);
+    return voxels_.at(linear_index).get();
 }
 
 // Grid management
@@ -141,23 +136,26 @@ bool VoxelGrid::is_empty() const {
 
 // Private helper methods
 void VoxelGrid::initialize_voxels() {
-    voxels_.reserve(total_voxels_);
+    // Modern C++20: Pre-allocate and use emplace_back for better performance
     voxels_.clear();
+    voxels_.reserve(total_voxels_);
     
     // Initialize voxels in z-y-x order for better cache locality
+    // Use emplace_back to construct in-place and avoid unnecessary copies
     for (uint32_t z = 0; z < dimensions_.z; ++z) {
         for (uint32_t y = 0; y < dimensions_.y; ++y) {
             for (uint32_t x = 0; x < dimensions_.x; ++x) {
-                voxels_.push_back(new Voxel(x, y, z));
+                voxels_.emplace_back(std::make_unique<Voxel>(x, y, z));
             }
         }
     }
+    
+    // Shrink to fit for optimal memory usage
+    voxels_.shrink_to_fit();
 }
 
 void VoxelGrid::cleanup_voxels() {
-    for (Voxel* voxel : voxels_) {
-        delete voxel;
-    }
+    // Smart pointers automatically clean up when the vector is cleared
     voxels_.clear();
 }
 

@@ -4,20 +4,20 @@
 
 struct RenderVertex
 {
-	glm::vec3 position;
-	glm::vec3 normal;
-	glm::vec2 tex_coords;
-	glm::vec4 color;
+	glm::vec3 position{0.0f};
+	glm::vec3 normal{0.0f, 1.0f, 0.0f};
+	glm::vec2 tex_coords{0.0f};
+	glm::vec4 color{1.0f};
 
-	// Constructors
-	RenderVertex() : position(0.0f), normal(0.0f, 1.0f, 0.0f), tex_coords(0.0f), color(1.0f) {}
+	// Default constructor uses default member initialization
+	RenderVertex() = default;
 
-	explicit RenderVertex(const glm::vec3& position) :
-		position(position), normal(0.0f, 1.0f, 0.0f), tex_coords(0.0f), color(1.0f) {}
+	explicit RenderVertex(const glm::vec3& pos) noexcept
+		: position(pos) {}
 
-	RenderVertex(const glm::vec3& position, const glm::vec4& col) :
-		position(position), normal(0.0f, 1.0f, 0.0f), tex_coords(0.0f), color(col) {}
+	RenderVertex(const glm::vec3& pos, const glm::vec4& col) noexcept
+		: position(pos), color(col) {}
 
-	RenderVertex(const glm::vec3& position, const glm::vec3& norm, const glm::vec2& tex, const glm::vec4& col) :
-		position(position), normal(norm), tex_coords(tex), color(col) {}
+	RenderVertex(const glm::vec3& pos, const glm::vec3& norm, const glm::vec2& tex, const glm::vec4& col) noexcept
+		: position(pos), normal(norm), tex_coords(tex), color(col) {}
 };

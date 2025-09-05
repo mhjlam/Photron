@@ -5,7 +5,7 @@
 class VertexArray
 {
 public:
-	VertexArray() : vao_id_(0) {}
+	VertexArray() = default;
 	~VertexArray();
 
 	void bind() const;
@@ -24,5 +24,5 @@ public:
 private:
 	void ensure_created() const;
 
-	mutable GLuint vao_id_;
+	mutable GLuint vao_id_ = 0;
 };

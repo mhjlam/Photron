@@ -2,11 +2,13 @@
 
 #include <vector>
 #include <optional>
+#include <span>
 #include "math/ray.hpp"
 #include "math/triangle.hpp"
 #include "math/glm_types.hpp"
 #include "math/range.hpp"
 #include "math/bvh.hpp"
+#include "math/concepts.hpp"
 
 // Forward declarations
 class BoundingVolume;
@@ -25,10 +27,11 @@ private:
     BVH bvh_; // Spatial acceleration structure
     
 public:
-    MeshGeometry() : has_bounds_(false) {}
+    MeshGeometry() noexcept : has_bounds_(false) {}
     
-    MeshGeometry(const std::vector<Triangle>& triangles)
-        : triangles_(triangles), has_bounds_(false)
+    template<TriangleContainer Container>
+    explicit MeshGeometry(const Container& triangles) requires std::ranges::sized_range<Container>
+        : triangles_(std::ranges::begin(triangles), std::ranges::end(triangles)), has_bounds_(false)
     {
         calculate_bounds();
         bvh_.build(triangles_);
@@ -54,38 +57,44 @@ public:
     }
     
     // Set all triangles at once
-    void set_triangles(const std::vector<Triangle>& triangles) {
-        triangles_ = triangles;
+    template<TriangleContainer Container>
+    void set_triangles(const Container& triangles) requires std::ranges::sized_range<Container> {
+        triangles_.assign(std::ranges::begin(triangles), std::ranges::end(triangles));
         calculate_bounds();
         bvh_.build(triangles_);
     }
     
-    // Get the triangles in the mesh
-    const std::vector<Triangle>& triangles() const { return triangles_; }
+    // Get the triangles in the mesh (zero-copy access)
+    [[nodiscard]] std::span<const Triangle> triangles() const noexcept { 
+        return std::span<const Triangle>(triangles_); 
+    }
+    
+    // Get the triangles vector (for compatibility)
+    [[nodiscard]] const std::vector<Triangle>& triangles_vector() const noexcept { return triangles_; }
     
     // Get the bounding box of the mesh
-    const Range3& bounds() const { return bounds_; }
+    [[nodiscard]] const Range3& bounds() const noexcept { return bounds_; }
     
     // Fast check if a point might be inside (bounding box test)
-    bool might_contain(const glm::dvec3& point) const {
-        return has_bounds_ && bounds_.includes(point.x, point.y, point.z);
+    [[nodiscard]] bool might_contain(const glm::dvec3& point) const noexcept {
+        return has_bounds_ && bounds_.includes(point);
     }
     
     // Check if a point is inside the mesh using BVH-accelerated ray casting
-    bool contains(const glm::dvec3& point) const;
+    [[nodiscard]] bool contains(const glm::dvec3& point) const;
     
     // Find the first intersection of a ray with the mesh using BVH
     // Returns the distance to intersection and the triangle hit
-    std::pair<double, Triangle> find_first_intersection(const Ray& ray) const;
+    [[nodiscard]] std::pair<double, Triangle> find_first_intersection(const Ray& ray) const;
     
     // Find all intersections of a ray with the mesh (uses BVH for initial filtering)
-    std::vector<std::pair<double, Triangle>> find_all_intersections(const Ray& ray) const;
+    [[nodiscard]] std::vector<std::pair<double, Triangle>> find_all_intersections(const Ray& ray) const;
     
     // Check if the mesh has any triangles
-    bool is_empty() const { return triangles_.empty(); }
+    [[nodiscard]] constexpr bool is_empty() const noexcept { return triangles_.empty(); }
     
     // Check if the mesh bounds have been calculated
-    bool has_bounds() const { return has_bounds_; }
+    [[nodiscard]] constexpr bool has_bounds() const noexcept { return has_bounds_; }
     
 private:
     // Calculate the bounding box of the mesh

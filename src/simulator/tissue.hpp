@@ -4,28 +4,20 @@
 
 struct Tissue
 {
-	uint8_t id;
+	uint8_t id = 0;
+	
+	double g = 0.00;       // anisotropy coefficient
+	double eta = 1.37;     // index of refraction
+	double mu_a = 1.00;    // absorption coefficient  
+	double mu_s = 10.00;   // scattering coefficient
 
-	double g;    // anisotropy coefficient
-	double eta;  // index of refraction
-	double mu_a; // absorption coefficient
-	double mu_s; // scattering coefficient
+	// Default constructor uses default member initialization
+	Tissue() = default;
 
-	Tissue() {
-		id = 0;
-		g = 0.00;
-		eta = 1.37;
-		mu_a = 1.00;
-		mu_s = 10.00;
+	// Explicit constructor with member initializer list
+	explicit Tissue(uint8_t i, double g_val, double eta_val, double mu_a_val, double mu_s_val) noexcept
+		: id(i), g(g_val), eta(eta_val), mu_a(mu_a_val), mu_s(mu_s_val) {
 	}
 
-	Tissue(uint8_t i, double g, double n, double a, double s) {
-		id = i;
-		g = g;
-		eta = n;
-		mu_a = a;
-		mu_s = s;
-	}
-
-	bool operator==(const Tissue& other) const { return other.id == id; }
+	bool operator==(const Tissue& other) const noexcept { return other.id == id; }
 };

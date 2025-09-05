@@ -298,7 +298,7 @@ void App::render() {
 
 	// Render 3D scene FIRST
 	if (renderer_ && simulator_) {
-		renderer_->render(simulator_.get());
+		renderer_->render(*simulator_);
 	}
 
 	// Render ImGui overlay AFTER 3D scene (so it appears on top)

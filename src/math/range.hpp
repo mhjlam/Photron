@@ -1,11 +1,16 @@
 #pragma once
 
 #include <cmath>
+#include <concepts>
 
 #include "glm_types.hpp"
 
-// Simple templated range class
-template<int N, typename T = double>
+// C++20 concept for arithmetic types
+template<typename T>
+concept Arithmetic = std::is_arithmetic_v<T>;
+
+// Simple templated range class with C++20 concepts
+template<int N, Arithmetic T = double>
 struct Range
 {
 	// We'll use the appropriate GLM vector type based on dimension
@@ -13,26 +18,26 @@ struct Range
 		N == 1, T,
 		std::conditional_t<N == 2, glm::vec<2, T>, std::conditional_t<N == 3, glm::vec<3, T>, glm::vec<4, T>>>>;
 
-	VecType min_bounds;
-	VecType max_bounds;
+	VecType min_bounds{T(0)};
+	VecType max_bounds{T(0)};
 
-	// Default constructor
-	Range() : min_bounds(T(0)), max_bounds(T(0)) {}
+	// Default constructor uses default member initialization
+	Range() = default;
 
 	// Vector constructor
-	Range(const VecType& min_pt, const VecType& max_pt) : min_bounds(min_pt), max_bounds(max_pt) {}
+	Range(const VecType& min_pt, const VecType& max_pt) noexcept : min_bounds(min_pt), max_bounds(max_pt) {}
 
 	// Convenience methods
-	const VecType& min_bound() const { return min_bounds; }
-	const VecType& max_bound() const { return max_bounds; }
-	VecType& min_bound() { return min_bounds; }
-	VecType& max_bound() { return max_bounds; }
+	const VecType& min_bound() const noexcept { return min_bounds; }
+	const VecType& max_bound() const noexcept { return max_bounds; }
+	VecType& min_bound() noexcept { return min_bounds; }
+	VecType& max_bound() noexcept { return max_bounds; }
 
-	VecType center() const { return (min_bounds + max_bounds) * T(0.5); }
-	VecType size() const { return max_bounds - min_bounds; }
+	VecType center() const noexcept { return (min_bounds + max_bounds) * T(0.5); }
+	VecType size() const noexcept { return max_bounds - min_bounds; }
 
 	// Vector-based includes
-	bool includes(const VecType& point) const {
+	bool includes(const VecType& point) const noexcept {
 		if constexpr (N == 1) {
 			return point >= min_bounds && point <= max_bounds;
 		}
@@ -44,41 +49,6 @@ struct Range
 			return true;
 		}
 	}
-};
-
-// Range3 specialization for backwards compatibility
-template<>
-struct Range<3, double>
-{
-	glm::dvec3 min_bounds;
-	glm::dvec3 max_bounds;
-
-	Range() : min_bounds(0.0), max_bounds(0.0) {}
-
-	Range(double x0, double x1, double y0, double y1, double z0, double z1) :
-		min_bounds(x0, y0, z0), max_bounds(x1, y1, z1) {}
-
-	Range(const glm::dvec3& min_pt, const glm::dvec3& max_pt) : min_bounds(min_pt), max_bounds(max_pt) {}
-
-	bool includes(double x, double y, double z) const {
-		return (x >= min_bounds.x && y >= min_bounds.y && z >= min_bounds.z && x <= max_bounds.x && y <= max_bounds.y
-				&& z <= max_bounds.z);
-	}
-
-	bool includes(const glm::dvec3& point) const { return includes(point.x, point.y, point.z); }
-
-	// GLM convenience methods
-	const glm::dvec3& min_bound() const { return min_bounds; }
-	const glm::dvec3& max_bound() const { return max_bounds; }
-	glm::dvec3& min_bound() { return min_bounds; }
-	glm::dvec3& max_bound() { return max_bounds; }
-	glm::dvec3 center() const { return (min_bounds + max_bounds) * 0.5; }
-	glm::dvec3 size() const { return max_bounds - min_bounds; }
-
-	// Computed properties for convenience
-	double width() const { return std::fabs(max_bounds.x - min_bounds.x); }
-	double height() const { return std::fabs(max_bounds.y - min_bounds.y); }
-	double depth() const { return std::fabs(max_bounds.z - min_bounds.z); }
 };
 
 // Type aliases for common use cases

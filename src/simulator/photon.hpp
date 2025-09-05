@@ -1,8 +1,8 @@
 #pragma once
 
 #include <cstdint>
-
 #include "math/glm_types.hpp"
+#include "math/concepts.hpp"
 #include "simulator/source.hpp"
 #include "simulator/voxel.hpp"
 
@@ -14,102 +14,53 @@ struct Emitter
 	glm::dvec3 direction;
 	double weight;
 
-	Emitter(uint64_t i, glm::dvec3& p, glm::dvec3& d, double w) {
-		id = i;
-		position = p;
-		direction = d;
-		weight = w;
+	template<Point3D P, Vector3D V>
+	explicit constexpr Emitter(uint64_t i, const P& p, const V& d, double w) noexcept
+		: id(i), position(static_cast<glm::dvec3>(p)), direction(static_cast<glm::dvec3>(d)), weight(w) {
 	}
 };
 
 struct Photon
 {
-	uint64_t id;             // identifier
-	bool alive;              // true if photon still propagates
-	bool cross;              // true if photon crosses into another voxel in substep
+	uint64_t id = 0;                     // identifier
+	bool alive = true;                   // true if photon still propagates
+	bool cross = false;                  // true if photon crosses into another voxel in substep
 
-	double step;             // step distance between scattering
-	double sub_step;         // step distance inside a voxel
-	double weight;           // remaining weight of the photon packet
+	double step = 0.0;                   // step distance between scattering
+	double sub_step = 0.0;               // step distance inside a voxel
+	double weight = 0.0;                 // remaining weight of the photon packet
 
-	glm::dvec3 position;     // position at the start of a substep
-	glm::dvec3 direction;    // propagation direction
-	Voxel* voxel;            // resident voxel at start of substep
-	Voxel* prev_voxel;       // voxel before crossing an interface
+	glm::dvec3 position{0.0};            // position at the start of a substep
+	glm::dvec3 direction{0.0};           // propagation direction
+	Voxel* voxel = nullptr;              // resident voxel at start of substep (non-owning)
+	Voxel* prev_voxel = nullptr;         // voxel before crossing an interface (non-owning)
 
-	glm::dvec3 intersect;    // voxel boundary intersection
-	Source source;           // source from which the photon was shot
-	glm::dvec3 voxel_normal; // voxel boundary intersection normal
+	glm::dvec3 intersect{0.0};           // voxel boundary intersection
+	Source source{};                     // source from which the photon was shot
+	glm::dvec3 voxel_normal{0.0};        // voxel boundary intersection normal
 
-	bool scatters;           // true if photon path scatters at least once
+	bool scatters = false;               // true if photon path scatters at least once
 
-	Photon() {
-		id = 0;
-		alive = true;
-		cross = false;
+	// Default constructor uses default member initialization
+	Photon() = default;
 
-		step = 0;
-		sub_step = 0;
-		weight = 0;
+	// Constructor with ID (other members use default initialization)
+	explicit Photon(uint64_t i) noexcept : id(i) {}
 
-		position = glm::dvec3(0);
-		direction = glm::dvec3(0);
-		voxel = nullptr;
-		prev_voxel = nullptr;
-
-		intersect = glm::dvec3(0);
-		voxel_normal = glm::dvec3(0);
-		source = Source();
-
-		scatters = false;
+	// Tissue property accessors with null safety
+	[[nodiscard]] double g() const noexcept {
+		return (voxel && voxel->tissue) ? voxel->tissue->g : 0.0;
 	}
 
-	Photon(uint64_t i) {
-		id = i;
-		alive = true;
-		cross = false;
-
-		step = 0;
-		sub_step = 0;
-		weight = 0;
-
-		position = glm::dvec3(0);
-		direction = glm::dvec3(0);
-		voxel = nullptr;
-		prev_voxel = nullptr;
-
-		intersect = glm::dvec3(0);
-		voxel_normal = glm::dvec3(0);
-		source = Source();
-
-		scatters = false;
+	[[nodiscard]] double eta() const noexcept {
+		return (voxel && voxel->tissue) ? voxel->tissue->eta : 0.0;
 	}
 
-	double g() {
-		if (voxel == nullptr || voxel->tissue == nullptr) {
-			return 0;
-		}
-		return voxel->tissue->g;
+	[[nodiscard]] double mu_a() const noexcept {
+		return (voxel && voxel->tissue) ? voxel->tissue->mu_a : 0.0;
 	}
 
-	double eta() {
-		if (voxel == nullptr || voxel->tissue == nullptr) {
-			return 0;
-		}
-		return voxel->tissue->eta;
-	}
-
-	double mu_a() {
-		if (voxel == nullptr || voxel->tissue == nullptr) {
-			return 0;
-		}
-		return voxel->tissue->mu_a;
-	}
-
-	double mu_s() {
-		if (voxel == nullptr || voxel->tissue == nullptr) {
-			return 0;
-		}
-		return voxel->tissue->mu_s;
+	[[nodiscard]] double mu_s() const noexcept {
+		return (voxel && voxel->tissue) ? voxel->tissue->mu_s : 0.0;
 	}
 };

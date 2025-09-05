@@ -6,6 +6,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <concepts>
+#include <ranges>
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -26,7 +28,7 @@ public:
 
 	bool initialize();
 	void update();
-	void render(Simulator* simulator);
+	void render(Simulator& simulator);
 	void set_viewport(int width, int height);
 
 	// Input handling
@@ -41,9 +43,11 @@ public:
 	bool should_capture_mouse() const;
 	Camera& get_camera() { return camera_; }
 
-	// Callback for camera mode changes
-	void set_camera_mode_change_callback(std::function<void(bool)> callback) {
-		camera_mode_change_callback_ = callback;
+	// Callback for camera mode changes - Modern C++20 with perfect forwarding
+	template<typename Callable>
+		requires std::invocable<Callable, bool>
+	void set_camera_mode_change_callback(Callable&& callback) {
+		camera_mode_change_callback_ = std::forward<Callable>(callback);
 	}
 
 	// Settings
@@ -77,9 +81,11 @@ public:
 	// World-to-screen coordinate conversion for text rendering
 	glm::vec2 world_to_screen(const glm::vec3& world_pos, int screen_width, int screen_height) const;
 
-	// Text rendering callback (to be set by overlay system)
-	void set_text_render_callback(std::function<void(const std::string&, float, float, const glm::vec4&)> callback) {
-		text_render_callback_ = callback;
+	// Text rendering callback - Modern C++20 with concepts for type safety
+	template<typename Callable>
+		requires std::invocable<Callable, const std::string&, float, float, const glm::vec4&>
+	void set_text_render_callback(Callable&& callback) {
+		text_render_callback_ = std::forward<Callable>(callback);
 	}
 
 	// Adaptive color mapping helper
@@ -89,10 +95,10 @@ public:
 private:
 	void setup_opengl();
 	void update_camera();
-	void update_camera_target(Simulator* simulator);
+	void update_camera_target(const Simulator& simulator);
 
 	// Shader-based drawing functions
-	void draw_volume(Simulator* simulator);
+	void draw_volume(const Simulator& simulator);
 	void draw_coordinate_axes();
 	void draw_test_geometry();
 	void draw_voxels(const Settings& settings);
@@ -100,9 +106,8 @@ private:
 	void draw_photons(const Settings& settings);
 	void draw_emitters(const Settings& settings);  // Draw true exit points
 	
-	// Voxel clipping helpers
-	void draw_clipped_voxel(const glm::vec3& voxel_center, float voxel_size, const glm::vec4& color, Simulator* simulator);
-	bool is_point_inside_mesh(const glm::vec3& point, Simulator* simulator) const;
+	// Utility methods
+	bool is_point_inside_mesh(const glm::vec3& point, const Simulator& simulator) const;
 
 	// Shader management methods
 	bool setup_line_rendering();
@@ -115,20 +120,20 @@ private:
 	// Vertex structures for consolidated rendering
 	struct LineVertex
 	{
-		glm::vec3 position;
-		glm::vec4 color;
+		glm::vec3 position{};
+		glm::vec4 color{1.0f};
 	};
 
 	struct PointVertex
 	{
-		glm::vec3 position;
-		glm::vec4 color;
+		glm::vec3 position{};
+		glm::vec4 color{1.0f};
 	};
 
 	struct TriangleVertex
 	{
-		glm::vec3 position;
-		glm::vec4 color;
+		glm::vec3 position{};
+		glm::vec4 color{1.0f};
 	};
 
 	// Energy label structure for billboard text rendering
@@ -143,10 +148,10 @@ private:
 	};
 
 	// OpenGL resources for shader-based rendering
-	GLuint line_vao_, line_vbo_;
-	GLuint point_vao_, point_vbo_;
-	GLuint triangle_vao_, triangle_vbo_;
-	GLuint line_shader_program_, point_shader_program_, triangle_shader_program_;
+	GLuint line_vao_ = 0, line_vbo_ = 0;
+	GLuint point_vao_ = 0, point_vbo_ = 0;
+	GLuint triangle_vao_ = 0, triangle_vbo_ = 0;
+	GLuint line_shader_program_ = 0, point_shader_program_ = 0, triangle_shader_program_ = 0;
 
 	// Vertex data containers
 	std::vector<LineVertex> line_vertices_;
@@ -155,11 +160,11 @@ private:
 
 	// Camera system
 	Camera camera_;
-	bool is_arc_camera_mode_; // true for Orbit mode, false for Free mode
+	bool is_arc_camera_mode_ = true; // true for Orbit mode, false for Free mode
 
 	Settings settings_;
-	int viewport_width_;
-	int viewport_height_;
+	int viewport_width_ = 800;
+	int viewport_height_ = 600;
 
 	// Text rendering callback for ImGui-based text display
 	std::function<void(const std::string&, float, float, const glm::vec4&)> text_render_callback_;
@@ -190,5 +195,5 @@ private:
 	std::function<void(bool)> camera_mode_change_callback_;
 
 	// Keep reference to current simulator
-	Simulator* simulator_;
+	Simulator* simulator_ = nullptr;
 };
