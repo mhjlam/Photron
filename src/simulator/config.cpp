@@ -277,9 +277,21 @@ bool Config::parse_layer_config(std::list<std::string>& data) {
 		// create new triangle for this face
 		Triangle triangle = Triangle(vertices[face_indices.x], vertices[face_indices.y], vertices[face_indices.z]);
 
-		// associate normal with triangle
-		triangle.set_normal(face_normal);
+		// Validate config normal against computed normal
+		glm::dvec3 computed_normal = triangle.normal();
+		double dot_product = glm::dot(glm::normalize(face_normal), glm::normalize(computed_normal));
+		double angle_diff = acos(std::clamp(std::abs(dot_product), 0.0, 1.0)) * 180.0 / 3.14159265359;
+		
+		if (angle_diff > 5.0) { // Warn if normals differ by more than 5 degrees
+			std::cerr << "Warning: Config normal differs from computed normal by " << angle_diff 
+					  << " degrees for face " << i << std::endl;
+			std::cerr << "  Config normal: (" << face_normal.x << ", " << face_normal.y << ", " << face_normal.z << ")" << std::endl;
+			std::cerr << "  Computed normal: (" << computed_normal.x << ", " << computed_normal.y << ", " << computed_normal.z << ")" << std::endl;
+		}
 
+		// Use computed normal instead of config normal for accuracy
+		// triangle.set_normal(face_normal);
+		
 		// add the triangle to the triangle mesh
 		triangle_mesh.push_back(triangle);
 	}

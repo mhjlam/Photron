@@ -347,18 +347,21 @@ bool Simulator::voxelize_layers() {
 					Voxel* voxel = voxel_grid(ix, iy, iz);
 
 					// Find which specific layer contains this voxel (check center point)
-					for (const auto& layer : layers) {
+					// IMPORTANT: Process layers in reverse order so inner layers override outer layers
+					for (auto it = layers.rbegin(); it != layers.rend(); ++it) {
+						const auto& layer = *it;
 						if (is_point_inside_layer_mesh(voxel_center, layer)) {
 							voxel->tissue = &tissues[layer.tissue_id];
-							break;
+							break; // Use the innermost layer that contains the center
 						}
 					}
 
 					// If center point didn't hit any layer but corners did,
-					// use the first layer that contains any corner
+					// use the innermost layer that contains any corner
 					if (voxel->tissue == nullptr) {
 						for (const auto& corner : corners) {
-							for (const auto& layer : layers) {
+							for (auto it = layers.rbegin(); it != layers.rend(); ++it) {
+								const auto& layer = *it;
 								if (is_point_inside_layer_mesh(corner, layer)) {
 									voxel->tissue = &tissues[layer.tissue_id];
 									break;
@@ -470,7 +473,12 @@ void Simulator::simulate() {
 				step_size(photon); // Set new step size
 				transfer(photon);  // Propagate photon through the medium in substeps
 				roulette(photon);  // Determine photon termination
-				scatter(photon);   // Scatter photon into a new direction
+				
+				// Only scatter if photon hasn't just crossed a boundary
+				// Scattering should only occur in bulk medium, not at interfaces
+				if (!photon.cross) {
+					scatter(photon);   // Scatter photon into a new direction
+				}
 			}
 
 			p++;
@@ -755,7 +763,42 @@ void Simulator::sub_step(Photon& photon) {
 	if (found_mesh_intersection && mesh_dist <= freepath) {
 		// Mesh boundary is closest - photon will exit the medium at geometry boundary
 		photon.intersect = mesh_intersection;
-		photon.voxel_normal = mesh_normal;
+		
+		// Check if intersection is very close to a vertex (special case)
+		const double vertex_threshold = 1e-6;
+		bool is_vertex_intersection = false;
+		glm::dvec3 averaged_normal = mesh_normal;
+		
+		// Check all triangles to see if intersection is near any vertices
+		std::vector<glm::dvec3> vertex_normals;
+		for (const auto& layer : layers) {
+			for (const auto& triangle : layer.mesh) {
+				// Check distance to each vertex
+				double dist_v0 = glm::distance(mesh_intersection, triangle.v0());
+				double dist_v1 = glm::distance(mesh_intersection, triangle.v1());
+				double dist_v2 = glm::distance(mesh_intersection, triangle.v2());
+				
+				if (dist_v0 < vertex_threshold || dist_v1 < vertex_threshold || dist_v2 < vertex_threshold) {
+					// This triangle shares the vertex - include its normal
+					vertex_normals.push_back(triangle.normal());
+					is_vertex_intersection = true;
+				}
+			}
+		}
+		
+		// If vertex intersection, average the normals of adjacent faces
+		if (is_vertex_intersection && !vertex_normals.empty()) {
+			glm::dvec3 sum_normal(0.0);
+			for (const auto& normal : vertex_normals) {
+				sum_normal += normal;
+			}
+			averaged_normal = glm::normalize(sum_normal);
+			
+			std::cout << "Vertex intersection detected! Averaged normal from " 
+					  << vertex_normals.size() << " adjacent faces." << std::endl;
+		}
+		
+		photon.voxel_normal = averaged_normal;
 		photon.sub_step = mesh_dist;
 		photon.cross = true;
 	}
@@ -932,18 +975,43 @@ void Simulator::cross(Photon& photon) {
 	// directions of transmission and reflection
 	glm::dvec3 transmittance, reflectance;
 
-	// retrieve the refractive index of the medium that is struck
-	glm::dvec3 newpos = move_delta(photon.intersect, photon.direction);
+	// First compute the transmission and reflection directions using current photon state
+	double eta_ambient = config.ambient_eta();
+	double temp_reflection = internal_reflection(photon, eta_ambient, transmittance, reflectance);
+
+	// retrieve the refractive index of the medium that would be struck by the transmitted ray
+	glm::dvec3 newpos = move_delta(photon.intersect, transmittance);
 	Voxel* newvox = voxel_at(newpos);
 	photon.prev_voxel = photon.voxel;
 
-	// determine refractive index
+	// determine refractive index of the medium being entered
 	double eta = (newvox == nullptr) ? config.ambient_eta() : newvox->tissue->eta;
+
+	// Recalculate with correct refractive index
+	temp_reflection = internal_reflection(photon, eta, transmittance, reflectance);
 
 	// 1. crossing to ambient medium
 	if (newvox == nullptr) {
-		// compute reflected/transmitted fraction and reflection/transmission directions
-		double reflection = internal_reflection(photon, eta, transmittance, reflectance);
+		// At exterior boundary: normal should point INTO the medium (opposite to typical mesh normal)
+		// For reflection at exterior boundary, we want normal pointing inward
+		glm::dvec3 normal = glm::normalize(photon.voxel_normal);
+		glm::dvec3 incident = glm::normalize(photon.direction);
+		
+		// At exterior boundary, flip normal to point inward if it's pointing outward
+		// Check if normal points away from medium center or in same direction as ray
+		if (glm::dot(incident, normal) > 0.0) {
+			normal = -normal; // Make normal point inward
+		}
+		
+		// Recalculate reflection and transmission with correct normal
+		double cos_i = std::abs(glm::dot(incident, normal));
+		
+		// Reflection: incident ray bounces back into medium
+		glm::dvec3 corrected_reflectance = incident - 2.0 * glm::dot(incident, normal) * normal;
+		corrected_reflectance = glm::normalize(corrected_reflectance);
+		
+		// Transmission: use the pre-calculated transmittance direction
+		double reflection = temp_reflection;
 		double transmission = 1.0 - reflection;
 
 		// total transmission
@@ -957,7 +1025,7 @@ void Simulator::cross(Photon& photon) {
 		// total internal reflection
 		else if (reflection == 1.0) {
 			// photon reflects off surface
-			photon.direction = reflectance;
+			photon.direction = corrected_reflectance;
 			photon.position = move_delta(photon.intersect, photon.direction);
 			photon.voxel = voxel_at(photon.position);
 		}
@@ -971,7 +1039,7 @@ void Simulator::cross(Photon& photon) {
 				photon.weight *= reflection;
 
 				// update direction/position/voxel
-				photon.direction = reflectance;
+				photon.direction = corrected_reflectance;
 				photon.position = move_delta(photon.intersect, photon.direction);
 				photon.voxel = voxel_at(photon.position);
 			}
@@ -985,7 +1053,7 @@ void Simulator::cross(Photon& photon) {
 				}
 				// total reflection
 				else {
-					photon.direction = reflectance;
+					photon.direction = corrected_reflectance;
 					photon.position = move_delta(photon.intersect, photon.direction);
 					photon.voxel = voxel_at(photon.position);
 				}
@@ -997,8 +1065,8 @@ void Simulator::cross(Photon& photon) {
 	// 2. crossing to another medium
 	else if (newvox != nullptr && newvox->tissue != nullptr && photon.voxel->tissue != nullptr
 			 && photon.voxel->tissue->eta != newvox->tissue->eta) {
-		// compute reflected/transmitted fraction and reflection/transmission directions
-		double reflection = internal_reflection(photon, eta, transmittance, reflectance);
+		// Use already computed reflection/transmission
+		double reflection = temp_reflection;
 
 		// total transmission
 		if (reflection == 0.0) {
@@ -1203,8 +1271,17 @@ double Simulator::internal_reflection(Photon& photon, double& eta_t, glm::dvec3&
 	double eta_ratio = eta_t / eta_i;
 	double eta_ratio_sq = eta_ratio * eta_ratio;
 
-	// Use dot product with proper normalization
-	double cos_i = std::abs(glm::dot(glm::normalize(photon.direction), glm::normalize(photon.voxel_normal)));
+	// Get normalized vectors
+	glm::dvec3 normal = glm::normalize(photon.voxel_normal);
+	glm::dvec3 incident = glm::normalize(photon.direction);
+
+	// Ensure normal points toward the incident medium (opposite to ray direction)
+	if (glm::dot(incident, normal) > 0.0) {
+		normal = -normal;
+	}
+
+	// Use dot product with properly oriented normal
+	double cos_i = std::abs(glm::dot(incident, normal));
 	cos_i = std::clamp(cos_i, 0.0, 1.0); // Ensure valid range
 
 	double sin_i_sq = 1.0 - cos_i * cos_i;
@@ -1213,8 +1290,7 @@ double Simulator::internal_reflection(Photon& photon, double& eta_t, glm::dvec3&
 	// Total internal reflection check with numerical tolerance
 	if (sin_t_sq >= 1.0 - 1e-12) {
 		// Total internal reflection
-		glm::dvec3 normal = glm::normalize(photon.voxel_normal);
-		reflectance = photon.direction - 2.0 * glm::dot(photon.direction, normal) * normal;
+		reflectance = incident - 2.0 * glm::dot(incident, normal) * normal;
 		reflectance = glm::normalize(reflectance);
 		transmittance = glm::dvec3(0.0); // No transmission
 		return 1.0;
@@ -1235,10 +1311,6 @@ double Simulator::internal_reflection(Photon& photon, double& eta_t, glm::dvec3&
 
 	double reflection = 0.5 * (r_s + r_p);
 	reflection = std::clamp(reflection, 0.0, 1.0);
-
-	// Calculate transmission and reflection directions using vector operations
-	glm::dvec3 normal = glm::normalize(photon.voxel_normal);
-	glm::dvec3 incident = glm::normalize(photon.direction);
 
 	// Transmission direction (Snell's law in vector form)
 	transmittance = eta_ratio * incident + (eta_ratio * cos_i - cos_t) * normal;
