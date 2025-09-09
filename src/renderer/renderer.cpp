@@ -20,6 +20,28 @@
 Renderer::Renderer() = default;
 
 Renderer::~Renderer() {
+	// Cleanup OpenGL resources
+	if (line_vao_) glDeleteVertexArrays(1, &line_vao_);
+	if (line_vbo_) glDeleteBuffers(1, &line_vbo_);
+	if (point_vao_) glDeleteVertexArrays(1, &point_vao_);
+	if (point_vbo_) glDeleteBuffers(1, &point_vbo_);
+	if (triangle_vao_) glDeleteVertexArrays(1, &triangle_vao_);
+	if (triangle_vbo_) glDeleteBuffers(1, &triangle_vbo_);
+	
+	// Cleanup instanced rendering resources
+	if (voxel_cube_vao_) glDeleteVertexArrays(1, &voxel_cube_vao_);
+	if (voxel_cube_vbo_) glDeleteBuffers(1, &voxel_cube_vbo_);
+	if (voxel_instance_vbo_) glDeleteBuffers(1, &voxel_instance_vbo_);
+	if (line_instanced_vao_) glDeleteVertexArrays(1, &line_instanced_vao_);
+	if (line_instanced_vbo_) glDeleteBuffers(1, &line_instanced_vbo_);
+	if (line_instance_vbo_) glDeleteBuffers(1, &line_instance_vbo_);
+	
+	// Cleanup shader programs
+	if (line_shader_program_) glDeleteProgram(line_shader_program_);
+	if (point_shader_program_) glDeleteProgram(point_shader_program_);
+	if (triangle_shader_program_) glDeleteProgram(triangle_shader_program_);
+	if (voxel_shader_program_) glDeleteProgram(voxel_shader_program_);
+	if (line_instanced_shader_program_) glDeleteProgram(line_instanced_shader_program_);
 }
 
 bool Renderer::initialize() {
@@ -40,6 +62,16 @@ bool Renderer::initialize() {
 
 	if (!setup_triangle_rendering()) {
 		std::cerr << "Failed to setup consolidated triangle rendering" << std::endl;
+		return false;
+	}
+
+	if (!setup_voxel_instanced_rendering()) {
+		std::cerr << "Failed to setup instanced voxel rendering" << std::endl;
+		return false;
+	}
+
+	if (!setup_line_instanced_rendering()) {
+		std::cerr << "Failed to setup instanced line rendering" << std::endl;
 		return false;
 	}
 
@@ -132,12 +164,12 @@ void Renderer::render(Simulator& simulator) {
 	// Clear depth buffer after drawing wireframes so voxels and lines can have proper depth ordering
 	glClear(GL_DEPTH_BUFFER_BIT);
 
-	// Always draw voxels with current energy-based coloring (keep as default)
-	draw_voxels(settings_);
+	// Render voxels using optimized instanced rendering
+	draw_voxels_instanced(settings_);
 
 	// Draw paths after voxels with proper depth testing
 	if (settings_.draw_paths) {
-		draw_paths(settings_); // Includes incident photon and scatter markers
+		draw_paths_instanced(settings_); // High-performance instanced version
 	}
 
 	// Always draw current photon positions and directions
@@ -793,6 +825,244 @@ void Renderer::draw_voxels(const Settings& settings) {
 	}
 }
 
+// HIGH-PERFORMANCE instanced voxel rendering - replaces the slow triangle-based approach
+void Renderer::draw_voxels_instanced(const Settings& settings) {
+	if (!simulator_) {
+		return;
+	}
+
+	// Only draw voxels if voxel rendering is enabled
+	if (!settings.draw_voxels) {
+		return;
+	}
+
+	// Setup OpenGL state for transparent voxel rendering (match original)
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_FALSE); // Disable depth writing for transparency
+	glDisable(GL_CULL_FACE);
+
+	// Use HIGH-PERFORMANCE instanced rendering instead of individual triangles
+	begin_voxel_instances();
+
+	// Get MCML grid parameters
+	int nx = simulator_->config.nx();
+	int ny = simulator_->config.ny();
+	int nz = simulator_->config.nz();
+	double voxsize = simulator_->config.vox_size();
+	double half_voxsize = voxsize * 0.5;
+	float voxel_scale = static_cast<float>(voxsize * 0.95); // Slightly smaller to show gaps
+
+	// First pass: analyze energy distribution to find dynamic range for adaptive scaling
+	std::vector<float> all_energies;
+	float total_accumulated_energy = 0.0f;
+
+	for (int iz = 0; iz < nz; iz++) {
+		for (int iy = 0; iy < ny; iy++) {
+			for (int ix = 0; ix < nx; ix++) {
+				if (ix >= 0 && iy >= 0 && iz >= 0 && 
+					static_cast<uint32_t>(ix) < static_cast<uint32_t>(nx) && 
+					static_cast<uint32_t>(iy) < static_cast<uint32_t>(ny) && 
+					static_cast<uint32_t>(iz) < static_cast<uint32_t>(nz)) {
+					
+					Voxel* voxel = simulator_->voxel_grid(static_cast<uint32_t>(ix), static_cast<uint32_t>(iy), static_cast<uint32_t>(iz));
+
+					if (voxel) {
+						float absorption = static_cast<float>(voxel->absorption);
+						float emittance = static_cast<float>(voxel->emittance);
+
+						float total_energy;
+						if (settings.voxel_mode == VoxelMode::Absorption) {
+							total_energy = absorption;
+						}
+						else if (settings.voxel_mode == VoxelMode::Emittance) {
+							total_energy = emittance;
+						}
+						else if (settings.voxel_mode == VoxelMode::Layers) {
+							total_energy = (voxel->tissue != nullptr) ? 1.0f : 0.0f;
+						}
+						else {
+							total_energy = absorption + emittance;
+						}
+
+						if (total_energy > 0.0000001f) {
+							all_energies.push_back(total_energy);
+							total_accumulated_energy += total_energy;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Calculate adaptive energy range for better contrast
+	float min_energy = 1e-8f; // Much lower threshold for emittance detection
+	float max_energy = 0.01f; // Default fallback
+
+	if (!all_energies.empty()) {
+		// Modern C++20: Use ranges::sort for cleaner syntax
+		std::ranges::sort(all_energies);
+
+		// Use percentile-based scaling for better contrast
+		const size_t count = all_energies.size();
+		const float p5 = all_energies[static_cast<size_t>(count * 0.05)];  // 5th percentile
+		const float p95 = all_energies[static_cast<size_t>(count * 0.95)]; // 95th percentile
+
+		min_energy = std::max(p5, 1e-8f);                            // Lower minimum
+		max_energy = std::max(p95, min_energy * 10.0f);              // Ensure reasonable range
+	}
+	
+	// Second pass: render voxels using adaptive scaling
+	for (int iz = 0; iz < nz; iz++) {
+		for (int iy = 0; iy < ny; iy++) {
+			for (int ix = 0; ix < nx; ix++) {
+				// Bounds check
+				if (ix >= 0 && iy >= 0 && iz >= 0 && 
+					static_cast<uint32_t>(ix) < static_cast<uint32_t>(nx) && 
+					static_cast<uint32_t>(iy) < static_cast<uint32_t>(ny) && 
+					static_cast<uint32_t>(iz) < static_cast<uint32_t>(nz)) {
+					
+					Voxel* voxel = simulator_->voxel_grid(static_cast<uint32_t>(ix), static_cast<uint32_t>(iy), static_cast<uint32_t>(iz));
+					if (!voxel) continue;
+
+					// Calculate world position using the same method as original code
+					double x = simulator_->bounds.min_bounds.x + (voxsize * ix) + half_voxsize;
+					double y = simulator_->bounds.min_bounds.y + (voxsize * iy) + half_voxsize;
+					double z = simulator_->bounds.min_bounds.z + (voxsize * iz) + half_voxsize;
+
+					glm::vec3 voxel_pos(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
+
+					// Apply same geometry intersection logic as original
+					bool is_in_geometry = simulator_->is_point_inside_geometry({x,y,z});
+					bool has_tissue = (voxel->tissue != nullptr);
+					
+					// For complex geometries, check if any part of the voxel intersects
+					bool voxel_intersects_geometry = false;
+					
+					if (has_tissue) {
+						// Check voxel center first (fastest check)
+						if (is_in_geometry) {
+							voxel_intersects_geometry = true;
+						} else {
+							// If center is outside, check the 8 corners to see if any are inside
+							double half_voxel = voxsize * 0.5;
+							std::vector<glm::dvec3> corners = {
+								{x - half_voxel, y - half_voxel, z - half_voxel},
+								{x + half_voxel, y - half_voxel, z - half_voxel},
+								{x - half_voxel, y + half_voxel, z - half_voxel},
+								{x + half_voxel, y + half_voxel, z - half_voxel},
+								{x - half_voxel, y - half_voxel, z + half_voxel},
+								{x + half_voxel, y - half_voxel, z + half_voxel},
+								{x - half_voxel, y + half_voxel, z + half_voxel},
+								{x + half_voxel, y + half_voxel, z + half_voxel}
+							};
+							
+							// If any corner is inside the geometry, this voxel intersects
+							for (const auto& corner : corners) {
+								if (simulator_->is_point_inside_geometry(corner)) {
+									voxel_intersects_geometry = true;
+									break;
+								}
+							}
+						}
+					}
+					
+					// Only render voxels that have tissue AND intersect with the geometry
+					if (!has_tissue || !voxel_intersects_geometry) {
+						continue;
+					}
+
+					// Determine energy and color based on visualization mode (same as original)
+					float absorption = static_cast<float>(voxel->absorption);
+					float emittance = static_cast<float>(voxel->emittance);
+					float total_energy = 0.0f;
+					glm::vec4 color(0.0f);
+
+					if (settings.voxel_mode == VoxelMode::Absorption) {
+						total_energy = absorption;
+					} else if (settings.voxel_mode == VoxelMode::Emittance) {
+						total_energy = emittance;
+					} else if (settings.voxel_mode == VoxelMode::Layers) {
+						total_energy = (voxel->tissue != nullptr) ? 1.0f : 0.0f;
+					} else {
+						total_energy = absorption + emittance;
+					}
+
+					// Color determination logic matching original exactly
+					if (settings.voxel_mode == VoxelMode::Layers) {
+						// Layers mode: show all tissue voxels regardless of energy
+						if (voxel->tissue != nullptr) {
+							// Match the appearance of Absorption mode when there's no absorption
+							// Use the same energy and alpha values as "no energy" voxels in absorption mode
+							color = get_layer_specific_energy_color(1e-8f, min_energy, max_energy, voxel->tissue->id);
+							color.a = 0.05f; // Same very faint alpha as no-absorption voxels
+						}
+					} else {
+						// Original energy-based rendering logic for other modes
+
+						// Use gamma correction for better mid-range contrast
+						float normalized_energy = (total_energy - min_energy) / (max_energy - min_energy);
+						normalized_energy = std::clamp(normalized_energy, 0.0f, 1.0f);
+
+						// Apply gamma correction for better contrast (gamma = 0.5 brightens mid-tones)
+						float gamma_corrected = std::pow(normalized_energy, 0.5f);
+
+						// Calculate distance from origin for depth-based alpha
+						float max_dist = glm::length(to_float(simulator_->bounds.max_bounds));
+						float dist_from_origin = glm::length(voxel_pos);
+						float normalized_dist = glm::clamp(dist_from_origin / max_dist, 0.0f, 1.0f);
+
+						// More visible alpha scaling based on gamma-corrected energy
+						float min_alpha = 0.2f; // Higher minimum for emittance visibility
+						float max_alpha = 0.9f; // Higher maximum visibility
+
+						// Special case for emittance mode: boost visibility significantly
+						if (settings.voxel_mode == VoxelMode::Emittance) {
+							min_alpha = 0.6f; // Much more visible
+							max_alpha = 1.0f; // Full opacity for high emittance
+						}
+
+						float alpha = min_alpha + (max_alpha - min_alpha) * gamma_corrected * (1.0f - 0.2f * normalized_dist);
+
+						// Use layer-specific energy color mapping with dynamic range
+						if (total_energy > 1e-8f) { // Lower threshold
+							color = get_layer_specific_energy_color(total_energy, min_energy, max_energy, voxel->tissue->id);
+							color.a = alpha;
+						}
+						else if (voxel->tissue != nullptr) {
+							// Voxel in medium but no recorded energy: very faint tissue-colored hint
+							color = get_layer_specific_energy_color(1e-8f, min_energy, max_energy, voxel->tissue->id);
+							color.a = 0.05f; // Slightly more visible
+						}
+					}
+
+					// Only add voxels that should be visible
+					if (color.a > 0.0f) {
+						// Calculate depth for sorting (distance from camera)
+						glm::vec3 camera_pos = camera_.get_position();
+						glm::vec3 camera_target = camera_.get_target();
+						glm::vec3 camera_front = glm::normalize(camera_target - camera_pos);
+						glm::vec3 view_dir = voxel_pos - camera_pos;
+						float depth = glm::dot(view_dir, camera_front);
+						
+						add_voxel_instance(voxel_pos, color, voxel_scale, depth);
+					}
+				}
+			}
+		}
+	}
+
+	// Render ALL voxels in a single high-performance instanced draw call
+	end_voxel_instances();
+	draw_voxel_instances();
+
+	// Restore OpenGL state to match original
+	glDepthMask(GL_TRUE);      // Re-enable depth writing
+	glEnable(GL_DEPTH_TEST);   // Keep depth testing enabled
+	glDisable(GL_BLEND);       // Disable blending
+}
+
 void Renderer::draw_paths(const Settings& /*settings*/) {
 	if (!simulator_)
 		return;
@@ -1000,6 +1270,261 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 
 						// Check if this point represents a medium boundary crossing
 						// by checking if we're at the surface (z ≈ 0) or at tissue boundaries
+						bool is_medium_boundary = false;
+
+						// Surface entry/exit detection (z-coordinate near 0)
+						if (std::abs(pos.z) < 0.001f && std::abs(prev_pos.z) > 0.001f) {
+							is_medium_boundary = true; // Entry into medium
+						}
+						else if (std::abs(pos.z) < 0.001f && std::abs(next_pos.z) > 0.001f) {
+							is_medium_boundary = true; // Exit from medium
+						}
+
+						// Check for path splits (if this vertex has emitted paths)
+						bool has_emit = (path_current->emit != nullptr);
+
+						if (is_medium_boundary || has_emit) {
+							should_mark = true;
+							// Use adaptive energy-based coloring for all boundary/split points
+							float energy = static_cast<float>(path_current->value);
+							marker_color = adaptive_log_color(energy);
+						}
+					}
+				}
+
+				if (should_mark) {
+					add_point(pos, marker_color);
+				}
+
+				prev = path_current;
+				path_current = path_current->next;
+				current_index++;
+			}
+		}
+	}
+
+	end_points();
+	draw_points();
+}
+
+void Renderer::draw_paths_instanced(const Settings& /*settings*/) {
+	if (!simulator_)
+		return;
+
+	line_instances_.clear();
+
+	// First pass: analyze energy distribution for adaptive logarithmic mapping (same as original)
+	std::vector<float> all_energies;
+	for (const PhotonPath& path : simulator_->paths) {
+		if (path.head) {
+			auto current = path.head;
+			while (current) {
+				float energy = static_cast<float>(current->value);
+				if (energy > 0.0f) {
+					all_energies.push_back(energy);
+				}
+				current = current->next;
+			}
+		}
+	}
+
+	// Calculate adaptive logarithmic mapping parameters (same as original)
+	float min_energy = 1.0f, max_energy = 0.0f;
+	if (!all_energies.empty()) {
+		auto [min_it, max_it] = std::minmax_element(all_energies.begin(), all_energies.end());
+		min_energy = *min_it;
+		max_energy = *max_it;
+	}
+
+	// Create adaptive logarithmic mapping function using helper method (same as original)
+	auto adaptive_log_color = [this, min_energy, max_energy](float energy) -> glm::vec4 {
+		return get_adaptive_energy_color(energy, min_energy, max_energy);
+	};
+
+	// Generate all line instances
+	for (const PhotonPath& path : simulator_->paths) {
+		if (path.head) {
+			// Generate connected line segments with energy gradient exactly like original
+			auto current = path.head;
+			auto next = current ? current->next : nullptr;
+
+			// Generate physically correct incident ray from source to tissue surface
+			if (current && !simulator_->sources.empty()) {
+				glm::vec3 first_interaction(static_cast<float>(current->position.x),
+											static_cast<float>(current->position.y),
+											static_cast<float>(current->position.z));
+
+				// Use actual source parameters from the configuration
+				const Source& source = simulator_->sources[0]; // Use first source
+				glm::vec3 source_pos(static_cast<float>(source.origin.x), static_cast<float>(source.origin.y),
+									 static_cast<float>(source.origin.z));
+				glm::vec3 source_dir(static_cast<float>(source.direction.x), static_cast<float>(source.direction.y),
+									 static_cast<float>(source.direction.z));
+
+				// Calculate surface entry point (same logic as original)
+				float surface_y = 0.1f; // Default top surface
+				if (!simulator_->layers.empty()) {
+					surface_y = -1000.0f; // Start very low
+					for (const auto& layer : simulator_->layers) {
+						for (const auto& triangle : layer.mesh) {
+							float y0 = static_cast<float>(triangle.v0().y);
+							float y1 = static_cast<float>(triangle.v1().y);
+							float y2 = static_cast<float>(triangle.v2().y);
+							if (y0 > surface_y) surface_y = y0;
+							if (y1 > surface_y) surface_y = y1;
+							if (y2 > surface_y) surface_y = y2;
+						}
+					}
+				}
+
+				// Calculate where ray hits the surface
+				if (source_dir.y != 0.0f) {
+					float t = (surface_y - source_pos.y) / source_dir.y;
+					glm::vec3 surface_entry = source_pos + t * source_dir;
+
+					// Add incident ray from source to surface
+					glm::vec4 incident_color(1.0f, 1.0f, 1.0f, 1.0f); // Bright white
+					line_instances_.push_back({source_pos, surface_entry, incident_color});
+
+					// If photon actually enters tissue, add refracted ray from surface to first interaction
+					if (first_interaction.y < surface_y - 0.001f) {
+						glm::vec4 refracted_color(0.9f, 0.9f, 1.0f, 0.8f); // Light blue
+						line_instances_.push_back({surface_entry, first_interaction, refracted_color});
+					}
+				}
+			}
+
+			while (current && next) {
+				// Use adaptive logarithmic coloring based on actual energy distribution (same as original)
+				float energy1 = static_cast<float>(current->value);
+				float energy2 = static_cast<float>(next->value);
+
+				glm::vec4 start_color = adaptive_log_color(energy1);
+				glm::vec4 end_color = adaptive_log_color(energy2);
+				start_color.a = 1.0f;
+				end_color.a = 1.0f;
+
+				glm::vec3 start(static_cast<float>(current->position.x), static_cast<float>(current->position.y),
+								static_cast<float>(current->position.z));
+				glm::vec3 end(static_cast<float>(next->position.x), static_cast<float>(next->position.y),
+							  static_cast<float>(next->position.z));
+
+				// Generate gradient segments exactly like original (but as instances)
+				const int gradient_segments = 10;
+				for (int i = 0; i < gradient_segments; i++) {
+					float t1 = static_cast<float>(i) / static_cast<float>(gradient_segments);
+					float t2 = static_cast<float>(i + 1) / static_cast<float>(gradient_segments);
+
+					glm::vec3 seg_start = start + t1 * (end - start);
+					glm::vec3 seg_end = start + t2 * (end - start);
+
+					// Always add the segment - don't check geometry intersection as it causes gaps
+					glm::vec4 seg_color = start_color * (1.0f - (t1 + t2) * 0.5f) + end_color * ((t1 + t2) * 0.5f);
+					seg_color.a = 1.0f;
+
+					line_instances_.push_back({seg_start, seg_end, seg_color});
+				}
+
+				// Move to next segment
+				current = next;
+				next = current->next;
+			}
+
+			// Also generate emitted paths if they exist with adaptive energy-based coloring
+			current = path.head;
+			while (current) {
+				if (current->emit) {
+					float emit_energy = static_cast<float>(current->value);
+					glm::vec4 emit_color = adaptive_log_color(emit_energy);
+					emit_color.a = 1.0f;
+
+					glm::vec3 start(static_cast<float>(current->position.x), static_cast<float>(current->position.y),
+									static_cast<float>(current->position.z));
+					glm::vec3 emit_end(static_cast<float>(current->emit->position.x),
+									   static_cast<float>(current->emit->position.y),
+									   static_cast<float>(current->emit->position.z));
+					
+					// Always add emitted paths - don't check geometry intersection
+					line_instances_.push_back({start, emit_end, emit_color});
+				}
+				current = current->next;
+			}
+		}
+	}
+
+	// Render all line instances
+	if (!line_instances_.empty() && line_instanced_shader_program_) {
+		glUseProgram(line_instanced_shader_program_);
+		
+		// Set MVP matrix
+		glm::mat4 mvp = camera_.get_projection_matrix() * camera_.get_view_matrix();
+		GLint mvp_location = glGetUniformLocation(line_instanced_shader_program_, "uMVP");
+		glUniformMatrix4fv(mvp_location, 1, GL_FALSE, glm::value_ptr(mvp));
+		
+		// Update instance buffer
+		glBindBuffer(GL_ARRAY_BUFFER, line_instance_vbo_);
+		glBufferData(GL_ARRAY_BUFFER, line_instances_.size() * sizeof(LineInstance), 
+					 line_instances_.data(), GL_DYNAMIC_DRAW);
+		
+		// Render
+		glBindVertexArray(line_instanced_vao_);
+		glDrawArraysInstanced(GL_LINES, 0, 2, static_cast<GLsizei>(line_instances_.size()));
+		glBindVertexArray(0);
+		
+		glUseProgram(0);
+	}
+
+	// Render scatter points using existing point rendering system
+	begin_points();
+
+	for (const PhotonPath& path : simulator_->paths) {
+		if (path.head) {
+			auto current = path.head;
+			int vertex_count = 0;
+
+			// Count total vertices to identify key points properly
+			auto temp = current;
+			while (temp) {
+				vertex_count++;
+				temp = temp->next;
+			}
+
+			// Only add markers at specific key points: incident, scatter, exit
+			auto path_current = path.head;
+			std::shared_ptr<PhotonNode> prev = nullptr;
+			std::shared_ptr<PhotonNode> next = nullptr;
+			int current_index = 0;
+
+			while (path_current) {
+				glm::vec3 pos(static_cast<float>(path_current->position.x),
+							  static_cast<float>(path_current->position.y),
+							  static_cast<float>(path_current->position.z));
+
+				bool should_mark = false;
+				glm::vec4 marker_color;
+
+				if (current_index == 0) {
+					// First vertex - incident point (bright white)
+					should_mark = true;
+					marker_color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+				}
+				else if (current_index == vertex_count - 1) {
+					// Last vertex - exit point with adaptive energy-based coloring
+					should_mark = true;
+					float energy = static_cast<float>(path_current->value);
+					marker_color = adaptive_log_color(energy);
+				}
+				else if (current_index > 0 && current_index < vertex_count - 1) {
+					// Check for medium boundary crossings and path splits
+					next = path_current->next;
+					if (prev && next && simulator_) {
+						// Get positions
+						glm::vec3 prev_pos(static_cast<float>(prev->position.x), static_cast<float>(prev->position.y),
+										   static_cast<float>(prev->position.z));
+						glm::vec3 next_pos(static_cast<float>(next->position.x), static_cast<float>(next->position.y),
+										   static_cast<float>(next->position.z));
+
+						// Check if this point represents a medium boundary crossing
 						bool is_medium_boundary = false;
 
 						// Surface entry/exit detection (z-coordinate near 0)
@@ -2070,6 +2595,227 @@ glm::vec2 Renderer::world_to_screen(const glm::vec3& world_pos, int screen_width
 	float screen_y = (1.0f - ndc.y) * 0.5f * screen_height; // Flip Y for screen coordinates
 
 	return glm::vec2(screen_x, screen_y);
+}
+
+// ========================================
+// Instanced Voxel Rendering Implementation
+// ========================================
+
+void Renderer::begin_voxel_instances() {
+	voxel_instances_.clear();
+}
+
+void Renderer::add_voxel_instance(const glm::vec3& position, const glm::vec4& color, float scale, float depth) {
+	voxel_instances_.push_back({position, color, scale, depth});
+}
+
+void Renderer::end_voxel_instances() {
+	if (voxel_instances_.empty()) return;
+	
+	// Sort by depth (back to front) for proper transparency
+	std::sort(voxel_instances_.begin(), voxel_instances_.end(), 
+		[](const VoxelInstance& a, const VoxelInstance& b) {
+			return a.depth > b.depth; // Back to front
+		});
+
+	// Upload instance data to GPU
+	glBindBuffer(GL_ARRAY_BUFFER, voxel_instance_vbo_);
+	glBufferData(GL_ARRAY_BUFFER,
+				 voxel_instances_.size() * sizeof(VoxelInstance), 
+				 voxel_instances_.data(), 
+				 GL_DYNAMIC_DRAW);
+}void Renderer::draw_voxel_instances() {
+	if (voxel_instances_.empty() || !voxel_shader_program_) return;
+	
+	// Enable transparency
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	
+	// Disable depth writing for transparent objects but keep depth testing
+	glDepthMask(GL_FALSE);
+	glEnable(GL_DEPTH_TEST);
+	
+	glUseProgram(voxel_shader_program_);
+	
+	// Set MVP matrix
+	GLint mvp_location = glGetUniformLocation(voxel_shader_program_, "uMVP");
+	glm::mat4 mvp = camera_.get_mvp_matrix();
+	glUniformMatrix4fv(mvp_location, 1, GL_FALSE, glm::value_ptr(mvp));
+	
+	// Bind VAO and draw instanced
+	glBindVertexArray(voxel_cube_vao_);
+	glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(voxel_instances_.size()));
+	
+	// Restore OpenGL state
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
+	glBindVertexArray(0);
+}
+
+bool Renderer::setup_voxel_instanced_rendering() {
+	// Load shaders
+	std::string vertex_source = load_shader_source("shaders/voxels.vert");
+	std::string fragment_source = load_shader_source("shaders/voxels.frag");
+	
+	if (vertex_source.empty() || fragment_source.empty()) {
+		std::cerr << "Failed to load voxel instanced shaders" << std::endl;
+		return false;
+	}
+	
+	voxel_shader_program_ = create_shader_program(vertex_source, fragment_source);
+	if (!voxel_shader_program_) {
+		return false;
+	}
+	
+	// Create unit cube geometry (centered at origin)
+	float vertices[] = {
+		// Front face (z = 0.5)
+		-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f, // bottom-left
+		 0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f, // bottom-right
+		 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f, // top-right
+		 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f, // top-right
+		-0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f, // top-left
+		-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f, // bottom-left
+		
+		// Back face (z = -0.5)
+		-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f, // bottom-left
+		 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f, // top-right
+		 0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f, // bottom-right
+		 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f, // top-right
+		-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f, // bottom-left
+		-0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f, // top-left
+		
+		// Left face (x = -0.5)
+		-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f, // top-right
+		-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f, // bottom-left
+		-0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f, // top-left
+		-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f, // bottom-left
+		-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f, // top-right
+		-0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f, // bottom-right
+		
+		// Right face (x = 0.5)
+		 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f, // top-left
+		 0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f, // top-right
+		 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f, // bottom-right
+		 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f, // bottom-right
+		 0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f, // bottom-left
+		 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f, // top-left
+		
+		// Bottom face (y = -0.5)
+		-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f, // top-right
+		 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f, // bottom-left
+		 0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f, // top-left
+		 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f, // bottom-left
+		-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f, // top-right
+		-0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f, // bottom-right
+		
+		// Top face (y = 0.5)
+		-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f, // top-left
+		 0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f, // top-right
+		 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f, // bottom-right
+		 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f, // bottom-right
+		-0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f, // bottom-left
+		-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f  // top-left
+	};
+	
+	// Create VAO and VBO for cube geometry
+	glGenVertexArrays(1, &voxel_cube_vao_);
+	glGenBuffers(1, &voxel_cube_vbo_);
+	glGenBuffers(1, &voxel_instance_vbo_);
+	
+	glBindVertexArray(voxel_cube_vao_);
+	
+	// Setup cube geometry buffer
+	glBindBuffer(GL_ARRAY_BUFFER, voxel_cube_vbo_);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+	
+	// Position attribute (location 0)
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+	
+	// Normal attribute (location 1)  
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+	glEnableVertexAttribArray(1);
+	
+	// Setup instance data buffer
+	glBindBuffer(GL_ARRAY_BUFFER, voxel_instance_vbo_);
+	
+	// Instance position (location 2)
+	glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(VoxelInstance), (void*)offsetof(VoxelInstance, position));
+	glEnableVertexAttribArray(2);
+	glVertexAttribDivisor(2, 1); // One per instance
+	
+	// Instance color (location 3)
+	glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(VoxelInstance), (void*)offsetof(VoxelInstance, color));
+	glEnableVertexAttribArray(3);
+	glVertexAttribDivisor(3, 1); // One per instance
+	
+	// Instance scale (location 4)
+	glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(VoxelInstance), (void*)offsetof(VoxelInstance, scale));
+	glEnableVertexAttribArray(4);
+	glVertexAttribDivisor(4, 1); // One per instance
+	
+	glBindVertexArray(0);
+	return true;
+}
+
+bool Renderer::setup_line_instanced_rendering() {
+	// Load shaders
+	std::string vertex_source = load_shader_source("shaders/lines_instanced.vert");
+	std::string fragment_source = load_shader_source("shaders/lines_instanced.frag");
+	
+	if (vertex_source.empty() || fragment_source.empty()) {
+		std::cerr << "Failed to load line instanced shaders" << std::endl;
+		return false;
+	}
+	
+	line_instanced_shader_program_ = create_shader_program(vertex_source, fragment_source);
+	if (!line_instanced_shader_program_) {
+		return false;
+	}
+	
+	// Create line geometry (just two endpoints: 0 and 1)
+	float line_vertices[] = {
+		0.0f, 0.0f, 0.0f, // Start point (will be interpolated with instance data)
+		1.0f, 0.0f, 0.0f  // End point (will be interpolated with instance data)
+	};
+	
+	// Create VAO and VBO for line geometry
+	glGenVertexArrays(1, &line_instanced_vao_);
+	glGenBuffers(1, &line_instanced_vbo_);
+	glGenBuffers(1, &line_instance_vbo_);
+	
+	glBindVertexArray(line_instanced_vao_);
+	
+	// Set up line geometry (positions only)
+	glBindBuffer(GL_ARRAY_BUFFER, line_instanced_vbo_);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(line_vertices), line_vertices, GL_STATIC_DRAW);
+	
+	// Position attribute (location 0) - just x component used for interpolation
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+	
+	// Set up instance data buffer (empty for now)
+	glBindBuffer(GL_ARRAY_BUFFER, line_instance_vbo_);
+	glBufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_DYNAMIC_DRAW);
+	
+	// Instance start position (location 1)
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(LineInstance), (void*)offsetof(LineInstance, start));
+	glEnableVertexAttribArray(1);
+	glVertexAttribDivisor(1, 1); // One per instance
+	
+	// Instance end position (location 2)
+	glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(LineInstance), (void*)offsetof(LineInstance, end));
+	glEnableVertexAttribArray(2);
+	glVertexAttribDivisor(2, 1); // One per instance
+	
+	// Instance color (location 3)
+	glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(LineInstance), (void*)offsetof(LineInstance, color));
+	glEnableVertexAttribArray(3);
+	glVertexAttribDivisor(3, 1); // One per instance
+	
+	glBindVertexArray(0);
+	return true;
 }
 
 /**

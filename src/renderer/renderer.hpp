@@ -72,6 +72,12 @@ public:
 	void draw_triangles();
 	void draw_triangles_with_clipping(const std::vector<glm::vec4>& clipping_planes);
 
+	// Instanced voxel rendering (high performance)
+	void begin_voxel_instances();
+	void add_voxel_instance(const glm::vec3& position, const glm::vec4& color, float scale = 1.0f, float depth = 0.0f);
+	void end_voxel_instances();
+	void draw_voxel_instances();
+
 	// Text billboard rendering for energy labels
 	void draw_labels(const Settings& settings);
 	void cache_energy_labels();                  // Cache energy labels from current simulation data
@@ -103,7 +109,9 @@ private:
 	void draw_coordinate_axes();
 	void draw_test_geometry();
 	void draw_voxels(const Settings& settings);
+	void draw_voxels_instanced(const Settings& settings); // High-performance instanced version
 	void draw_paths(const Settings& settings);
+	void draw_paths_instanced(const Settings& settings); // High-performance instanced version
 	void draw_photons(const Settings& settings);
 	void draw_emitters(const Settings& settings);  // Draw true exit points
 	
@@ -114,6 +122,8 @@ private:
 	bool setup_line_rendering();
 	bool setup_point_rendering();
 	bool setup_triangle_rendering();
+	bool setup_voxel_instanced_rendering();
+	bool setup_line_instanced_rendering();
 	std::string load_shader_source(const std::string& file_path);
 	GLuint compile_shader(const std::string& source, GLenum shader_type);
 	GLuint create_shader_program(const std::string& vertex_source, const std::string& fragment_source);
@@ -137,6 +147,23 @@ private:
 		glm::vec4 color{1.0f};
 	};
 
+	// Instance data structure for voxel rendering
+	struct VoxelInstance
+	{
+		glm::vec3 position{};
+		glm::vec4 color{1.0f};
+		float scale{1.0f};
+		float depth{0.0f}; // For depth sorting
+	};
+
+	// Instance data structure for line rendering
+	struct LineInstance
+	{
+		glm::vec3 start{};
+		glm::vec3 end{};
+		glm::vec4 color{1.0f};
+	};
+
 	// Energy label structure for billboard text rendering
 	struct EnergyLabel
 	{
@@ -153,6 +180,16 @@ private:
 	GLuint point_vao_ {0}, point_vbo_ {0};
 	GLuint triangle_vao_ {0}, triangle_vbo_ {0};
 	GLuint line_shader_program_ {0}, point_shader_program_ {0}, triangle_shader_program_ {0};
+
+	// Instanced voxel rendering resources
+	GLuint voxel_cube_vao_ {0}, voxel_cube_vbo_ {0}, voxel_instance_vbo_ {0};
+	GLuint voxel_shader_program_ {0};
+	std::vector<VoxelInstance> voxel_instances_;
+
+	// Instanced line rendering resources
+	GLuint line_instanced_vao_ {0}, line_instanced_vbo_ {0}, line_instance_vbo_ {0};
+	GLuint line_instanced_shader_program_ {0};
+	std::vector<LineInstance> line_instances_;
 
 	// Vertex data containers
 	std::vector<LineVertex> line_vertices_;

@@ -1174,14 +1174,19 @@ void Simulator::specular_reflection(Source& source) {
 	record.specular_reflection = (n2 != n1) ? temp_ratio * temp_ratio : 0;
 
 	// reflection direction: R = V - 2(V . N)N
+	// Ensure normal points away from incident ray (outward from surface)
 	glm::dvec3 normal = source.triangle.normal();
 	double projection_scalar = glm::dot(source.direction, normal);
+	
+	// If normal points toward incident ray, flip it to point outward
+	if (projection_scalar > 0.0) {
+		normal = -normal;
+		projection_scalar = -projection_scalar;
+	}
+	
 	glm::dvec3 twice_projection = normal * (projection_scalar * 2.0);
 	glm::dvec3 rsdir = glm::dvec3(source.direction.x - twice_projection.x, source.direction.y - twice_projection.y,
 								  source.direction.z - twice_projection.z);
-
-	// Reverse the reflection direction to point outward
-	rsdir = -rsdir;
 
 	source.specular_direction = rsdir;
 }
