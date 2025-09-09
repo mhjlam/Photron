@@ -75,6 +75,11 @@ bool Renderer::initialize() {
 		return false;
 	}
 
+	if (!setup_point_instanced_rendering()) {
+		std::cerr << "Failed to setup instanced point rendering" << std::endl;
+		return false;
+	}
+
 	// Setup initial camera
 	update_camera();
 
@@ -171,9 +176,6 @@ void Renderer::render(Simulator& simulator) {
 	if (settings_.draw_paths) {
 		draw_paths_instanced(settings_); // High-performance instanced version
 	}
-
-	// Always draw current photon positions and directions
-	draw_photons(settings_);
 
 	// Draw energy labels as billboards (user request 3)
 	draw_labels(settings_);
@@ -1312,6 +1314,7 @@ void Renderer::draw_paths_instanced(const Settings& /*settings*/) {
 		return;
 
 	line_instances_.clear();
+	std::vector<PointInstance> point_instances;
 
 	// First pass: analyze energy distribution for adaptive logarithmic mapping (same as original)
 	std::vector<float> all_energies;
@@ -1474,9 +1477,7 @@ void Renderer::draw_paths_instanced(const Settings& /*settings*/) {
 		glUseProgram(0);
 	}
 
-	// Render scatter points using existing point rendering system
-	begin_points();
-
+	// Collect scatter points for instanced rendering
 	for (const PhotonPath& path : simulator_->paths) {
 		if (path.head) {
 			auto current = path.head;
@@ -1548,7 +1549,12 @@ void Renderer::draw_paths_instanced(const Settings& /*settings*/) {
 				}
 
 				if (should_mark) {
-					add_point(pos, marker_color);
+					// Add to point instances instead of traditional rendering
+					PointInstance point_instance;
+					point_instance.position = pos;
+					point_instance.color = marker_color;
+					point_instance.size = 8.0f; // Point size in pixels
+					point_instances.push_back(point_instance);
 				}
 
 				prev = path_current;
@@ -1558,80 +1564,34 @@ void Renderer::draw_paths_instanced(const Settings& /*settings*/) {
 		}
 	}
 
-	end_points();
-	draw_points();
-}
+	// Render scatter points using instanced rendering
+	if (!point_instances.empty()) {
+		glUseProgram(point_instanced_shader_program_);
+		
+		// Set MVP matrix uniform
+		glm::mat4 mvp = camera_.get_projection_matrix() * camera_.get_view_matrix();
+		GLint mvp_loc = glGetUniformLocation(point_instanced_shader_program_, "uMVP");
+		glUniformMatrix4fv(mvp_loc, 1, GL_FALSE, glm::value_ptr(mvp));
 
-void Renderer::draw_photons(const Settings& /*settings*/) {
-	if (!simulator_)
-		return;
+		// Upload instance data
+		glBindBuffer(GL_ARRAY_BUFFER, point_instance_vbo_);
+		glBufferData(GL_ARRAY_BUFFER, point_instances.size() * sizeof(PointInstance), point_instances.data(), GL_DYNAMIC_DRAW);
 
-	// Draw current photon positions as energy-colored points exactly like backup
-	begin_points();
-	for (const auto& photon : simulator_->photons) {
-		if (photon.alive && photon.weight > 0.001) {
-			// Energy-based coloring: White = full energy, Red = medium energy, Dark red = low energy
-			float weight = static_cast<float>(photon.weight);
-			float energy = std::max(0.1f, weight); // Clamp to avoid invisible photons
-
-			glm::vec4 photon_color;
-			if (energy > 0.7f) {
-				// High energy: bright white-yellow
-				photon_color = glm::vec4(1.0f, 1.0f, 0.8f + 0.2f * energy, 1.0f);
-			}
-			else if (energy > 0.4f) {
-				// Medium energy: orange-red gradient
-				float t = (energy - 0.4f) / 0.3f;
-				photon_color = glm::vec4(1.0f, 0.5f + 0.5f * t, 0.2f * t, 1.0f);
-			}
-			else {
-				// Low energy: red to dark red
-				float t = energy / 0.4f;
-				photon_color = glm::vec4(0.5f + 0.5f * t, 0.1f * t, 0.1f * t, 1.0f);
-			}
-
-			glm::vec3 photon_pos(static_cast<float>(photon.position.x), static_cast<float>(photon.position.y),
-								 static_cast<float>(photon.position.z));
-			add_point(photon_pos, photon_color);
-		}
+		// Bind VAO and render
+		glBindVertexArray(point_instanced_vao_);
+		
+		// Enable point size and blending for nice looking points
+		glEnable(GL_PROGRAM_POINT_SIZE);
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		
+		glDrawArraysInstanced(GL_POINTS, 0, 1, static_cast<GLsizei>(point_instances.size()));
+		
+		glDisable(GL_BLEND);
+		glDisable(GL_PROGRAM_POINT_SIZE);
+		glBindVertexArray(0);
+		glUseProgram(0);
 	}
-	end_points();
-	draw_points();
-
-	// Draw photon direction indicators exactly like backup
-	begin_lines();
-	for (const auto& photon : simulator_->photons) {
-		if (photon.alive && photon.weight > 0.001) {
-			// Same energy-based color as above
-			float weight = static_cast<float>(photon.weight);
-			float energy = std::max(0.1f, weight);
-
-			glm::vec4 direction_color;
-			if (energy > 0.7f) {
-				direction_color = glm::vec4(1.0f, 1.0f, 0.8f + 0.2f * energy, 1.0f);
-			}
-			else if (energy > 0.4f) {
-				float t = (energy - 0.4f) / 0.3f;
-				direction_color = glm::vec4(1.0f, 0.5f + 0.5f * t, 0.2f * t, 1.0f);
-			}
-			else {
-				float t = energy / 0.4f;
-				direction_color = glm::vec4(0.5f + 0.5f * t, 0.1f * t, 0.1f * t, 1.0f);
-			}
-
-			// Draw direction vector exactly like backup
-			glm::vec3 start_pos(static_cast<float>(photon.position.x), static_cast<float>(photon.position.y),
-								static_cast<float>(photon.position.z));
-			glm::vec3 end_pos(
-				static_cast<float>(photon.position.x + photon.direction.x * 0.08), // Direction indicator like backup
-				static_cast<float>(photon.position.y + photon.direction.y * 0.08),
-				static_cast<float>(photon.position.z + photon.direction.z * 0.08));
-
-			add_line(start_pos, end_pos, direction_color);
-		}
-	}
-	end_lines();
-	draw_lines();
 }
 
 void Renderer::draw_emitters(const Settings& settings) {
@@ -2755,6 +2715,60 @@ bool Renderer::setup_voxel_instanced_rendering() {
 	glEnableVertexAttribArray(4);
 	glVertexAttribDivisor(4, 1); // One per instance
 	
+	glBindVertexArray(0);
+	return true;
+}
+
+bool Renderer::setup_point_instanced_rendering() {
+	// Load shaders
+	std::string vertex_source = load_shader_source("shaders/points_instanced.vert");
+	std::string fragment_source = load_shader_source("shaders/points_instanced.frag");
+	
+	if (vertex_source.empty() || fragment_source.empty()) {
+		std::cerr << "Failed to load point instanced shaders" << std::endl;
+		return false;
+	}
+	
+	point_instanced_shader_program_ = create_shader_program(vertex_source, fragment_source);
+	if (!point_instanced_shader_program_) {
+		return false;
+	}
+
+	// Create and bind VAO for instanced point rendering
+	glGenVertexArrays(1, &point_instanced_vao_);
+	glBindVertexArray(point_instanced_vao_);
+
+	// Generate VBOs for point vertex data and instance data
+	glGenBuffers(1, &point_instanced_vbo_);
+	glGenBuffers(1, &point_instance_vbo_);
+
+	// Set up point vertex data (single point at origin)
+	glBindBuffer(GL_ARRAY_BUFFER, point_instanced_vbo_);
+	float point_vertex[3] = {0.0f, 0.0f, 0.0f}; // Single point at origin
+	glBufferData(GL_ARRAY_BUFFER, sizeof(point_vertex), point_vertex, GL_STATIC_DRAW);
+
+	// Vertex position attribute (location 0)
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+
+	// Set up instance data buffer (initially empty)
+	glBindBuffer(GL_ARRAY_BUFFER, point_instance_vbo_);
+	
+	// Instance position attribute (location 1)
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(PointInstance), (void*)offsetof(PointInstance, position));
+	glEnableVertexAttribArray(1);
+	glVertexAttribDivisor(1, 1); // One per instance
+
+	// Instance color attribute (location 2)
+	glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(PointInstance), (void*)offsetof(PointInstance, color));
+	glEnableVertexAttribArray(2);
+	glVertexAttribDivisor(2, 1); // One per instance
+
+	// Instance size attribute (location 3)
+	glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(PointInstance), (void*)offsetof(PointInstance, size));
+	glEnableVertexAttribArray(3);
+	glVertexAttribDivisor(3, 1); // One per instance
+
 	glBindVertexArray(0);
 	return true;
 }

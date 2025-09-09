@@ -112,7 +112,6 @@ private:
 	void draw_voxels_instanced(const Settings& settings); // High-performance instanced version
 	void draw_paths(const Settings& settings);
 	void draw_paths_instanced(const Settings& settings); // High-performance instanced version
-	void draw_photons(const Settings& settings);
 	void draw_emitters(const Settings& settings);  // Draw true exit points
 	
 	// Utility methods
@@ -124,6 +123,7 @@ private:
 	bool setup_triangle_rendering();
 	bool setup_voxel_instanced_rendering();
 	bool setup_line_instanced_rendering();
+	bool setup_point_instanced_rendering();
 	std::string load_shader_source(const std::string& file_path);
 	GLuint compile_shader(const std::string& source, GLenum shader_type);
 	GLuint create_shader_program(const std::string& vertex_source, const std::string& fragment_source);
@@ -164,6 +164,14 @@ private:
 		glm::vec4 color{1.0f};
 	};
 
+	// Instance data structure for point rendering
+	struct PointInstance
+	{
+		glm::vec3 position{};
+		glm::vec4 color{1.0f};
+		float size{1.0f};
+	};
+
 	// Energy label structure for billboard text rendering
 	struct EnergyLabel
 	{
@@ -190,6 +198,11 @@ private:
 	GLuint line_instanced_vao_ {0}, line_instanced_vbo_ {0}, line_instance_vbo_ {0};
 	GLuint line_instanced_shader_program_ {0};
 	std::vector<LineInstance> line_instances_;
+
+	// Instanced point rendering resources
+	GLuint point_instanced_vao_ {0}, point_instanced_vbo_ {0}, point_instance_vbo_ {0};
+	GLuint point_instanced_shader_program_ {0};
+	std::vector<PointInstance> point_instances_;
 
 	// Vertex data containers
 	std::vector<LineVertex> line_vertices_;

@@ -1,0 +1,43 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "msvc-x64",
+            "displayName": "MSVC x64",
+            "generator": "Visual Studio 17 2022",
+            "architecture": "x64",
+            "cacheVariables": {
+                "CMAKE_TOOLCHAIN_FILE": "${env:VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+            },
+            "binaryDir": "${sourceDir}/build"
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "debug-build",
+            "displayName": "Debug",
+            "configurePreset": "msvc-x64",
+            "configuration": "Debug"
+        },
+        {
+            "name": "release-build",
+            "displayName": "Release",
+            "configurePreset": "msvc-x64",
+            "configuration": "Release"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "debug-launch",
+            "displayName": "Debug Launch with Config",
+            "configurePreset": "msvc-x64",
+            "configuration": "Debug",
+            "execution": {
+                "jobs": 1
+            },
+            "output": {
+                "outputOnFailure": true
+            }
+        }
+    ]
+}
