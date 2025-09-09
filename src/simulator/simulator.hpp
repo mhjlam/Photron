@@ -96,6 +96,7 @@ private:
 	bool initialize_grid();
 	bool initialize_data();
 	bool voxelize_layers();
+	void identify_surface_voxels();
 
 	// data management
 	void reset_simulation_data();

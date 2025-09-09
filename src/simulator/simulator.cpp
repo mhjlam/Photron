@@ -88,6 +88,11 @@ bool Simulator::initialize(std::string file) {
 		return false;
 	}
 	std::cout << "Geometry voxelization completed successfully." << std::endl;
+	
+	// Identify surface voxels (voxels at the outer boundary of the voxel cluster)
+	identify_surface_voxels();
+	std::cout << "Surface voxel identification completed." << std::endl;
+	
 	return true;
 }
 
@@ -435,6 +440,121 @@ bool Simulator::voxelize_layers() {
 }
 
 /***********************************************************
+ * Identify voxels that are at the outer surface of the voxel cluster.
+ * This includes both voxels with empty neighbors AND voxels that graze the surface.
+ ***********************************************************/
+void Simulator::identify_surface_voxels() {
+	int surface_voxel_count = 0;
+	const glm::uvec3& dimensions = voxel_grid.dimensions();
+	
+	for (uint32_t z = 0; z < dimensions.z; z++) {
+		for (uint32_t y = 0; y < dimensions.y; y++) {
+			for (uint32_t x = 0; x < dimensions.x; x++) {
+				Voxel* voxel = voxel_grid.at(x, y, z);
+				
+				// Only consider voxels that have tissue assigned (inside or partially inside geometry)
+				if (!voxel->tissue) {
+					voxel->is_surface_voxel = false;
+					continue;
+				}
+				
+				bool is_surface = false;
+				
+				// Method 1: Boundary voxels are automatically surface voxels
+				if (voxel->is_boundary_voxel) {
+					is_surface = true;
+				}
+				
+				// Method 2: Check for empty neighbors (traditional surface detection)
+				if (!is_surface) {
+					bool has_empty_neighbor = false;
+					
+					for (int dz = -1; dz <= 1; dz++) {
+						for (int dy = -1; dy <= 1; dy++) {
+							for (int dx = -1; dx <= 1; dx++) {
+								if (dx == 0 && dy == 0 && dz == 0) continue; // Skip self
+								
+								int nx = (int)x + dx;
+								int ny = (int)y + dy;
+								int nz = (int)z + dz;
+								
+								// Check bounds
+								if (nx < 0 || ny < 0 || nz < 0 || 
+									nx >= (int)dimensions.x || 
+									ny >= (int)dimensions.y || 
+									nz >= (int)dimensions.z) {
+									// Out of bounds = empty neighbor
+									has_empty_neighbor = true;
+									break;
+								}
+								
+								// Check if neighbor has no tissue (is empty)
+								Voxel* neighbor = voxel_grid.at(nx, ny, nz);
+								if (!neighbor->tissue) {
+									has_empty_neighbor = true;
+									break;
+								}
+							}
+							if (has_empty_neighbor) break;
+						}
+						if (has_empty_neighbor) break;
+					}
+					
+					if (has_empty_neighbor) {
+						is_surface = true;
+					}
+				}
+				
+				// Method 3: Detect grazing surface voxels by checking if voxel boundary intersects any mesh surface
+				if (!is_surface) {
+					// Get voxel bounding box
+					Cuboid voxel_box = voxel_corners(voxel);
+					glm::dvec3 voxel_min = voxel_box.min_point();
+					glm::dvec3 voxel_max = voxel_box.max_point();
+					
+					// Dynamic tolerance based on voxel size to handle floating-point precision
+					double voxel_size = voxel_grid.voxel_size();
+					double tolerance = voxel_size * 0.1; // 10% of voxel size for floating-point safety
+					
+					// Check if any mesh triangle intersects this voxel
+					for (const auto& layer : layers) {
+						for (size_t face_idx = 0; face_idx < layer.mesh.size(); face_idx++) {
+							const Triangle& triangle = layer.mesh[face_idx];
+							
+							// Get triangle bounding box with tolerance expansion
+							glm::dvec3 tri_min = glm::min(glm::min(triangle.v0(), triangle.v1()), triangle.v2()) - tolerance;
+							glm::dvec3 tri_max = glm::max(glm::max(triangle.v0(), triangle.v1()), triangle.v2()) + tolerance;
+							
+							// Expand voxel bounding box slightly for floating-point safety
+							glm::dvec3 safe_voxel_min = voxel_min - tolerance;
+							glm::dvec3 safe_voxel_max = voxel_max + tolerance;
+							
+							// Check if triangle bounding box overlaps with voxel bounding box
+							bool overlaps_x = (tri_max.x >= safe_voxel_min.x) && (tri_min.x <= safe_voxel_max.x);
+							bool overlaps_y = (tri_max.y >= safe_voxel_min.y) && (tri_min.y <= safe_voxel_max.y);
+							bool overlaps_z = (tri_max.z >= safe_voxel_min.z) && (tri_min.z <= safe_voxel_max.z);
+							
+							if (overlaps_x && overlaps_y && overlaps_z) {
+								is_surface = true;
+								break;
+							}
+						}
+						if (is_surface) break;
+					}
+				}
+				
+				voxel->is_surface_voxel = is_surface;
+				if (is_surface) {
+					surface_voxel_count++;
+				}
+			}
+		}
+	}
+	
+	std::cout << "Identified " << surface_voxel_count << " surface voxels." << std::endl;
+}
+
+/***********************************************************
  * Run the Monte Carlo photon transport simulation.
  ***********************************************************/
 void Simulator::simulate() {
@@ -620,8 +740,68 @@ void Simulator::transfer(Photon& photon) {
 		// prevent errors due to crossing to ambient medium
 		if (!photon.voxel) {
 			photon.alive = false;
-			photon.voxel = photon.prev_voxel; // for radiate
-			radiate(photon, photon.direction, photon.weight);
+			
+			// Find the appropriate boundary/surface voxel to record emittance
+			Voxel* emittance_voxel = nullptr;
+			
+			// Calculate tolerance based on photon transport step size to handle numerical precision
+			double step_tolerance = photon.sub_step * 0.1; // 10% of last substep size
+			double min_tolerance = voxel_grid.voxel_size() * 0.01; // Minimum 1% of voxel size
+			double tolerance = std::max(step_tolerance, min_tolerance);
+			
+			// First try: voxel containing the intersection point
+			Voxel* intersect_voxel = voxel_at(photon.intersect);
+			if (intersect_voxel && (intersect_voxel->is_boundary_voxel || intersect_voxel->is_surface_voxel)) {
+				emittance_voxel = intersect_voxel;
+			} 
+			
+			// Second try: check voxels within tolerance of both intersection point and photon position
+			if (!emittance_voxel) {
+				// Search in a small region around both intersection and position points
+				std::vector<glm::dvec3> search_points = {
+					photon.intersect,
+					photon.position,
+					(photon.intersect + photon.position) * 0.5 // midpoint
+				};
+				
+				for (const auto& point : search_points) {
+					// Check the point itself and nearby voxels
+					for (double dx = -tolerance; dx <= tolerance; dx += voxel_grid.voxel_size() * 0.5) {
+						for (double dy = -tolerance; dy <= tolerance; dy += voxel_grid.voxel_size() * 0.5) {
+							for (double dz = -tolerance; dz <= tolerance; dz += voxel_grid.voxel_size() * 0.5) {
+								glm::dvec3 test_point = point + glm::dvec3(dx, dy, dz);
+								Voxel* candidate = voxel_at(test_point);
+								if (candidate && (candidate->is_boundary_voxel || candidate->is_surface_voxel)) {
+									emittance_voxel = candidate;
+									break;
+								}
+							}
+							if (emittance_voxel) break;
+						}
+						if (emittance_voxel) break;
+					}
+					if (emittance_voxel) break;
+				}
+			}
+			
+			// Third try: the previous voxel if it's boundary/surface
+			if (!emittance_voxel && photon.prev_voxel && (photon.prev_voxel->is_boundary_voxel || photon.prev_voxel->is_surface_voxel)) {
+				emittance_voxel = photon.prev_voxel;
+			}
+			
+			// Last resort: use previous voxel even if not boundary/surface (with warning)
+			if (!emittance_voxel && photon.prev_voxel) {
+				emittance_voxel = photon.prev_voxel;
+				std::cerr << "Warning: Using non-boundary voxel for emittance (numerical precision issue)" << std::endl;
+			}
+			
+			// Ensure we have a voxel to record emittance
+			if (emittance_voxel) {
+				photon.voxel = emittance_voxel;
+				radiate(photon, photon.direction, photon.weight);
+			} else {
+				std::cerr << "ERROR: Could not find any voxel for emittance recording!" << std::endl;
+			}
 		}
 
 		// update step size
@@ -793,9 +973,6 @@ void Simulator::sub_step(Photon& photon) {
 				sum_normal += normal;
 			}
 			averaged_normal = glm::normalize(sum_normal);
-			
-			std::cout << "Vertex intersection detected! Averaged normal from " 
-					  << vertex_normals.size() << " adjacent faces." << std::endl;
 		}
 		
 		photon.voxel_normal = averaged_normal;
@@ -992,6 +1169,17 @@ void Simulator::cross(Photon& photon) {
 
 	// 1. crossing to ambient medium
 	if (newvox == nullptr) {
+		// Debug: Check if photon is exiting from an interior voxel (shouldn't happen!)
+		if (photon.voxel && !photon.voxel->is_surface_voxel) {
+			std::cerr << "ERROR: Photon attempting to exit from interior voxel at (" 
+					  << photon.voxel->ix() << ", " << photon.voxel->iy() << ", " << photon.voxel->iz() 
+					  << ") to ambient medium!" << std::endl;
+			std::cerr << "  Photon position: (" << photon.position.x << ", " << photon.position.y << ", " << photon.position.z << ")" << std::endl;
+			std::cerr << "  Intersection point: (" << photon.intersect.x << ", " << photon.intersect.y << ", " << photon.intersect.z << ")" << std::endl;
+			std::cerr << "  New position: (" << newpos.x << ", " << newpos.y << ", " << newpos.z << ")" << std::endl;
+			std::cerr << "  Direction: (" << transmittance.x << ", " << transmittance.y << ", " << transmittance.z << ")" << std::endl;
+		}
+		
 		// At exterior boundary: normal should point INTO the medium (opposite to typical mesh normal)
 		// For reflection at exterior boundary, we want normal pointing inward
 		glm::dvec3 normal = glm::normalize(photon.voxel_normal);
@@ -1113,40 +1301,28 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 	if (!photon.voxel)
 		return;
 
-	// For boundary voxels, only record emittance in the portion that's outside the geometry
+	// Record emittance at the selected voxel
+	Voxel* exit_voxel = photon.voxel;
+	
+	// Calculate appropriate weight based on voxel type
 	double effective_weight = weight;
-	if (photon.voxel->is_boundary_voxel) {
-		// Scale emittance by the volume fraction outside
-		effective_weight = weight * photon.voxel->volume_fraction_outside;
+	if (exit_voxel->is_boundary_voxel) {
+		// Scale by the volume fraction outside the geometry for boundary voxels
+		effective_weight = weight * exit_voxel->volume_fraction_outside;
 	}
-
-	// set voxel emittance (scaled for boundary voxels)
-	photon.voxel->emittance += effective_weight;
-
-	// add regular vertex that stops at boundary
-	paths.back().add_internal_vertex(std::make_shared<PhotonNode>(photon.intersect, weight));
-	paths.back().add_external_vertex(std::make_shared<PhotonNode>(move(photon.intersect, direction, 0.1), weight));
-	metrics.add_vertex(photon.intersect.x, photon.intersect.y, photon.intersect.z);
-
-	// add emitter at this position
-	emitters.emplace_back(photon.id, photon.intersect, direction, weight);
-
-	// specular or diffuse transmission
-	if (!photon.scatters) {
-		record.specular_transmission += weight;
-	}
-	else {
-		// cos(theta) = a.b / |a||b|
-		double cos_theta = glm::dot(photon.source.direction, direction)
-						   / (glm::length(photon.source.direction) * glm::length(direction));
-		double theta = acos(cos_theta);
-
-		// count as transmission or reflection
-		if (theta < MathConstants::HALF_PI) {
-			record.diffuse_transmission += weight;
-		}
-		else {
-			record.diffuse_reflection += weight;
+	// For surface voxels or other cases, use full weight
+	
+	// Always record emittance - every photon exit must be recorded somewhere
+	exit_voxel->emittance += effective_weight;
+	
+	// Optional: Log when recording at non-ideal voxels for debugging
+	if (!exit_voxel->is_boundary_voxel && !exit_voxel->is_surface_voxel) {
+		static int warning_count = 0;
+		if (warning_count < 10) { // Limit spam
+			std::cerr << "Info: Emittance recorded at interior voxel (" 
+					  << exit_voxel->ix() << ", " << exit_voxel->iy() << ", " << exit_voxel->iz() 
+					  << ") - may indicate transport precision issues." << std::endl;
+			warning_count++;
 		}
 	}
 }
