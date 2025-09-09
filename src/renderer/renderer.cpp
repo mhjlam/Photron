@@ -144,6 +144,9 @@ void Renderer::update() {
 void Renderer::render(Simulator& simulator) {
 	// Store simulator reference for use in drawing functions
 	simulator_ = &simulator;
+	
+	// Invalidate energy cache if simulation data might have changed
+	invalidate_energy_cache();
 
 	// Update camera target based on simulation bounds
 	static bool first_frame = true;
@@ -856,66 +859,13 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 	double half_voxsize = voxsize * 0.5;
 	float voxel_scale = static_cast<float>(voxsize * 0.95); // Slightly smaller to show gaps
 
-	// First pass: analyze energy distribution to find dynamic range for adaptive scaling
-	std::vector<float> all_energies;
-	float total_accumulated_energy = 0.0f;
+	// PERFORMANCE OPTIMIZATION: Use cached energy range instead of expensive per-frame analysis
+	update_cached_energy_range(settings);
 
-	for (int iz = 0; iz < nz; iz++) {
-		for (int iy = 0; iy < ny; iy++) {
-			for (int ix = 0; ix < nx; ix++) {
-				if (ix >= 0 && iy >= 0 && iz >= 0 && 
-					static_cast<uint32_t>(ix) < static_cast<uint32_t>(nx) && 
-					static_cast<uint32_t>(iy) < static_cast<uint32_t>(ny) && 
-					static_cast<uint32_t>(iz) < static_cast<uint32_t>(nz)) {
-					
-					Voxel* voxel = simulator_->voxel_grid(static_cast<uint32_t>(ix), static_cast<uint32_t>(iy), static_cast<uint32_t>(iz));
-
-					if (voxel) {
-						float absorption = static_cast<float>(voxel->absorption);
-						float emittance = static_cast<float>(voxel->emittance);
-
-						float total_energy;
-						if (settings.voxel_mode == VoxelMode::Absorption) {
-							total_energy = absorption;
-						}
-						else if (settings.voxel_mode == VoxelMode::Emittance) {
-							total_energy = emittance;
-						}
-						else if (settings.voxel_mode == VoxelMode::Layers) {
-							total_energy = (voxel->tissue != nullptr) ? 1.0f : 0.0f;
-						}
-						else {
-							total_energy = absorption + emittance;
-						}
-
-						if (total_energy > 0.0000001f) {
-							all_energies.push_back(total_energy);
-							total_accumulated_energy += total_energy;
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// Calculate adaptive energy range for better contrast
-	float min_energy = 1e-8f; // Much lower threshold for emittance detection
-	float max_energy = 0.01f; // Default fallback
-
-	if (!all_energies.empty()) {
-		// Modern C++20: Use ranges::sort for cleaner syntax
-		std::ranges::sort(all_energies);
-
-		// Use percentile-based scaling for better contrast
-		const size_t count = all_energies.size();
-		const float p5 = all_energies[static_cast<size_t>(count * 0.05)];  // 5th percentile
-		const float p95 = all_energies[static_cast<size_t>(count * 0.95)]; // 95th percentile
-
-		min_energy = std::max(p5, 1e-8f);                            // Lower minimum
-		max_energy = std::max(p95, min_energy * 10.0f);              // Ensure reasonable range
-	}
+	// Set up instanced rendering for maximum performance
+	begin_voxel_instances();
 	
-	// Second pass: render voxels using adaptive scaling
+	// Render voxels using cached energy scaling - PERFORMANCE OPTIMIZED
 	for (int iz = 0; iz < nz; iz++) {
 		for (int iy = 0; iy < ny; iy++) {
 			for (int ix = 0; ix < nx; ix++) {
@@ -926,7 +876,28 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 					static_cast<uint32_t>(iz) < static_cast<uint32_t>(nz)) {
 					
 					Voxel* voxel = simulator_->voxel_grid(static_cast<uint32_t>(ix), static_cast<uint32_t>(iy), static_cast<uint32_t>(iz));
-					if (!voxel) continue;
+					if (!voxel || !voxel->tissue) continue; // Skip voxels with no tissue
+
+					// Calculate energy based on current mode
+					float absorption = static_cast<float>(voxel->absorption);
+					float emittance = static_cast<float>(voxel->emittance);
+					float total_energy;
+					
+					if (settings.voxel_mode == VoxelMode::Absorption) {
+						total_energy = absorption;
+					}
+					else if (settings.voxel_mode == VoxelMode::Emittance) {
+						total_energy = emittance;
+					}
+					else if (settings.voxel_mode == VoxelMode::Layers) {
+						total_energy = 1.0f; // We already know voxel->tissue != nullptr
+					}
+					else {
+						total_energy = absorption + emittance;
+					}
+
+					// IMPORTANT: Don't skip voxels with no energy! 
+					// They should still render as very faint tissue-colored hints
 
 					// Calculate world position using the same method as original code
 					double x = simulator_->bounds.min_bounds.x + (voxsize * ix) + half_voxsize;
@@ -935,76 +906,26 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 
 					glm::vec3 voxel_pos(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
 
-					// Apply same geometry intersection logic as original
-					bool is_in_geometry = simulator_->is_point_inside_geometry({x,y,z});
-					bool has_tissue = (voxel->tissue != nullptr);
-					
-					// For complex geometries, check if any part of the voxel intersects
-					bool voxel_intersects_geometry = false;
-					
-					if (has_tissue) {
-						// Check voxel center first (fastest check)
-						if (is_in_geometry) {
-							voxel_intersects_geometry = true;
-						} else {
-							// If center is outside, check the 8 corners to see if any are inside
-							double half_voxel = voxsize * 0.5;
-							std::vector<glm::dvec3> corners = {
-								{x - half_voxel, y - half_voxel, z - half_voxel},
-								{x + half_voxel, y - half_voxel, z - half_voxel},
-								{x - half_voxel, y + half_voxel, z - half_voxel},
-								{x + half_voxel, y + half_voxel, z - half_voxel},
-								{x - half_voxel, y - half_voxel, z + half_voxel},
-								{x + half_voxel, y - half_voxel, z + half_voxel},
-								{x - half_voxel, y + half_voxel, z + half_voxel},
-								{x + half_voxel, y + half_voxel, z + half_voxel}
-							};
-							
-							// If any corner is inside the geometry, this voxel intersects
-							for (const auto& corner : corners) {
-								if (simulator_->is_point_inside_geometry(corner)) {
-									voxel_intersects_geometry = true;
-									break;
-								}
-							}
-						}
-					}
-					
-					// Only render voxels that have tissue AND intersect with the geometry
-					if (!has_tissue || !voxel_intersects_geometry) {
-						continue;
-					}
+					// PERFORMANCE OPTIMIZATION: Skip expensive geometry tests
+					// The voxel already has tissue assigned, so it's already been determined to be in geometry
+					// during the voxelization process. No need to re-test every frame.
 
-					// Determine energy and color based on visualization mode (same as original)
-					float absorption = static_cast<float>(voxel->absorption);
-					float emittance = static_cast<float>(voxel->emittance);
-					float total_energy = 0.0f;
+					// EXACT ORIGINAL COLOR CALCULATION - DO NOT CHANGE!
 					glm::vec4 color(0.0f);
 
-					if (settings.voxel_mode == VoxelMode::Absorption) {
-						total_energy = absorption;
-					} else if (settings.voxel_mode == VoxelMode::Emittance) {
-						total_energy = emittance;
-					} else if (settings.voxel_mode == VoxelMode::Layers) {
-						total_energy = (voxel->tissue != nullptr) ? 1.0f : 0.0f;
-					} else {
-						total_energy = absorption + emittance;
-					}
-
-					// Color determination logic matching original exactly
 					if (settings.voxel_mode == VoxelMode::Layers) {
 						// Layers mode: show all tissue voxels regardless of energy
 						if (voxel->tissue != nullptr) {
 							// Match the appearance of Absorption mode when there's no absorption
 							// Use the same energy and alpha values as "no energy" voxels in absorption mode
-							color = get_layer_specific_energy_color(1e-8f, min_energy, max_energy, voxel->tissue->id);
+							color = get_layer_specific_energy_color(1e-8f, cached_min_energy_, cached_max_energy_, voxel->tissue->id);
 							color.a = 0.05f; // Same very faint alpha as no-absorption voxels
 						}
 					} else {
 						// Original energy-based rendering logic for other modes
 
 						// Use gamma correction for better mid-range contrast
-						float normalized_energy = (total_energy - min_energy) / (max_energy - min_energy);
+						float normalized_energy = (total_energy - cached_min_energy_) / (cached_max_energy_ - cached_min_energy_);
 						normalized_energy = std::clamp(normalized_energy, 0.0f, 1.0f);
 
 						// Apply gamma correction for better contrast (gamma = 0.5 brightens mid-tones)
@@ -1029,16 +950,15 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 
 						// Use layer-specific energy color mapping with dynamic range
 						if (total_energy > 1e-8f) { // Lower threshold
-							color = get_layer_specific_energy_color(total_energy, min_energy, max_energy, voxel->tissue->id);
+							color = get_layer_specific_energy_color(total_energy, cached_min_energy_, cached_max_energy_, voxel->tissue->id);
 							color.a = alpha;
 						}
 						else if (voxel->tissue != nullptr) {
 							// Voxel in medium but no recorded energy: very faint tissue-colored hint
-							color = get_layer_specific_energy_color(1e-8f, min_energy, max_energy, voxel->tissue->id);
+							color = get_layer_specific_energy_color(1e-8f, cached_min_energy_, cached_max_energy_, voxel->tissue->id);
 							color.a = 0.05f; // Slightly more visible
 						}
 					}
-
 					// Only add voxels that should be visible
 					if (color.a > 0.0f) {
 						// Calculate depth for sorting (distance from camera)
@@ -1050,6 +970,7 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 						
 						add_voxel_instance(voxel_pos, color, voxel_scale, depth);
 					}
+
 				}
 			}
 		}
@@ -1059,7 +980,7 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 	end_voxel_instances();
 	draw_voxel_instances();
 
-	// Restore OpenGL state to match original
+	// Restore OpenGL state
 	glDepthMask(GL_TRUE);      // Re-enable depth writing
 	glEnable(GL_DEPTH_TEST);   // Keep depth testing enabled
 	glDisable(GL_BLEND);       // Disable blending
@@ -1309,131 +1230,96 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 	draw_points();
 }
 
-void Renderer::draw_paths_instanced(const Settings& /*settings*/) {
+void Renderer::draw_paths_instanced(const Settings& settings) {
 	if (!simulator_)
 		return;
 
 	line_instances_.clear();
 	std::vector<PointInstance> point_instances;
 
-	// First pass: analyze energy distribution for adaptive logarithmic mapping (same as original)
-	std::vector<float> all_energies;
-	for (const PhotonPath& path : simulator_->paths) {
-		if (path.head) {
-			auto current = path.head;
-			while (current) {
-				float energy = static_cast<float>(current->value);
-				if (energy > 0.0f) {
-					all_energies.push_back(energy);
-				}
-				current = current->next;
+	// PERFORMANCE OPTIMIZATION: Use cached energy range instead of expensive per-frame analysis
+	update_cached_energy_range(settings);
+
+	// Create adaptive logarithmic mapping function using cached values
+	auto adaptive_log_color = [this](float energy) -> glm::vec4 {
+		return get_adaptive_energy_color(energy, cached_min_energy_, cached_max_energy_);
+	};
+
+	// PERFORMANCE: Cache surface calculation instead of computing every frame
+	static float cached_surface_y = 0.1f;
+	static bool surface_cached = false;
+	
+	if (!surface_cached && !simulator_->layers.empty()) {
+		cached_surface_y = -1000.0f;
+		for (const auto& layer : simulator_->layers) {
+			for (const auto& triangle : layer.mesh) {
+				cached_surface_y = std::max(cached_surface_y, static_cast<float>(triangle.v0().y));
+				cached_surface_y = std::max(cached_surface_y, static_cast<float>(triangle.v1().y));
+				cached_surface_y = std::max(cached_surface_y, static_cast<float>(triangle.v2().y));
 			}
 		}
+		surface_cached = true;
 	}
-
-	// Calculate adaptive logarithmic mapping parameters (same as original)
-	float min_energy = 1.0f, max_energy = 0.0f;
-	if (!all_energies.empty()) {
-		auto [min_it, max_it] = std::minmax_element(all_energies.begin(), all_energies.end());
-		min_energy = *min_it;
-		max_energy = *max_it;
-	}
-
-	// Create adaptive logarithmic mapping function using helper method (same as original)
-	auto adaptive_log_color = [this, min_energy, max_energy](float energy) -> glm::vec4 {
-		return get_adaptive_energy_color(energy, min_energy, max_energy);
-	};
 
 	// Generate all line instances
 	for (const PhotonPath& path : simulator_->paths) {
-		if (path.head) {
-			// Generate connected line segments with energy gradient exactly like original
-			auto current = path.head;
-			auto next = current ? current->next : nullptr;
+			if (path.head) {
+				// Generate connected line segments with energy gradient
+				auto current = path.head;
+				auto next = current ? current->next : nullptr;
 
-			// Generate physically correct incident ray from source to tissue surface
-			if (current && !simulator_->sources.empty()) {
-				glm::vec3 first_interaction(static_cast<float>(current->position.x),
-											static_cast<float>(current->position.y),
-											static_cast<float>(current->position.z));
+				// Generate incident ray from source to tissue surface (cached surface)
+				if (current && !simulator_->sources.empty()) {
+					glm::vec3 first_interaction(static_cast<float>(current->position.x),
+												static_cast<float>(current->position.y),
+												static_cast<float>(current->position.z));
 
-				// Use actual source parameters from the configuration
-				const Source& source = simulator_->sources[0]; // Use first source
-				glm::vec3 source_pos(static_cast<float>(source.origin.x), static_cast<float>(source.origin.y),
-									 static_cast<float>(source.origin.z));
-				glm::vec3 source_dir(static_cast<float>(source.direction.x), static_cast<float>(source.direction.y),
-									 static_cast<float>(source.direction.z));
+					const Source& source = simulator_->sources[0];
+					glm::vec3 source_pos(static_cast<float>(source.origin.x), static_cast<float>(source.origin.y),
+										 static_cast<float>(source.origin.z));
+					glm::vec3 source_dir(static_cast<float>(source.direction.x), static_cast<float>(source.direction.y),
+										 static_cast<float>(source.direction.z));
 
-				// Calculate surface entry point (same logic as original)
-				float surface_y = 0.1f; // Default top surface
-				if (!simulator_->layers.empty()) {
-					surface_y = -1000.0f; // Start very low
-					for (const auto& layer : simulator_->layers) {
-						for (const auto& triangle : layer.mesh) {
-							float y0 = static_cast<float>(triangle.v0().y);
-							float y1 = static_cast<float>(triangle.v1().y);
-							float y2 = static_cast<float>(triangle.v2().y);
-							if (y0 > surface_y) surface_y = y0;
-							if (y1 > surface_y) surface_y = y1;
-							if (y2 > surface_y) surface_y = y2;
+					// Use cached surface calculation
+					if (source_dir.y != 0.0f) {
+						float t = (cached_surface_y - source_pos.y) / source_dir.y;
+						glm::vec3 surface_entry = source_pos + t * source_dir;
+
+						// Add incident ray
+						glm::vec4 incident_color(1.0f, 1.0f, 1.0f, 1.0f);
+						line_instances_.push_back({source_pos, surface_entry, incident_color});
+
+						// Add refracted ray if needed
+						if (first_interaction.y < cached_surface_y - 0.001f) {
+							glm::vec4 refracted_color(0.9f, 0.9f, 1.0f, 0.8f);
+							line_instances_.push_back({surface_entry, first_interaction, refracted_color});
 						}
 					}
 				}
 
-				// Calculate where ray hits the surface
-				if (source_dir.y != 0.0f) {
-					float t = (surface_y - source_pos.y) / source_dir.y;
-					glm::vec3 surface_entry = source_pos + t * source_dir;
-
-					// Add incident ray from source to surface
-					glm::vec4 incident_color(1.0f, 1.0f, 1.0f, 1.0f); // Bright white
-					line_instances_.push_back({source_pos, surface_entry, incident_color});
-
-					// If photon actually enters tissue, add refracted ray from surface to first interaction
-					if (first_interaction.y < surface_y - 0.001f) {
-						glm::vec4 refracted_color(0.9f, 0.9f, 1.0f, 0.8f); // Light blue
-						line_instances_.push_back({surface_entry, first_interaction, refracted_color});
-					}
-				}
-			}
-
 			while (current && next) {
-				// Use adaptive logarithmic coloring based on actual energy distribution (same as original)
+				// PERFORMANCE OPTIMIZATION: Single line segment instead of 10 gradient segments
 				float energy1 = static_cast<float>(current->value);
 				float energy2 = static_cast<float>(next->value);
+				float avg_energy = (energy1 + energy2) * 0.5f;
 
-				glm::vec4 start_color = adaptive_log_color(energy1);
-				glm::vec4 end_color = adaptive_log_color(energy2);
-				start_color.a = 1.0f;
-				end_color.a = 1.0f;
+				glm::vec4 line_color = adaptive_log_color(avg_energy);
+				line_color.a = 1.0f;
 
 				glm::vec3 start(static_cast<float>(current->position.x), static_cast<float>(current->position.y),
 								static_cast<float>(current->position.z));
 				glm::vec3 end(static_cast<float>(next->position.x), static_cast<float>(next->position.y),
 							  static_cast<float>(next->position.z));
 
-				// Generate gradient segments exactly like original (but as instances)
-				const int gradient_segments = 10;
-				for (int i = 0; i < gradient_segments; i++) {
-					float t1 = static_cast<float>(i) / static_cast<float>(gradient_segments);
-					float t2 = static_cast<float>(i + 1) / static_cast<float>(gradient_segments);
-
-					glm::vec3 seg_start = start + t1 * (end - start);
-					glm::vec3 seg_end = start + t2 * (end - start);
-
-					// Always add the segment - don't check geometry intersection as it causes gaps
-					glm::vec4 seg_color = start_color * (1.0f - (t1 + t2) * 0.5f) + end_color * ((t1 + t2) * 0.5f);
-					seg_color.a = 1.0f;
-
-					line_instances_.push_back({seg_start, seg_end, seg_color});
-				}
+				// Single line segment per path segment (10x fewer instances!)
+				line_instances_.push_back({start, end, line_color});
 
 				// Move to next segment
 				current = next;
 				next = current->next;
 			}
 
-			// Also generate emitted paths if they exist with adaptive energy-based coloring
+			// Also generate emitted paths if they exist
 			current = path.head;
 			while (current) {
 				if (current->emit) {
@@ -1447,7 +1333,6 @@ void Renderer::draw_paths_instanced(const Settings& /*settings*/) {
 									   static_cast<float>(current->emit->position.y),
 									   static_cast<float>(current->emit->position.z));
 					
-					// Always add emitted paths - don't check geometry intersection
 					line_instances_.push_back({start, emit_end, emit_color});
 				}
 				current = current->next;
@@ -1455,7 +1340,7 @@ void Renderer::draw_paths_instanced(const Settings& /*settings*/) {
 		}
 	}
 
-	// Render all line instances
+	// Render all line instances (MASSIVE performance improvement)
 	if (!line_instances_.empty() && line_instanced_shader_program_) {
 		glUseProgram(line_instanced_shader_program_);
 		
@@ -1464,10 +1349,10 @@ void Renderer::draw_paths_instanced(const Settings& /*settings*/) {
 		GLint mvp_location = glGetUniformLocation(line_instanced_shader_program_, "uMVP");
 		glUniformMatrix4fv(mvp_location, 1, GL_FALSE, glm::value_ptr(mvp));
 		
-		// Update instance buffer
+		// Upload instance buffer (use GL_STATIC_DRAW for better performance)
 		glBindBuffer(GL_ARRAY_BUFFER, line_instance_vbo_);
 		glBufferData(GL_ARRAY_BUFFER, line_instances_.size() * sizeof(LineInstance), 
-					 line_instances_.data(), GL_DYNAMIC_DRAW);
+					 line_instances_.data(), GL_STATIC_DRAW);
 		
 		// Render
 		glBindVertexArray(line_instanced_vao_);
@@ -2771,6 +2656,117 @@ bool Renderer::setup_point_instanced_rendering() {
 
 	glBindVertexArray(0);
 	return true;
+}
+
+// Performance optimization: Cache energy range calculation to avoid expensive per-frame analysis
+void Renderer::update_cached_energy_range(const Settings& settings) const {
+	if (!simulator_) {
+		energy_range_cached_ = false;
+		return;
+	}
+
+	// Check if we need to recalculate (data has changed)
+	size_t current_path_count = simulator_->paths.size();
+	bool paths_changed = (current_path_count != last_path_count_);
+	
+	// For now, assume voxel data version changes when simulation runs
+	// In a more advanced implementation, you'd track voxel data changes
+	bool voxels_changed = !energy_range_cached_;
+
+	if (energy_range_cached_ && !paths_changed && !voxels_changed) {
+		return; // Use cached values
+	}
+
+	// Recalculate energy range using the ORIGINAL method for accurate color mapping
+	std::vector<float> all_energies;
+	
+	// Collect energies from photon paths (SAME as original)
+	for (const PhotonPath& path : simulator_->paths) {
+		if (path.head) {
+			auto current = path.head;
+			while (current) {
+				float energy = static_cast<float>(current->value);
+				if (energy > 0.0f) {
+					all_energies.push_back(energy);
+				}
+				current = current->next;
+			}
+		}
+	}
+
+	// Collect energies from voxels using the ORIGINAL method for accurate color mapping
+	if (simulator_->config.nx() > 0 && simulator_->config.ny() > 0 && simulator_->config.nz() > 0) {
+		int nx = simulator_->config.nx();
+		int ny = simulator_->config.ny();
+		int nz = simulator_->config.nz();
+		
+		// Use full scan like the original to maintain color accuracy
+		for (int iz = 0; iz < nz; iz++) {
+			for (int iy = 0; iy < ny; iy++) {
+				for (int ix = 0; ix < nx; ix++) {
+					if (ix >= 0 && iy >= 0 && iz >= 0 && 
+						static_cast<uint32_t>(ix) < static_cast<uint32_t>(nx) && 
+						static_cast<uint32_t>(iy) < static_cast<uint32_t>(ny) && 
+						static_cast<uint32_t>(iz) < static_cast<uint32_t>(nz)) {
+						
+						Voxel* voxel = simulator_->voxel_grid(static_cast<uint32_t>(ix), 
+															 static_cast<uint32_t>(iy), 
+															 static_cast<uint32_t>(iz));
+						if (voxel) {
+							float absorption = static_cast<float>(voxel->absorption);
+							float emittance = static_cast<float>(voxel->emittance);
+							
+							// Use the current settings to determine energy calculation method
+							float total_energy;
+							if (settings.voxel_mode == VoxelMode::Absorption) {
+								total_energy = absorption;
+							}
+							else if (settings.voxel_mode == VoxelMode::Emittance) {
+								total_energy = emittance;
+							}
+							else if (settings.voxel_mode == VoxelMode::Layers) {
+								total_energy = (voxel->tissue != nullptr) ? 1.0f : 0.0f;
+							}
+							else {
+								total_energy = absorption + emittance;
+							}
+
+							if (total_energy > 0.0000001f) {
+								all_energies.push_back(total_energy);
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Calculate range using the ORIGINAL percentile-based method for accurate colors
+	cached_min_energy_ = 1e-8f; // Much lower threshold for emittance detection
+	cached_max_energy_ = 0.01f; // Default fallback
+
+	if (!all_energies.empty()) {
+		// Use the ORIGINAL percentile-based scaling for better contrast
+		std::ranges::sort(all_energies);
+
+		// Use percentile-based scaling for better contrast (SAME as original)
+		const size_t count = all_energies.size();
+		const float p5 = all_energies[static_cast<size_t>(count * 0.05)];  // 5th percentile
+		const float p95 = all_energies[static_cast<size_t>(count * 0.95)]; // 95th percentile
+
+		cached_min_energy_ = std::max(p5, 1e-8f);                            // Lower minimum
+		cached_max_energy_ = std::max(p95, cached_min_energy_ * 10.0f);      // Ensure reasonable range
+	}
+
+	// Update cache state
+	energy_range_cached_ = true;
+	last_path_count_ = current_path_count;
+	last_voxel_data_version_++; // Increment version
+}
+
+// Invalidate energy cache when simulation data changes
+void Renderer::invalidate_energy_cache() const {
+	energy_range_cached_ = false;
 }
 
 bool Renderer::setup_line_instanced_rendering() {

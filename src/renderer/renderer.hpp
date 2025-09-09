@@ -124,6 +124,11 @@ private:
 	bool setup_voxel_instanced_rendering();
 	bool setup_line_instanced_rendering();
 	bool setup_point_instanced_rendering();
+	
+	// Performance optimization: Cache energy range calculation
+	void update_cached_energy_range(const Settings& settings) const;
+	void invalidate_energy_cache() const;
+	
 	std::string load_shader_source(const std::string& file_path);
 	GLuint compile_shader(const std::string& source, GLenum shader_type);
 	GLuint create_shader_program(const std::string& vertex_source, const std::string& fragment_source);
@@ -223,6 +228,13 @@ private:
 	// Cached energy labels (computed once when simulation updates)
 	std::vector<EnergyLabel> cached_energy_labels_;
 	bool energy_labels_cached_ {false};
+
+	// Performance optimization: Cache energy analysis results
+	mutable float cached_min_energy_ {1.0f};
+	mutable float cached_max_energy_ {0.0f};
+	mutable bool energy_range_cached_ {false};
+	mutable size_t last_path_count_ {0};
+	mutable size_t last_voxel_data_version_ {0};
 
 	// Camera state tracking for label position updates
 	glm::vec3 last_camera_position_;
