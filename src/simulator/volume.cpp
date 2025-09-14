@@ -163,10 +163,11 @@ bool Volume::is_valid_index(uint32_t linear_index) const {
 }
 
 // Volume calculation methods (integrated from VoxelVolumeCalculator)
-double Volume::compute_volume_fraction_inside(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max,
-											  const Simulator& simulator, int samples) const {
-	if (samples <= 0)
+double Volume::fraction_inside(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max, 
+							   const std::vector<Layer>& layers, int samples) const {
+	if (samples <= 0) {
 		return 0.0;
+	}
 
 	// Monte Carlo sampling
 	std::random_device rd;
@@ -181,46 +182,52 @@ double Volume::compute_volume_fraction_inside(const glm::dvec3& voxel_min, const
 									  voxel_min.y + dis(gen) * (voxel_max.y - voxel_min.y),
 									  voxel_min.z + dis(gen) * (voxel_max.z - voxel_min.z));
 
-		if (simulator.is_point_inside_geometry(point)) {
-			inside_count++;
+		for (const auto& layer : layers) {
+			if (layer.contains_point(point)) {
+				inside_count++;
+			}
 		}
 	}
 
 	return static_cast<double>(inside_count) / static_cast<double>(samples);
 }
 
-double Volume::compute_volume_fraction_inside_fast(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max,
-												   const Simulator& simulator, int max_subdivisions) const {
-	return subdivide_and_test(voxel_min, voxel_max, simulator, 0, max_subdivisions);
+double Volume::fraction_inside_fast(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max,
+									const std::vector<Layer>& layers, int max_subdivisions) const {
+	return subdivide_test(voxel_min, voxel_max, layers, 0, max_subdivisions);
 }
 
-double Volume::compute_voxel_volume_fraction(uint32_t x, uint32_t y, uint32_t z, const glm::dvec3& grid_min,
-											 const Simulator& simulator, int samples) const {
+double Volume::fraction(uint32_t x, uint32_t y, uint32_t z, const glm::dvec3& grid_min,
+						const std::vector<Layer>& layers, int samples) const {
 	if (!is_valid_coordinate(x, y, z))
 		return 0.0;
 
 	// Calculate voxel bounds
 	glm::dvec3 voxel_min = grid_min + glm::dvec3(x * voxel_size_, y * voxel_size_, z * voxel_size_);
-	glm::dvec3 voxel_max = voxel_min + glm::dvec3(voxel_size_);
-	return compute_volume_fraction_inside(voxel_min, voxel_max, simulator, samples);
+	glm::dvec3 voxel_max = voxel_min + glm::dvec3(voxel_size_, voxel_size_, voxel_size_);
+	return fraction_inside(voxel_min, voxel_max, layers, samples);
 }
 
-double Volume::subdivide_and_test(const glm::dvec3& min_corner, const glm::dvec3& max_corner,
-								  const Simulator& simulator, int depth, int max_depth) const {
+double Volume::subdivide_test(const glm::dvec3& min_corner, const glm::dvec3& max_corner,
+							  const std::vector<Layer>& layers, int depth, int max_depth) const {
 	// Test corner points
-	std::vector<glm::dvec3> corners = {min_corner,
-									   {max_corner.x, min_corner.y, min_corner.z},
-									   {min_corner.x, max_corner.y, min_corner.z},
-									   {max_corner.x, max_corner.y, min_corner.z},
-									   {min_corner.x, min_corner.y, max_corner.z},
-									   {max_corner.x, min_corner.y, max_corner.z},
-									   {min_corner.x, max_corner.y, max_corner.z},
-									   max_corner};
+	std::vector<glm::dvec3> corners = {
+		min_corner,
+		{max_corner.x, min_corner.y, min_corner.z},
+		{min_corner.x, max_corner.y, min_corner.z},
+		{max_corner.x, max_corner.y, min_corner.z},
+		{min_corner.x, min_corner.y, max_corner.z},
+		{max_corner.x, min_corner.y, max_corner.z},
+		{min_corner.x, max_corner.y, max_corner.z},
+		max_corner
+	};
 
 	int inside_corners = 0;
 	for (const auto& corner : corners) {
-		if (simulator.is_point_inside_geometry(corner)) {
-			inside_corners++;
+		for (const auto& layer : layers) {
+			if (layer.contains_point(corner)) {
+				inside_corners++;
+			}
 		}
 	}
 
@@ -252,7 +259,7 @@ double Volume::subdivide_and_test(const glm::dvec3& min_corner, const glm::dvec3
 
 	double total_fraction = 0.0;
 	for (const auto& sub_cube : sub_cubes) {
-		total_fraction += subdivide_and_test(sub_cube.first, sub_cube.second, simulator, depth + 1, max_depth);
+		total_fraction += subdivide_test(sub_cube.first, sub_cube.second, layers, depth + 1, max_depth);
 	}
 
 	return total_fraction / 8.0; // Average of 8 sub-cubes

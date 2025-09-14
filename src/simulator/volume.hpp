@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 
 #include "math/concepts.hpp"
+#include "simulator/layer.hpp"  // Full include instead of forward declaration
 
 // Forward declarations
 struct Voxel;
@@ -81,25 +82,25 @@ public:
 	 *
 	 * @param voxel_min Minimum corner of the voxel
 	 * @param voxel_max Maximum corner of the voxel
-	 * @param simulator Reference to simulator for point-in-mesh testing
+	 * @param medium Reference to medium for point-in-mesh testing
 	 * @param samples Number of Monte Carlo samples to use (higher = more accurate but slower)
 	 * @return Fraction of voxel volume inside geometry [0.0, 1.0]
 	 */
-	double compute_volume_fraction_inside(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max,
-										  const Simulator& simulator, int samples = 1000) const;
+	double fraction_inside(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max,
+		const std::vector<Layer>& layers, int samples = 1000) const;
 
 	/**
 	 * @brief Fast approximation using corner testing and adaptive subdivision.
 	 * @note Less accurate but much faster than Monte Carlo for most cases
 	 */
-	double compute_volume_fraction_inside_fast(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max,
-											   const Simulator& simulator, int max_subdivisions = 3) const;
+	double fraction_inside_fast(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max,
+		const std::vector<Layer>& layers, int max_subdivisions = 3) const;
 
 	/**
 	 * @brief Convenience method to compute volume fraction for a specific voxel by coordinates
 	 */
-	double compute_voxel_volume_fraction(uint32_t x, uint32_t y, uint32_t z, const glm::dvec3& grid_min,
-										 const Simulator& simulator, int samples = 1000) const;
+	double fraction(uint32_t x, uint32_t y, uint32_t z, const glm::dvec3& grid_min,
+		const std::vector<Layer>& layers, int samples = 1000) const;
 
 private:
 	// Private data members
@@ -117,6 +118,6 @@ private:
 	/**
 	 * @brief Recursive subdivision method for volume calculation.
 	 */
-	double subdivide_and_test(const glm::dvec3& min_corner, const glm::dvec3& max_corner, const Simulator& simulator,
-							  int depth, int max_depth) const;
+	double subdivide_test(const glm::dvec3& min_corner, const glm::dvec3& max_corner, 
+		const std::vector<Layer>& layers, int depth, int max_depth) const;
 };

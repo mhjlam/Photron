@@ -15,6 +15,8 @@
 #include "renderer/camera.hpp"
 #include "renderer/settings.hpp"
 #include "simulator/config.hpp"
+#include "simulator/layer.hpp"
+#include "simulator/medium.hpp"
 #include "simulator/simulator.hpp"
 
 Renderer::Renderer() = default;
@@ -234,7 +236,8 @@ void Renderer::draw_volume(const Simulator& simulator) {
 	glm::vec4 face_color(0.2f, 0.2f, 0.2f, 0.1f);       // Subtle transparent faces
 
 	// Process each layer's geometry
-	for (const auto& layer : simulator.layers) {
+	const auto& layers = simulator.get_all_layers();
+	for (const auto& layer : layers) {
 		// For each triangle in the layer's mesh, we'll determine if it's part of a planar face
 		// and group triangles that share the same plane into faces
 		
@@ -368,7 +371,7 @@ void Renderer::update_camera() {
 }
 
 void Renderer::update_camera_target(const Simulator& simulator) {
-	Range3 bounds = simulator.bounds;
+	Range3 bounds = simulator.get_combined_bounds();
 
 	// Set camera target to center of bounds
 	glm::vec3 center = to_float(bounds.center());
@@ -567,10 +570,11 @@ void Renderer::draw_voxels(const Settings& settings) {
 					Voxel* voxel = simulator_->voxel_grid(static_cast<uint32_t>(ix), static_cast<uint32_t>(iy), static_cast<uint32_t>(iz));
 
 					if (voxel) {
-						// Calculate center position using MCML's exact formula
-						double x = simulator_->bounds.min_bounds.x + (voxsize * ix) + half_voxsize;
-						double y = simulator_->bounds.min_bounds.y + (voxsize * iy) + half_voxsize;
-						double z = simulator_->bounds.min_bounds.z + (voxsize * iz) + half_voxsize;
+						// Calculate center position using the exact same bounds used for voxelization
+						auto bounds = simulator_->mediums[0].get_bounds();
+						double x = bounds.min_bounds.x + (voxsize * ix) + half_voxsize;
+						double y = bounds.min_bounds.y + (voxsize * iy) + half_voxsize;
+						double z = bounds.min_bounds.z + (voxsize * iz) + half_voxsize;
 
 						// Check if this voxel is actually inside the mesh geometry AND has tissue
 						bool is_in_geometry = simulator_->is_point_inside_geometry({x,y,z});
@@ -635,9 +639,10 @@ void Renderer::draw_voxels(const Settings& settings) {
 
 							// Calculate surface entry point
 							float surface_y = 0.1f;
-							if (!simulator_->layers.empty()) {
+							const auto& layers = simulator_->get_all_layers();
+							if (!layers.empty()) {
 								surface_y = -1000.0f;
-								for (const auto& layer : simulator_->layers) {
+								for (const auto& layer : layers) {
 									for (const auto& triangle : layer.mesh) {
 										surface_y = std::max({surface_y, static_cast<float>(triangle.v0().y),
 															  static_cast<float>(triangle.v1().y),
@@ -658,8 +663,9 @@ void Renderer::draw_voxels(const Settings& settings) {
 								if (distance < voxel_tolerance) {
 									// Only add surface reflection as emittance in Emittance mode
 									if (settings.voxel_mode == VoxelMode::Emittance) {
+										auto record = simulator_->get_combined_record();
 										float surface_scattering =
-											static_cast<float>(simulator_->record.specular_reflection);
+											static_cast<float>(record.specular_reflection);
 										emittance += surface_scattering;
 									}
 								}
@@ -719,7 +725,7 @@ void Renderer::draw_voxels(const Settings& settings) {
 								float gamma_corrected = std::pow(normalized_energy, 0.5f);
 
 								// Calculate distance from origin for depth-based alpha
-								float max_dist = glm::length(to_float(simulator_->bounds.max_bounds));
+								float max_dist = glm::length(to_float(bounds.max_bounds));
 								float dist_from_origin = glm::length(voxel_pos);
 								float normalized_dist = glm::clamp(dist_from_origin / max_dist, 0.0f, 1.0f);
 
@@ -899,10 +905,14 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 					// IMPORTANT: Don't skip voxels with no energy! 
 					// They should still render as very faint tissue-colored hints
 
-					// Calculate world position using the same method as original code
-					double x = simulator_->bounds.min_bounds.x + (voxsize * ix) + half_voxsize;
-					double y = simulator_->bounds.min_bounds.y + (voxsize * iy) + half_voxsize;
-					double z = simulator_->bounds.min_bounds.z + (voxsize * iz) + half_voxsize;
+					// Calculate world position using the exact same bounds used for voxelization
+					// Use combined bounds to match camera positioning
+					auto bounds = simulator_->get_combined_bounds();
+					double x = bounds.min_bounds.x + (voxsize * ix) + half_voxsize;
+					double y = bounds.min_bounds.y + (voxsize * iy) + half_voxsize;
+					double z = bounds.min_bounds.z + (voxsize * iz) + half_voxsize;
+
+
 
 					glm::vec3 voxel_pos(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
 
@@ -932,7 +942,7 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 						float gamma_corrected = std::pow(normalized_energy, 0.5f);
 
 						// Calculate distance from origin for depth-based alpha
-						float max_dist = glm::length(to_float(simulator_->bounds.max_bounds));
+						float max_dist = glm::length(to_float(bounds.max_bounds));
 						float dist_from_origin = glm::length(voxel_pos);
 						float normalized_dist = glm::clamp(dist_from_origin / max_dist, 0.0f, 1.0f);
 
@@ -1042,10 +1052,11 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 
 				// Calculate surface entry point (find topmost Y coordinate of any layer)
 				float surface_y = 0.1f; // Default top surface
-				if (!simulator_->layers.empty()) {
+				const auto& layers = simulator_->get_all_layers();
+				if (!layers.empty()) {
 					// Find the highest Y coordinate among all layers by examining triangle vertices
 					surface_y = -1000.0f; // Start very low
-					for (const auto& layer : simulator_->layers) {
+					for (const auto& layer : layers) {
 						for (const auto& triangle : layer.mesh) {
 							float y0 = static_cast<float>(triangle.v0().y);
 							float y1 = static_cast<float>(triangle.v1().y);
@@ -1249,9 +1260,10 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 	static float cached_surface_y = 0.1f;
 	static bool surface_cached = false;
 	
-	if (!surface_cached && !simulator_->layers.empty()) {
+	const auto& layers = simulator_->get_all_layers();
+	if (!surface_cached && !layers.empty()) {
 		cached_surface_y = -1000.0f;
-		for (const auto& layer : simulator_->layers) {
+		for (const auto& layer : layers) {
 			for (const auto& triangle : layer.mesh) {
 				cached_surface_y = std::max(cached_surface_y, static_cast<float>(triangle.v0().y));
 				cached_surface_y = std::max(cached_surface_y, static_cast<float>(triangle.v1().y));
@@ -1387,7 +1399,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 							  static_cast<float>(path_current->position.z));
 
 				bool should_mark = false;
-				glm::vec4 marker_color;
+				glm::vec4 marker_color{};
 
 				if (current_index == 0) {
 					// First vertex - incident point (bright white)
@@ -1937,9 +1949,10 @@ void Renderer::cache_energy_labels() {
 
 					// Calculate tissue bottom boundary
 					float bottom_y = -0.1f; // Default bottom
-					if (!simulator_->layers.empty()) {
+					const auto& layers = simulator_->get_all_layers();
+					if (!layers.empty()) {
 						bottom_y = 1000.0f; // Start very high
-						for (const auto& layer : simulator_->layers) {
+						for (const auto& layer : layers) {
 							for (const auto& triangle : layer.mesh) {
 								float y0 = static_cast<float>(triangle.v0().y);
 								float y1 = static_cast<float>(triangle.v1().y);
@@ -1956,9 +1969,9 @@ void Renderer::cache_energy_labels() {
 
 					// Calculate tissue top boundary as well
 					float top_y = 0.1f;   // Default top
-					if (!simulator_->layers.empty()) {
+					if (!layers.empty()) {
 						top_y = -1000.0f; // Start very low
-						for (const auto& layer : simulator_->layers) {
+						for (const auto& layer : layers) {
 							for (const auto& triangle : layer.mesh) {
 								float y0 = static_cast<float>(triangle.v0().y);
 								float y1 = static_cast<float>(triangle.v1().y);
@@ -2039,10 +2052,11 @@ void Renderer::cache_energy_labels() {
 							// Determine label type based on position
 							// Calculate tissue boundaries
 							float top_y = 0.1f, bottom_y = -0.1f;
-							if (!simulator_->layers.empty()) {
+							const auto& layers = simulator_->get_all_layers();
+							if (!layers.empty()) {
 								top_y = -1000.0f;
 								bottom_y = 1000.0f;
-								for (const auto& layer : simulator_->layers) {
+								for (const auto& layer : layers) {
 									for (const auto& triangle : layer.mesh) {
 										float y0 = static_cast<float>(triangle.v0().y);
 										float y1 = static_cast<float>(triangle.v1().y);
@@ -2133,16 +2147,18 @@ void Renderer::cache_energy_labels() {
 	}
 
 	// Add surface scattering label at incident point (unified with other energy labels)
-	if (simulator_->record.specular_reflection > 0.0) {
+	const auto& record = simulator_->get_combined_record();
+	if (record.specular_reflection > 0.0) {
 		// Calculate incident surface position
 		glm::vec3 source_pos(0.05f, 0.0f, 0.05f); // From the incident ray calculations
 		glm::vec3 source_dir(0.0f, 1.0f, 0.0f);   // Upward direction
 
 		// Find topmost surface point
 		float surface_y = 0.1f;
-		if (!simulator_->layers.empty()) {
+		const auto& layers = simulator_->get_all_layers();
+		if (!layers.empty()) {
 			surface_y = -1000.0f;
-			for (const auto& layer : simulator_->layers) {
+			for (const auto& layer : layers) {
 				for (const auto& triangle : layer.mesh) {
 					float y0 = static_cast<float>(triangle.v0().y);
 					float y1 = static_cast<float>(triangle.v1().y);
@@ -2163,7 +2179,7 @@ void Renderer::cache_energy_labels() {
 			glm::vec3 surface_entry = source_pos + t * source_dir;
 
 			// Add surface scattering label
-			float surface_scattering = static_cast<float>(simulator_->record.specular_reflection);
+			float surface_scattering = static_cast<float>(record.specular_reflection);
 			float scatter_percent = surface_scattering * 100.0f;
 
 			std::string label_text;

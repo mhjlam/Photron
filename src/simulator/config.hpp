@@ -25,6 +25,12 @@
 #include "simulator/source.hpp"
 #include "simulator/tissue.hpp"
 
+// Monte Carlo splitting methods for partial reflection/transmission
+enum class SplittingMethod {
+	RUSSIAN_ROULETTE,  // Default: Use statistical selection (one path per photon)
+	TRUE_SPLITTING     // Use emitters to create multiple photons (both paths)
+};
+
 class Config
 {
 private:
@@ -42,6 +48,8 @@ private:
 
 	bool partial_ {true};         // partial reflection
 	bool progress_ {false};        // display progress messages
+	bool verbose_ {false};         // display verbose initialization messages
+	SplittingMethod splitting_method_ {SplittingMethod::RUSSIAN_ROULETTE}; // Monte Carlo splitting method
 
 	// Parsing configuration data
 	std::vector<Source> sources_;
@@ -158,6 +166,8 @@ public:
 	[[nodiscard]] constexpr double ambient_eta() const noexcept { return ambient_eta_; }
 	[[nodiscard]] constexpr bool partial() const noexcept { return partial_; }
 	[[nodiscard]] constexpr bool progress() const noexcept { return progress_; }
+	[[nodiscard]] constexpr bool verbose() const noexcept { return verbose_; }
+	[[nodiscard]] constexpr SplittingMethod splitting_method() const noexcept { return splitting_method_; }
 
 	// Access parsed data with span for zero-copy access
 	[[nodiscard]] std::span<const Source> sources() const noexcept { 
@@ -177,6 +187,7 @@ public:
 	
 	// Move versions for when transferring ownership
 	[[nodiscard]] std::vector<Layer>&& move_layers() { return std::move(layers_); }
+	[[nodiscard]] std::vector<Tissue>&& move_tissues() { return std::move(tissues_); }
 
 	// Setters
 	void set_nx(uint32_t nx) noexcept { nx_ = nx; }
@@ -190,6 +201,8 @@ public:
 	void set_ambient_eta(double ambient_eta) noexcept { ambient_eta_ = ambient_eta; }
 	void set_partial(bool partial) noexcept { partial_ = partial; }
 	void set_progress(bool progress) noexcept { progress_ = progress; }
+	void set_verbose(bool verbose) noexcept { verbose_ = verbose; }
+	void set_splitting_method(SplittingMethod method) noexcept { splitting_method_ = method; }
 
 	// Main parsing interface
 	bool parse_config_file(const std::string& filename);

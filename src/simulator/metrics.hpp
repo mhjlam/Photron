@@ -16,7 +16,7 @@ public:
 	void add_step_size(double s);
 	void increment_scatters();
 
-	void collect_data(double at, double rs, double rd, double ts, double td);
+	void collect_data(double at, double rs, double rd, double sr, double ts, double td);
 	double compute_diffusion_distance();
 	double compute_average_step_size();
 	double compute_path_length();
@@ -39,6 +39,15 @@ public:
 	double get_total_diffusion() const { return total_diffusion_; }
 	double get_surface_reflection() const { return surface_reflection_; }
 	double get_surface_refraction() const { return surface_refraction_; }
+	
+	// Getters for transport data (for aggregation)
+	const std::vector<double>& get_step_sizes() const { return step_sizes_; }
+	const std::vector<glm::dvec3>& get_path_vertices() const { return path_vertices_; }
+	
+	// Setters for aggregated transport data
+	void set_step_sizes(const std::vector<double>& step_sizes) { step_sizes_ = step_sizes; }
+	void set_path_vertices(const std::vector<glm::dvec3>& path_vertices) { path_vertices_ = path_vertices; }
+	void set_scatter_events(double scatter_events) { scatter_events_ = scatter_events; }
 	
 	// Get elapsed time in milliseconds
 	double get_elapsed_time_ms() const { return elapsed_time_ms_; }

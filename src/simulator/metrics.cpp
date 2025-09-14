@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <string>
 #include <chrono>
@@ -21,14 +22,14 @@ void Metrics::add_step_size(double s) {
 	step_sizes_.push_back(s);
 }
 
-void Metrics::collect_data(double at, double rs, double rd, double ts, double td) {
+void Metrics::collect_data(double at, double rs, double rd, double sr, double ts, double td) {
 	total_absorption_ = at;
-	total_reflection_ = rs + rd;
-	total_transmission_ = ts + td;
-	total_diffusion_ = rd + total_transmission_;
+	total_reflection_ = rd;  // Only diffuse reflection (energy that entered medium)
+	total_transmission_ = td;  // Only diffuse transmission (energy that entered medium)
+	total_diffusion_ = rd + td;  // diffuse reflection + diffuse transmission
 
-	surface_reflection_ = rs;
-	surface_refraction_ = ts;
+	surface_reflection_ = rs;  // specular reflection (surface only)
+	surface_refraction_ = sr;  // energy entering medium at surface
 
 	path_length_ = compute_path_length();
 	average_step_size_ = compute_average_step_size();
@@ -120,22 +121,58 @@ void Metrics::write_to_file() {
 }
 
 void Metrics::print_report() {
-	std::cout << "Path length        " << path_length_ << std::endl;
-	std::cout << "Scatter events     " << scatter_events_ << std::endl;
-	std::cout << "Average step size  " << average_step_size_ << std::endl;
-	std::cout << "Diffusion distance " << diffusion_distance_ << std::endl;
-
-	std::cout << "Total absorption   " << total_absorption_ << std::endl;
-	std::cout << "Total reflection   " << total_reflection_ << std::endl;
-	std::cout << "Total transmission " << total_transmission_ << std::endl;
-	std::cout << "Total diffusion    " << total_diffusion_ << std::endl;
-
-	std::cout << "Surface reflection " << surface_reflection_ << std::endl;
-	std::cout << "Surface refraction " << surface_refraction_ << std::endl;
-
-	std::cout << "Total time taken   " << elapsed_time_ms_ << " ms" << std::endl;
+	std::cout << "=== Monte Carlo Simulation Results ===" << std::endl;
+	
+	// Transport statistics
+	std::cout << "Transport Statistics:" << std::endl;
+	std::cout << "  Path length:       " << std::fixed << std::setprecision(6) << path_length_ << std::endl;
+	std::cout << "  Scatter events:    " << scatter_events_ << std::endl;
+	std::cout << "  Average step size: " << std::fixed << std::setprecision(6) << average_step_size_ << std::endl;
+	std::cout << "  Diffusion distance:" << std::fixed << std::setprecision(6) << diffusion_distance_ << std::endl;
 
 	std::cout << std::endl;
+	
+	// Radiance values
+	std::cout << "Radiance Properties:" << std::endl;
+	std::cout << "  Total absorption:   " << std::fixed << std::setprecision(6) << total_absorption_ << std::endl;
+	std::cout << "  Total reflection:   " << std::fixed << std::setprecision(6) << total_reflection_ << std::endl;
+	std::cout << "  Total transmission: " << std::fixed << std::setprecision(6) << total_transmission_ << std::endl;
+	std::cout << "  Total diffusion:    " << std::fixed << std::setprecision(6) << total_diffusion_ << std::endl;
+
+	std::cout << std::endl;
+	
+	// Surface interactions
+	std::cout << "Surface Interactions:" << std::endl;
+	std::cout << "  Surface reflection: " << std::fixed << std::setprecision(6) << surface_reflection_ << std::endl;
+	std::cout << "  Surface refraction: " << std::fixed << std::setprecision(6) << surface_refraction_ << std::endl;
+
+	std::cout << std::endl;
+	
+	// Energy conservation check - what happens to energy that entered the medium
+	double total_energy = total_absorption_ + total_reflection_ + total_transmission_;
+	std::cout << "Energy Conservation (of refracted energy):" << std::endl;
+	std::cout << "  Total accounted:    " << std::fixed << std::setprecision(6) << total_energy << std::endl;
+	std::cout << "  Conservation ratio: " << std::fixed << std::setprecision(3) << (total_energy / surface_refraction_) << std::endl;
+	
+	if (total_energy > 0) {
+		std::cout << "  Absorption:         " << std::fixed << std::setprecision(1) 
+				  << (total_absorption_ / surface_refraction_) * 100.0 << "%" << std::endl;
+		std::cout << "  Reflection:         " << std::fixed << std::setprecision(1) 
+				  << (total_reflection_ / surface_refraction_) * 100.0 << "%" << std::endl;
+		std::cout << "  Transmission:       " << std::fixed << std::setprecision(1) 
+				  << (total_transmission_ / surface_refraction_) * 100.0 << "%" << std::endl;
+		
+		// Check if energy is conserved relative to surface refraction
+		double conservation_ratio = total_energy / surface_refraction_;
+		if (std::abs(conservation_ratio - 1.0) > 0.05) {
+			std::cout << "  WARNING: Energy not conserved! Ratio = " << std::fixed << std::setprecision(3) 
+					  << conservation_ratio << std::endl;
+		}
+	}
+
+	std::cout << std::endl;
+	std::cout << "Execution time: " << elapsed_time_ms_ << " ms" << std::endl;
+	std::cout << "======================================" << std::endl;
 }
 
 void Metrics::reset() {

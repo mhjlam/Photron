@@ -29,11 +29,21 @@ App::~App() {
 bool App::initialize(int argc, char* argv[]) {
 	// Check command-line arguments
 	if (argc < 2) {
-		std::cerr << "Error: program requires an input file." << std::endl;
+		std::cerr << "Usage: " << argv[0] << " <config_file> [--verbose]" << std::endl;
+		std::cerr << "  --verbose  : Enable verbose initialization messages" << std::endl;
 		return false;
 	}
 
 	config_file_ = argv[1];
+	
+	// Check for verbose flag
+	bool verbose_mode = false;
+	for (int i = 2; i < argc; ++i) {
+		if (std::string(argv[i]) == "--verbose" || std::string(argv[i]) == "-v") {
+			verbose_mode = true;
+			break;
+		}
+	}
 
 	// Initialize GLFW
 	if (!glfwInit()) {
@@ -80,6 +90,12 @@ bool App::initialize(int argc, char* argv[]) {
 
 	// Initialize simulator
 	simulator_ = std::make_unique<Simulator>();
+	
+	// Set verbose mode if requested
+	if (verbose_mode) {
+		simulator_->config.set_verbose(true);
+	}
+	
 	if (!simulator_->initialize(config_file_.c_str())) {
 		std::cerr << "Failed to initialize simulator" << std::endl;
 		return false;
@@ -89,7 +105,6 @@ bool App::initialize(int argc, char* argv[]) {
 	std::cout << "Running photon transport simulation..." << std::endl;
 	simulator_->simulate();
 	simulator_->report();
-	std::cout << "Simulation completed!" << std::endl;
 
 	// Stop if rendering is disabled
 	if (argc > 2 && std::string(argv[2]) == "headless") {
@@ -173,7 +188,6 @@ void App::setup_overlay_callbacks() {
 		std::cout << "Running simulation with config: " << filepath << std::endl;
 		simulator_->simulate();
 		simulator_->report();
-		std::cout << "Simulation completed!" << std::endl;
 
 		// Re-enable UI
 		overlay_->set_ui_enabled(true);
@@ -211,7 +225,6 @@ void App::setup_overlay_callbacks() {
 		else {
 			std::cout << "No config file loaded. Please load a configuration first." << std::endl;
 		}
-		std::cout << "Simulation completed!" << std::endl;
 
 		// Invalidate energy label cache since simulation data has been reset
 		if (renderer_) {
@@ -429,15 +442,16 @@ void App::save_results_as_json(const std::string& filepath) {
 	file << "  },\n";
 	file << "  \"tissue_properties\": [\n";
 
-	for (size_t i = 0; i < simulator_->tissues.size(); ++i) {
-		const auto& tissue = simulator_->tissues[i];
+	auto tissues = simulator_->get_all_tissues();
+	for (size_t i = 0; i < tissues.size(); ++i) {
+		const auto& tissue = tissues[i];
 		file << "    {\n";
 		file << "      \"id\": " << tissue.id << ",\n";
 		file << "      \"eta\": " << tissue.eta << ",\n";
 		file << "      \"mua\": " << tissue.mu_a << ",\n";
 		file << "      \"mus\": " << tissue.mu_s << ",\n";
 		file << "      \"ani\": " << tissue.g << "\n";
-		file << "    }" << (i < simulator_->tissues.size() - 1 ? "," : "") << "\n";
+		file << "    }" << (i < tissues.size() - 1 ? "," : "") << "\n";
 	}
 
 	file << "  ]\n";
@@ -469,7 +483,7 @@ void App::save_results_as_text(const std::string& filepath) {
 	file << "  Voxel Size: " << simulator_->config.vox_size() << "\n";
 	file << "  Grid Dimensions: " << simulator_->config.nx() << " x " << simulator_->config.ny() << " x "
 		 << simulator_->config.nz() << "\n";
-	file << "  Total Voxels: " << simulator_->voxel_grid.size() << "\n\n";
+	file << "  Total Voxels: " << simulator_->get_total_voxel_count() << "\n\n";
 
 	if (simulator_->config.num_photons() > 1) {
 		file << "Multi-Photon Statistics:\n";
@@ -505,7 +519,8 @@ void App::save_results_as_text(const std::string& filepath) {
 	file << "  Surface Refraction: " << simulator_->metrics.get_surface_refraction() << "\n";
 
 	file << "\nTissue Properties:\n";
-	for (const auto& tissue : simulator_->tissues) {
+	auto tissues = simulator_->get_all_tissues();
+	for (const auto& tissue : tissues) {
 		file << "  Tissue " << tissue.id << ":\n";
 		file << "    Refractive Index (eta): " << tissue.eta << "\n";
 		file << "    Absorption Coefficient (mua): " << tissue.mu_a << " cm^-1\n";

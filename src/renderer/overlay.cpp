@@ -295,55 +295,104 @@ void Overlay::render_control_panel(Simulator* simulator) {
 			ImGui::SeparatorText("Simulation Statistics");
 
 			ImGui::Text("Grid: %dx%dx%d", simulator->config.nx(), simulator->config.ny(), simulator->config.nz());
-			ImGui::Text("Voxels: %zu (size: %.4f)", simulator->voxel_grid.size(), simulator->config.vox_size());
+			ImGui::Text("Voxels: %zu (size: %.4f)", simulator->get_total_voxel_count(), simulator->config.vox_size());
 
 			ImGui::Spacing();
 
 			// Basic simulation info
 			ImGui::Text("Photons Traced: %zu", simulator->paths.size());
-			if (simulator->config.num_photons() > 1) {
-				// Multi-photon aggregate statistics
-				ImGui::Separator();
-				ImGui::Text("Aggregate Results:");
+			
+			// Per-medium statistics (collapsible)
+			ImGui::Spacing();
+			auto& mediums = simulator->mediums;
+			for (size_t i = 0; i < mediums.size(); ++i) {
+				auto& medium = mediums[i];
+				const auto& record = medium.get_record();
+				auto& metrics = medium.get_metrics();
+				
+				// Medium header with ID
+				std::string medium_name = "Medium " + std::to_string(i + 1);
+				if (ImGui::CollapsingHeader(medium_name.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+					// Grid info
+					ImGui::Text("Total Voxels: %llu", medium.get_volume().size());
+					
+					// Count surface voxels manually
+					size_t surface_count = 0;
+					const auto& volume = medium.get_volume();
+					for (uint64_t idx = 0; idx < volume.size(); ++idx) {
+						auto voxel = volume.at(static_cast<uint32_t>(idx));
+						if (voxel && voxel->is_surface_voxel) {
+							surface_count++;
+						}
+					}
+					ImGui::Text("Surface Voxels: %zu", surface_count);
+					
+					ImGui::Spacing();
+					
+					// Transport Statistics (matching console format)
+					ImGui::Text("Transport Statistics");
+					ImGui::Text("  Path length:        %7.6f", metrics.compute_path_length());
+					ImGui::Text("  Scatter events:     %.0f", metrics.get_scatter_events());
+					ImGui::Text("  Average step size:  %.6f", metrics.compute_average_step_size());
+					ImGui::Text("  Diffusion distance: %.6f", metrics.compute_diffusion_distance());
+					
+					ImGui::Spacing();
+					
+					// Surface Interactions (matching console format)
+					ImGui::Text("Surface Interaction");
+					ImGui::Text("  Surface reflection: %.6f", record.specular_reflection);
+					ImGui::Text("  Surface refraction: %.6f", record.surface_refraction);
 
-				// Probabilities (more meaningful for multiple photons)
-				double total_weight = simulator->metrics.get_total_absorption()
-									  + simulator->metrics.get_total_reflection()
-									  + simulator->metrics.get_total_transmission();
+					ImGui::Spacing();
+					
+					// CORRECTED VOXEL-BASED ENERGY CALCULATIONS (matching console format)
+					double total_voxel_absorption = 0.0;
+					double total_voxel_emittance = 0.0;
+					
+					// Calculate voxel-based totals using existing volume variable
+					for (uint64_t idx = 0; idx < volume.size(); ++idx) {
+						auto voxel = volume.at(static_cast<uint32_t>(idx));
+						if (voxel) {
+							total_voxel_absorption += voxel->absorption;
+							total_voxel_emittance += voxel->emittance;
+						}
+					}
+					
+					// Radiance Properties (using direction-classified medium records)
+					double total_reflection = record.diffuse_reflection; // Direction-classified reflection
+					double total_transmission = record.diffuse_transmission; // Direction-classified transmission  
+					double total_diffusion = record.diffuse_reflection + record.diffuse_transmission;
 
-				if (total_weight > 0) {
-					ImGui::Text("Absorption Probability: %.1f%%",
-								(simulator->metrics.get_total_absorption() / total_weight) * 100.0);
-					ImGui::Text("Reflection Probability: %.1f%%",
-								(simulator->metrics.get_total_reflection() / total_weight) * 100.0);
-					ImGui::Text("Transmission Probability: %.1f%%",
-								(simulator->metrics.get_total_transmission() / total_weight) * 100.0);
+					ImGui::Text("Radiance Properties");
+					ImGui::Text("  Total absorption:   %.6f", total_voxel_absorption);
+					ImGui::Text("  Total diffusion:    %.6f", total_diffusion);
+					ImGui::Text("    Reflection:       %.6f", total_reflection);
+					ImGui::Text("    Transmission:     %.6f", total_transmission);
+					
+					ImGui::Spacing();
+					
+					// Energy Conservation (using corrected voxel-based totals)
+					double corrected_total_energy = total_voxel_absorption + total_reflection + total_transmission;
+					ImGui::Text("Energy Conservation");
+					if (record.surface_refraction > 0) {
+						double conservation_ratio = corrected_total_energy / record.surface_refraction;
+						
+						if (corrected_total_energy > 0) {
+							ImGui::Text("  Absorption:         %.1f%%", (total_voxel_absorption / record.surface_refraction) * 100.0);
+							ImGui::Text("  Reflection:         %.1f%%", (total_reflection / record.surface_refraction) * 100.0);
+							ImGui::Text("  Transmission:       %.1f%%", (total_transmission / record.surface_refraction) * 100.0);
+							
+							// Energy conservation status
+							if (std::abs(conservation_ratio - 1.0) > 0.05) {
+								ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "  WARNING: Energy not conserved!");
+								ImGui::Text("  Ratio = %.3f", conservation_ratio);
+							} else {
+								ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "  Energy conserved!");
+								ImGui::Text("  Ratio = %.3f", conservation_ratio);
+							}
+						}
+					}
 				}
-
-				ImGui::Separator();
-				ImGui::Text("Average Per Photon:");
-				ImGui::Text("  Path Length: %.4f",
-							simulator->metrics.get_path_length() / simulator->config.num_photons());
-				ImGui::Text("  Scatter Events: %.1f",
-							simulator->metrics.get_scatter_events() / simulator->config.num_photons());
-				ImGui::Text("  Step Size: %.6f", simulator->metrics.get_average_step_size());
-
-				ImGui::Separator();
-				ImGui::Text("Surface Interactions:");
-				ImGui::Text("  Reflection: %.6f", simulator->metrics.get_surface_reflection());
-				ImGui::Text("  Refraction: %.6f", simulator->metrics.get_surface_refraction());
-			}
-			else {
-				// Single photon statistics (original)
-				ImGui::Text("Path Length: %.5f", simulator->metrics.get_path_length());
-				ImGui::Text("Scatter Events: %.0f", simulator->metrics.get_scatter_events());
-				ImGui::Text("Average Step Size: %.6f", simulator->metrics.get_average_step_size());
-				ImGui::Text("Diffusion Distance: %.5f", simulator->metrics.get_diffusion_distance());
-				ImGui::Text("Total Absorption: %.6f", simulator->metrics.get_total_absorption());
-				ImGui::Text("Total Reflection: %.6f", simulator->metrics.get_total_reflection());
-				ImGui::Text("Total Transmission: %.6f", simulator->metrics.get_total_transmission());
-				ImGui::Text("Surface Reflection: %.6f", simulator->metrics.get_surface_reflection());
-				ImGui::Text("Surface Refraction: %.6f", simulator->metrics.get_surface_refraction());
 			}
 		}
 	}

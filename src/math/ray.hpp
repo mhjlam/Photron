@@ -33,11 +33,13 @@ public:
 	std::pair<bool, glm::dvec3> intersect_triangle(Triangle& triangle) const;
 	bool intersect_plane(const glm::dvec3& normal, const glm::dvec3& point, glm::dvec3& intersection) const noexcept;
 
+	double intersect_layer(const Layer& layer, glm::dvec3& intersection) const;
+
 	// C++20: Use span for better array interface without copying
 	void intersect_triangles(std::span<Triangle> triangles, std::vector<glm::dvec3>& intersections) const;
 	double intersect_first_triangle(std::span<Triangle> triangles, glm::dvec3& intersection,
 									Triangle& hit_triangle) const;
-	double intersect_first_triangle_from_layers(std::span<const Layer> layers, glm::dvec3& intersection,
+	double intersect_first_triangle(std::span<const Layer> layers, glm::dvec3& intersection,
 												Triangle& hit_triangle) const;
 	double intersect_cuboid_internal(Cuboid& cuboid, glm::dvec3& intersection, glm::dvec3& normal) const;
 };
