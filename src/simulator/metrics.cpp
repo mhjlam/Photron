@@ -24,12 +24,12 @@ void Metrics::add_step_size(double s) {
 
 void Metrics::collect_data(double at, double rs, double rd, double sr, double ts, double td) {
 	total_absorption_ = at;
-	total_reflection_ = rd;  // Only diffuse reflection (energy that entered medium)
-	total_transmission_ = td;  // Only diffuse transmission (energy that entered medium)
-	total_diffusion_ = rd + td;  // diffuse reflection + diffuse transmission
+	total_reflection_ = rd;      // Diffuse reflection (energy that entered medium and exited back)
+	total_transmission_ = td;    // Diffuse transmission (energy that entered medium and exited forward)
+	total_diffusion_ = rd + td;  // Total diffuse emittance (reflection + transmission)
 
-	surface_reflection_ = rs;  // specular reflection (surface only)
-	surface_refraction_ = sr;  // energy entering medium at surface
+	surface_reflection_ = rs;    // Specular reflection (energy reflected at surface, never entered)
+	surface_refraction_ = sr;    // Energy entering medium at surface
 
 	path_length_ = compute_path_length();
 	average_step_size_ = compute_average_step_size();

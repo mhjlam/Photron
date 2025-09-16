@@ -15,10 +15,14 @@ struct Emitter
 	glm::dvec3 position;
 	glm::dvec3 direction;
 	double weight;
+	
+	// Exit classification for accurate energy labeling
+	enum class ExitType { NONE, REFLECTED, TRANSMITTED };
+	ExitType exit_type {ExitType::NONE};
 
 	template<Point3D P, Vector3D V>
-	explicit constexpr Emitter(uint64_t i, const P& p, const V& d, double w) noexcept :
-		id(i), position(static_cast<glm::dvec3>(p)), direction(static_cast<glm::dvec3>(d)), weight(w) {}
+	explicit constexpr Emitter(uint64_t i, const P& p, const V& d, double w, ExitType exit_classification = ExitType::NONE) noexcept :
+		id(i), position(static_cast<glm::dvec3>(p)), direction(static_cast<glm::dvec3>(d)), weight(w), exit_type(exit_classification) {}
 };
 
 struct Photon
@@ -47,6 +51,10 @@ struct Photon
 	glm::dvec3 voxel_normal {0.0}; 		// voxel boundary intersection normal
 
 	bool scatters {false};         		// true if photon path scatters at least once
+
+	// Exit classification (set when photon exits the medium)
+	enum class ExitType { NONE, REFLECTED, TRANSMITTED };
+	ExitType exit_type {ExitType::NONE};	// how the photon exited the medium
 
 	// Source properties merged into photon
 	glm::dvec3 source_origin {0.0};             // origin of the source

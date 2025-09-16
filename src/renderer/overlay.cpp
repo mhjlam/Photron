@@ -294,12 +294,7 @@ void Overlay::render_control_panel(Simulator* simulator) {
 		if (simulator) {
 			ImGui::SeparatorText("Simulation Statistics");
 
-			ImGui::Text("Grid: %dx%dx%d", simulator->config.nx(), simulator->config.ny(), simulator->config.nz());
-			ImGui::Text("Voxels: %zu (size: %.4f)", simulator->get_total_voxel_count(), simulator->config.vox_size());
-
-			ImGui::Spacing();
-
-			// Basic simulation info
+			// Only global photons traced
 			ImGui::Text("Photons Traced: %zu", simulator->paths.size());
 			
 			// Per-medium statistics (collapsible)
@@ -313,8 +308,11 @@ void Overlay::render_control_panel(Simulator* simulator) {
 				// Medium header with ID
 				std::string medium_name = "Medium " + std::to_string(i + 1);
 				if (ImGui::CollapsingHeader(medium_name.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-					// Grid info
-					ImGui::Text("Total Voxels: %llu", medium.get_volume().size());
+					// Volume Statistics
+					ImGui::Text("Volume Statistics");
+					ImGui::Text("  Grid:               %dx%dx%d", simulator->config.nx(), simulator->config.ny(), simulator->config.nz());
+					ImGui::Text("  Total Voxels:       %llu", medium.get_volume().size());
+					ImGui::Text("  Voxel Size:         %.4f", simulator->config.vox_size());
 					
 					// Count surface voxels manually
 					size_t surface_count = 0;
@@ -325,14 +323,15 @@ void Overlay::render_control_panel(Simulator* simulator) {
 							surface_count++;
 						}
 					}
-					ImGui::Text("Surface Voxels: %zu", surface_count);
+					ImGui::Text("  Surface Voxels:     %zu", surface_count);
 					
 					ImGui::Spacing();
 					
 					// Transport Statistics (matching console format)
 					ImGui::Text("Transport Statistics");
-					ImGui::Text("  Path length:        %7.6f", metrics.compute_path_length());
+					ImGui::Text("  Photons entered:    %d", record.photons_entered);
 					ImGui::Text("  Scatter events:     %.0f", metrics.get_scatter_events());
+					ImGui::Text("  Total path length:  %7.6f", metrics.compute_path_length());
 					ImGui::Text("  Average step size:  %.6f", metrics.compute_average_step_size());
 					ImGui::Text("  Diffusion distance: %.6f", metrics.compute_diffusion_distance());
 					
@@ -382,14 +381,12 @@ void Overlay::render_control_panel(Simulator* simulator) {
 							ImGui::Text("  Reflection:         %.1f%%", (total_reflection / record.surface_refraction) * 100.0);
 							ImGui::Text("  Transmission:       %.1f%%", (total_transmission / record.surface_refraction) * 100.0);
 							
-							// Energy conservation status
-							if (std::abs(conservation_ratio - 1.0) > 0.05) {
-								ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "  WARNING: Energy not conserved!");
-								ImGui::Text("  Ratio = %.3f", conservation_ratio);
-							} else {
-								ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "  Energy conserved!");
-								ImGui::Text("  Ratio = %.3f", conservation_ratio);
-							}
+							// Energy conservation total as percentage with color coding
+							ImVec4 total_color = (std::abs(conservation_ratio - 1.0) > 0.05) ? 
+								ImVec4(1.0f, 0.3f, 0.3f, 1.0f) :  // Red if not conserved
+								ImVec4(0.3f, 1.0f, 0.3f, 1.0f);   // Green if conserved
+							
+							ImGui::TextColored(total_color, "  Total:              %.1f%%", corrected_total_energy / record.surface_refraction * 100.0);
 						}
 					}
 				}

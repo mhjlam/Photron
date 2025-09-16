@@ -9,6 +9,7 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <imgui.h>
+#include <cxxopts.hpp>
 
 #include "renderer/overlay.hpp"
 #include "renderer/renderer.hpp"
@@ -27,115 +28,159 @@ App::~App() {
 }
 
 bool App::initialize(int argc, char* argv[]) {
-	// Check command-line arguments
-	if (argc < 2) {
-		std::cerr << "Usage: " << argv[0] << " <config_file> [--verbose]" << std::endl;
-		std::cerr << "  --verbose  : Enable verbose initialization messages" << std::endl;
-		return false;
-	}
-
-	config_file_ = argv[1];
+	// Setup command line options
+	cxxopts::Options options("Photron", "Monte Carlo Photon Transport Renderer");
 	
-	// Check for verbose flag
-	bool verbose_mode = false;
-	for (int i = 2; i < argc; ++i) {
-		if (std::string(argv[i]) == "--verbose" || std::string(argv[i]) == "-v") {
-			verbose_mode = true;
-			break;
+	options.add_options()
+		("c,config", "Configuration file path", cxxopts::value<std::string>())
+		("headless", "Run simulation without GUI")
+		("v,verbose", "Enable verbose initialization messages")
+		("h,help", "Show help message");
+
+	// Allow positional arguments
+	options.parse_positional({"config"});
+	options.positional_help("<config_file>");
+
+	try {
+		auto result = options.parse(argc, argv);
+
+		// Handle help
+		if (result.count("help")) {
+			std::cout << options.help() << std::endl;
+			should_close_ = true;
+			return true;
 		}
-	}
 
-	// Initialize GLFW
-	if (!glfwInit()) {
-		std::cerr << "Failed to initialize GLFW" << std::endl;
-		return false;
-	}
+		// Check for required config file
+		if (!result.count("config")) {
+			std::cerr << "Error: Configuration file is required" << std::endl;
+			std::cerr << std::endl << options.help() << std::endl;
+			return false;
+		}
 
-	// Set OpenGL version and profile
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+		config_file_ = result["config"].as<std::string>();
+		bool verbose_mode = result.count("verbose") > 0;
+		bool headless_mode = result.count("headless") > 0;
 
-	// Create window
-	window_ =
-		glfwCreateWindow(window_width_, window_height_, "Photron - Monte Carlo Photon Transport", nullptr, nullptr);
-	if (!window_) {
-		std::cerr << "Failed to create GLFW window" << std::endl;
-		glfwTerminate();
-		return false;
-	}
+		// If headless mode, skip all graphics initialization
+		if (headless_mode) {
+			// Initialize simulator only
+			simulator_ = std::make_unique<Simulator>();
+			
+			if (verbose_mode) {
+				simulator_->config.set_verbose(true);
+			}
+			
+			if (!simulator_->initialize(config_file_.c_str())) {
+				std::cerr << "Failed to initialize simulator" << std::endl;
+				return false;
+			}
 
-	// Center window on screen
-	const GLFWvidmode* mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
-	if (mode) {
-		int center_x = (mode->width - window_width_) / 2;
-		int center_y = (mode->height - window_height_) / 2;
-		glfwSetWindowPos(window_, center_x, center_y);
-	}
+			// Run simulation
+			std::cout << "Running photon transport simulation..." << std::endl;
+			simulator_->simulate();
+			simulator_->report();
+			
+			should_close_ = true;
+			return true;
+		}
 
-	glfwMakeContextCurrent(window_);
-	glfwSwapInterval(1); // Enable vsync
+		// Initialize GLFW for GUI mode
+		if (!glfwInit()) {
+			std::cerr << "Failed to initialize GLFW" << std::endl;
+			return false;
+		}
 
-	// Initialize GLEW
-	if (glewInit() != GLEW_OK) {
-		std::cerr << "Failed to initialize GLEW" << std::endl;
-		glfwTerminate();
-		return false;
-	}
+		// Set OpenGL version and profile
+		glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+		glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+		glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-	std::cout << "OpenGL Version: " << glGetString(GL_VERSION) << std::endl;
+		// Create window
+		window_ =
+			glfwCreateWindow(window_width_, window_height_, "Photron - Monte Carlo Photon Transport", nullptr, nullptr);
+		if (!window_) {
+			std::cerr << "Failed to create GLFW window" << std::endl;
+			glfwTerminate();
+			return false;
+		}
 
-	// Setup callbacks
-	setup_callbacks();
+		// Center window on screen
+		const GLFWvidmode* mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
+		if (mode) {
+			int center_x = (mode->width - window_width_) / 2;
+			int center_y = (mode->height - window_height_) / 2;
+			glfwSetWindowPos(window_, center_x, center_y);
+		}
 
-	// Initialize simulator
-	simulator_ = std::make_unique<Simulator>();
-	
-	// Set verbose mode if requested
-	if (verbose_mode) {
-		simulator_->config.set_verbose(true);
-	}
-	
-	if (!simulator_->initialize(config_file_.c_str())) {
-		std::cerr << "Failed to initialize simulator" << std::endl;
-		return false;
-	}
+		glfwMakeContextCurrent(window_);
+		glfwSwapInterval(1); // Enable vsync
 
-	// Run simulation
-	std::cout << "Running photon transport simulation..." << std::endl;
-	simulator_->simulate();
-	simulator_->report();
+		// Initialize GLEW
+		if (glewInit() != GLEW_OK) {
+			std::cerr << "Failed to initialize GLEW" << std::endl;
+			glfwTerminate();
+			return false;
+		}
 
-	// Stop if rendering is disabled
-	if (argc > 2 && std::string(argv[2]) == "headless") {
-		should_close_ = true;
+		std::cout << "OpenGL Version: " << glGetString(GL_VERSION) << std::endl;
+
+		// Setup callbacks
+		setup_callbacks();
+
+		// Initialize simulator
+		simulator_ = std::make_unique<Simulator>();
+		
+		// Set verbose mode if requested
+		if (verbose_mode) {
+			simulator_->config.set_verbose(true);
+		}
+		
+		if (!simulator_->initialize(config_file_.c_str())) {
+			std::cerr << "Failed to initialize simulator" << std::endl;
+			return false;
+		}
+
+		// Run simulation
+		std::cout << "Running photon transport simulation..." << std::endl;
+		simulator_->simulate();
+		simulator_->report();
+
+		// Initialize renderer
+		renderer_ = std::make_unique<Renderer>();
+		if (!renderer_->initialize()) {
+			std::cerr << "Failed to initialize renderer" << std::endl;
+			return false;
+		}
+
+		// Set correct initial viewport size (framebuffer callback only triggers on resize)
+		renderer_->set_viewport(window_width_, window_height_);
+
+		// Initialize overlay
+		overlay_ = std::make_unique<Overlay>();
+		if (!overlay_->initialize(window_)) {
+			std::cerr << "Failed to initialize overlay" << std::endl;
+			return false;
+		}
+
+		// Set up overlay callbacks
+		setup_overlay_callbacks();
+
 		return true;
 	}
-
-	// Initialize renderer
-	renderer_ = std::make_unique<Renderer>();
-	if (!renderer_->initialize()) {
-		std::cerr << "Failed to initialize renderer" << std::endl;
+	catch (const cxxopts::exceptions::exception& e) {
+		std::cerr << "Error parsing command line: " << e.what() << std::endl;
+		std::cerr << std::endl << options.help() << std::endl;
 		return false;
 	}
-
-	// Set correct initial viewport size (framebuffer callback only triggers on resize)
-	renderer_->set_viewport(window_width_, window_height_);
-
-	// Initialize overlay
-	overlay_ = std::make_unique<Overlay>();
-	if (!overlay_->initialize(window_)) {
-		std::cerr << "Failed to initialize overlay" << std::endl;
-		return false;
-	}
-
-	// Set up overlay callbacks
-	setup_overlay_callbacks();
-
-	return true;
 }
 
 void App::run() {
+	// In headless mode, just exit immediately
+	if (!window_) {
+		return;
+	}
+	
 	while (!glfwWindowShouldClose(window_) && !should_close_) {
 		glfwPollEvents();
 		update();
@@ -161,9 +206,8 @@ void App::shutdown() {
 	if (window_) {
 		glfwDestroyWindow(window_);
 		window_ = nullptr;
+		glfwTerminate();
 	}
-
-	glfwTerminate();
 }
 
 void App::setup_callbacks() {

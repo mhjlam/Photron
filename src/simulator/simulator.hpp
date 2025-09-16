@@ -35,6 +35,7 @@ public:
 	bool initialize(std::string file);
 	void simulate();
 	void simulate_single_photon(); 		// Add single photon for interactive use
+	void aggregate_voxel_data();		// Aggregate voxel energy data into medium records
 	void report();
 
 public:
@@ -44,7 +45,7 @@ public:
 	std::vector<PhotonPath> paths;
 	std::vector<Photon> photons;
 	std::vector<Source> sources;
-	std::vector<Emitter> emitters;
+	std::vector<std::shared_ptr<Emitter>> emitters;
 	std::vector<Medium> mediums;
 
 	std::shared_ptr<Random> rng;

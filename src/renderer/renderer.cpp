@@ -182,6 +182,9 @@ void Renderer::render(Simulator& simulator) {
 		draw_paths_instanced(settings_); // High-performance instanced version
 	}
 
+	// Draw emitters (exit points with direction vectors)
+	draw_emitters(settings_);
+
 	// Draw energy labels as billboards (user request 3)
 	draw_labels(settings_);
 }
@@ -1245,7 +1248,8 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 	if (!simulator_)
 		return;
 
-	line_instances_.clear();
+	// Render all line instances without caching for now (will add back later)
+	std::vector<LineInstance> line_instances;
 	std::vector<PointInstance> point_instances;
 
 	// PERFORMANCE OPTIMIZATION: Use cached energy range instead of expensive per-frame analysis
@@ -1275,39 +1279,39 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 
 	// Generate all line instances
 	for (const PhotonPath& path : simulator_->paths) {
-			if (path.head) {
-				// Generate connected line segments with energy gradient
-				auto current = path.head;
-				auto next = current ? current->next : nullptr;
+		if (path.head) {
+			// Generate connected line segments with energy gradient
+			auto current = path.head;
+			auto next = current ? current->next : nullptr;
 
-				// Generate incident ray from source to tissue surface (cached surface)
-				if (current && !simulator_->sources.empty()) {
-					glm::vec3 first_interaction(static_cast<float>(current->position.x),
-												static_cast<float>(current->position.y),
-												static_cast<float>(current->position.z));
+			// Generate incident ray from source to tissue surface (cached surface)
+			if (current && !simulator_->sources.empty()) {
+				glm::vec3 first_interaction(static_cast<float>(current->position.x),
+											static_cast<float>(current->position.y),
+											static_cast<float>(current->position.z));
 
-					const Source& source = simulator_->sources[0];
-					glm::vec3 source_pos(static_cast<float>(source.origin.x), static_cast<float>(source.origin.y),
-										 static_cast<float>(source.origin.z));
-					glm::vec3 source_dir(static_cast<float>(source.direction.x), static_cast<float>(source.direction.y),
-										 static_cast<float>(source.direction.z));
+				const Source& source = simulator_->sources[0];
+				glm::vec3 source_pos(static_cast<float>(source.origin.x), static_cast<float>(source.origin.y),
+									 static_cast<float>(source.origin.z));
+				glm::vec3 source_dir(static_cast<float>(source.direction.x), static_cast<float>(source.direction.y),
+									 static_cast<float>(source.direction.z));
 
-					// Use cached surface calculation
-					if (source_dir.y != 0.0f) {
-						float t = (cached_surface_y - source_pos.y) / source_dir.y;
-						glm::vec3 surface_entry = source_pos + t * source_dir;
+				// Use cached surface calculation
+				if (source_dir.y != 0.0f) {
+					float t = (cached_surface_y - source_pos.y) / source_dir.y;
+					glm::vec3 surface_entry = source_pos + t * source_dir;
 
-						// Add incident ray
-						glm::vec4 incident_color(1.0f, 1.0f, 1.0f, 1.0f);
-						line_instances_.push_back({source_pos, surface_entry, incident_color});
+					// Add incident ray
+					glm::vec4 incident_color(1.0f, 1.0f, 1.0f, 1.0f);
+					line_instances.push_back({source_pos, surface_entry, incident_color});
 
-						// Add refracted ray if needed
-						if (first_interaction.y < cached_surface_y - 0.001f) {
-							glm::vec4 refracted_color(0.9f, 0.9f, 1.0f, 0.8f);
-							line_instances_.push_back({surface_entry, first_interaction, refracted_color});
-						}
+					// Add refracted ray if needed
+					if (first_interaction.y < cached_surface_y - 0.001f) {
+						glm::vec4 refracted_color(0.9f, 0.9f, 1.0f, 0.8f);
+						line_instances.push_back({surface_entry, first_interaction, refracted_color});
 					}
 				}
+			}
 
 			while (current && next) {
 				// PERFORMANCE OPTIMIZATION: Single line segment instead of 10 gradient segments
@@ -1324,36 +1328,101 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 							  static_cast<float>(next->position.z));
 
 				// Single line segment per path segment (10x fewer instances!)
-				line_instances_.push_back({start, end, line_color});
+				line_instances.push_back({start, end, line_color});
+
+				// Check for emitter connections at EVERY node during path traversal
+				// Check if current node has an emit connection (external vertex)
+				if (current->emit && current->emit->emitter) {
+					const auto& emitter = current->emit->emitter;
+					
+					glm::vec3 scatter_pos(static_cast<float>(current->position.x),
+										 static_cast<float>(current->position.y),
+										 static_cast<float>(current->position.z));
+					
+					glm::vec3 exit_point(static_cast<float>(emitter->position.x),
+										  static_cast<float>(emitter->position.y),
+										  static_cast<float>(emitter->position.z));
+					
+					// Use current node energy for coloring the exit segment
+					float exit_energy = static_cast<float>(current->value);
+					glm::vec4 exit_line_color = adaptive_log_color(exit_energy);
+					exit_line_color.a = 0.8f; // Slightly transparent to distinguish from main path
+					
+					line_instances.push_back({scatter_pos, exit_point, exit_line_color});
+				}
+				
+				// Also check direct emitter connection (fallback)
+				if (current->emitter) {
+					const auto& emitter = current->emitter;
+					
+					glm::vec3 scatter_pos(static_cast<float>(current->position.x),
+										 static_cast<float>(current->position.y),
+										 static_cast<float>(current->position.z));
+					
+					glm::vec3 exit_point(static_cast<float>(emitter->position.x),
+										  static_cast<float>(emitter->position.y),
+										  static_cast<float>(emitter->position.z));
+					
+					// Use current node energy for coloring the exit segment
+					float exit_energy = static_cast<float>(current->value);
+					glm::vec4 exit_line_color = adaptive_log_color(exit_energy);
+					exit_line_color.a = 0.8f; // Slightly transparent to distinguish from main path
+					
+					line_instances.push_back({scatter_pos, exit_point, exit_line_color});
+				}
 
 				// Move to next segment
 				current = next;
 				next = current->next;
 			}
 
-			// Also generate emitted paths if they exist
-			current = path.head;
-			while (current) {
-				if (current->emit) {
-					float emit_energy = static_cast<float>(current->value);
-					glm::vec4 emit_color = adaptive_log_color(emit_energy);
-					emit_color.a = 1.0f;
-
-					glm::vec3 start(static_cast<float>(current->position.x), static_cast<float>(current->position.y),
-									static_cast<float>(current->position.z));
-					glm::vec3 emit_end(static_cast<float>(current->emit->position.x),
-									   static_cast<float>(current->emit->position.y),
-									   static_cast<float>(current->emit->position.z));
+			// Handle the final node (which doesn't have a 'next' but might have emitters)
+			if (current) {
+				// Check for emitter connections at the final node
+				if (current->emit && current->emit->emitter) {
+					const auto& emitter = current->emit->emitter;
 					
-					line_instances_.push_back({start, emit_end, emit_color});
+					glm::vec3 last_scatter(static_cast<float>(current->position.x),
+										   static_cast<float>(current->position.y),
+										   static_cast<float>(current->position.z));
+					
+					glm::vec3 exit_point(static_cast<float>(emitter->position.x),
+										  static_cast<float>(emitter->position.y),
+										  static_cast<float>(emitter->position.z));
+					
+					// Use last node energy for coloring the exit segment
+					float exit_energy = static_cast<float>(current->value);
+					glm::vec4 exit_line_color = adaptive_log_color(exit_energy);
+					exit_line_color.a = 0.8f; // Slightly transparent to distinguish from main path
+					
+					line_instances.push_back({last_scatter, exit_point, exit_line_color});
 				}
-				current = current->next;
+				
+				// Also check direct emitter connection (fallback) for final node
+				if (current->emitter) {
+					const auto& emitter = current->emitter;
+					
+					glm::vec3 last_scatter(static_cast<float>(current->position.x),
+										   static_cast<float>(current->position.y),
+										   static_cast<float>(current->position.z));
+					
+					glm::vec3 exit_point(static_cast<float>(emitter->position.x),
+										  static_cast<float>(emitter->position.y),
+										  static_cast<float>(emitter->position.z));
+					
+					// Use last node energy for coloring the exit segment
+					float exit_energy = static_cast<float>(current->value);
+					glm::vec4 exit_line_color = adaptive_log_color(exit_energy);
+					exit_line_color.a = 0.8f; // Slightly transparent to distinguish from main path
+					
+					line_instances.push_back({last_scatter, exit_point, exit_line_color});
+				}
 			}
 		}
 	}
 
-	// Render all line instances (MASSIVE performance improvement)
-	if (!line_instances_.empty() && line_instanced_shader_program_) {
+	// Render all line instances using cached data (MASSIVE performance improvement)
+	if (!line_instances.empty() && line_instanced_shader_program_) {
 		glUseProgram(line_instanced_shader_program_);
 		
 		// Set MVP matrix
@@ -1363,18 +1432,20 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 		
 		// Upload instance buffer (use GL_STATIC_DRAW for better performance)
 		glBindBuffer(GL_ARRAY_BUFFER, line_instance_vbo_);
-		glBufferData(GL_ARRAY_BUFFER, line_instances_.size() * sizeof(LineInstance), 
-					 line_instances_.data(), GL_STATIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, line_instances.size() * sizeof(LineInstance), 
+					 line_instances.data(), GL_STATIC_DRAW);
 		
 		// Render
 		glBindVertexArray(line_instanced_vao_);
-		glDrawArraysInstanced(GL_LINES, 0, 2, static_cast<GLsizei>(line_instances_.size()));
+		glDrawArraysInstanced(GL_LINES, 0, 2, static_cast<GLsizei>(line_instances.size()));
 		glBindVertexArray(0);
 		
 		glUseProgram(0);
 	}
 
-	// Collect scatter points for instanced rendering
+	// Collect both scatter points AND emitter points for instanced rendering
+	
+	// First, collect scatter points from photon paths
 	for (const PhotonPath& path : simulator_->paths) {
 		if (path.head) {
 			auto current = path.head;
@@ -1446,11 +1517,11 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 				}
 
 				if (should_mark) {
-					// Add to point instances instead of traditional rendering
+					// Add scatter points to point instances
 					PointInstance point_instance;
 					point_instance.position = pos;
 					point_instance.color = marker_color;
-					point_instance.size = 8.0f; // Point size in pixels
+					point_instance.size = 6.0f; // Smaller size for scatter points
 					point_instances.push_back(point_instance);
 				}
 
@@ -1461,7 +1532,72 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 		}
 	}
 
-	// Render scatter points using instanced rendering
+	// Second, add emitter exit points (these are the accurate surface boundary points)
+	if (simulator_ && !simulator_->emitters.empty()) {
+		// Calculate energy range for consistent coloring
+		std::vector<float> emitter_energies;
+		for (const auto& emitter : simulator_->emitters) {
+			if (emitter->weight > 0.0f) {
+				emitter_energies.push_back(static_cast<float>(emitter->weight));
+			}
+		}
+		
+		float min_energy = 1e-8f, max_energy = 1.0f;
+		if (!emitter_energies.empty()) {
+			auto [min_it, max_it] = std::minmax_element(emitter_energies.begin(), emitter_energies.end());
+			min_energy = *min_it;
+			max_energy = *max_it;
+		}
+
+		// Add emitter points to the point instances vector
+		for (const auto& emitter : simulator_->emitters) {
+			// Use emitter->position which contains the corrected surface intersection coordinates
+			glm::vec3 exit_pos(
+				static_cast<float>(emitter->position.x),
+				static_cast<float>(emitter->position.y), 
+				static_cast<float>(emitter->position.z)
+			);
+			
+			// Use percentage-based coloring instead of absolute weights for consistency
+			// Convert absolute weight to percentage of total energy budget
+			auto combined_record = simulator_->get_combined_record();
+			float energy_percentage = static_cast<float>(emitter->weight / combined_record.surface_refraction);
+			glm::vec4 exit_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
+			exit_color.a = 1.0f; // Full opacity for emitter points
+			
+			// Add emitter points to point instances
+			PointInstance point_instance;
+			point_instance.position = exit_pos;
+			point_instance.color = exit_color;
+			point_instance.size = 6.0f; // Same size as scatter points
+			point_instances.push_back(point_instance);
+		}
+		
+		// Add surface specular reflection as an emitter point
+		auto combined_record = simulator_->get_combined_record();
+		if (combined_record.specular_reflection > 0.0 && !simulator_->sources.empty()) {
+			const Source& source = simulator_->sources[0];
+			
+			// Use actual source intersection point
+			glm::vec3 surface_entry(static_cast<float>(source.intersect.x),
+									static_cast<float>(source.intersect.y),
+									static_cast<float>(source.intersect.z));
+
+			// Use percentage-based coloring for surface reflection
+			float energy_percentage = static_cast<float>(combined_record.specular_reflection / combined_record.surface_refraction);
+			glm::vec4 surface_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
+			surface_color.a = 1.0f; // Full opacity
+
+			// Add surface reflection point to point instances
+			PointInstance surface_point;
+			surface_point.position = surface_entry;
+			surface_point.color = surface_color;
+			surface_point.size = 6.0f; // Same size as other points
+			point_instances.push_back(surface_point);
+		}
+	}
+
+	// Render both scatter points and emitter points using instanced rendering
 	if (!point_instances.empty()) {
 		glUseProgram(point_instanced_shader_program_);
 		
@@ -1472,7 +1608,8 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 
 		// Upload instance data
 		glBindBuffer(GL_ARRAY_BUFFER, point_instance_vbo_);
-		glBufferData(GL_ARRAY_BUFFER, point_instances.size() * sizeof(PointInstance), point_instances.data(), GL_DYNAMIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, point_instances.size() * sizeof(PointInstance), 
+					 point_instances.data(), GL_DYNAMIC_DRAW);
 
 		// Bind VAO and render
 		glBindVertexArray(point_instanced_vao_);
@@ -1489,75 +1626,83 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 		glBindVertexArray(0);
 		glUseProgram(0);
 	}
-}
-
-void Renderer::draw_emitters(const Settings& settings) {
+}void Renderer::draw_emitters(const Settings& settings) {
 	if (!simulator_ || simulator_->emitters.empty()) {
 		return;
 	}
 
-	// Draw exit points as bright colored points at the true geometry boundary
-	begin_points();
-	
-	for (const auto& emitter : simulator_->emitters) {
-		// Convert position to float
-		glm::vec3 exit_pos(
-			static_cast<float>(emitter.position.x),
-			static_cast<float>(emitter.position.y), 
-			static_cast<float>(emitter.position.z)
-		);
-		
-		// Color based on emitted weight - bright colors for high-energy exits
-		float weight = static_cast<float>(emitter.weight);
-		glm::vec4 exit_color;
-		
-		if (weight > 0.7f) {
-			// High energy: bright white/yellow
-			exit_color = glm::vec4(1.0f, 1.0f, 0.8f + 0.2f * weight, 1.0f);
-		} else if (weight > 0.4f) {
-			// Medium energy: orange to yellow
-			float t = (weight - 0.4f) / 0.3f;
-			exit_color = glm::vec4(1.0f, 0.6f + 0.4f * t, 0.2f * t, 1.0f);
-		} else {
-			// Low energy: red
-			float t = weight / 0.4f;
-			exit_color = glm::vec4(0.8f + 0.2f * t, 0.2f * t, 0.1f * t, 1.0f);
-		}
-		
-		add_point(exit_pos, exit_color);
-	}
-	
-	end_points();
-	draw_points();
-	
-	// Optionally draw exit direction vectors
+	// Draw exit direction vectors for all emitters (both reflections and transmissions)
+	// Note: The emitter points themselves are now rendered via instanced rendering in draw_paths_instanced()
 	if (settings.draw_paths) {  // Use existing draw_paths setting
 		begin_lines();
 		
+		// Calculate energy range for consistent coloring with emitter points
+		std::vector<float> emitter_energies;
 		for (const auto& emitter : simulator_->emitters) {
-			if (emitter.weight > 0.01) { // Only show significant exits
+			if (emitter->weight > 0.0f) {
+				emitter_energies.push_back(static_cast<float>(emitter->weight));
+			}
+		}
+		
+		float min_energy = 1e-8f, max_energy = 1.0f;
+		if (!emitter_energies.empty()) {
+			auto [min_it, max_it] = std::minmax_element(emitter_energies.begin(), emitter_energies.end());
+			min_energy = *min_it;
+			max_energy = *max_it;
+		}
+
+		for (const auto& emitter : simulator_->emitters) {
+			if (emitter->weight > 0.001) { // Show more exits with lower threshold
 				glm::vec3 start_pos(
-					static_cast<float>(emitter.position.x),
-					static_cast<float>(emitter.position.y),
-					static_cast<float>(emitter.position.z)
+					static_cast<float>(emitter->position.x),
+					static_cast<float>(emitter->position.y),
+					static_cast<float>(emitter->position.z)
 				);
 				
 				glm::vec3 end_pos(
-					static_cast<float>(emitter.position.x + emitter.direction.x * 0.05),
-					static_cast<float>(emitter.position.y + emitter.direction.y * 0.05),
-					static_cast<float>(emitter.position.z + emitter.direction.z * 0.05)
+					static_cast<float>(emitter->position.x + emitter->direction.x * 0.05),
+					static_cast<float>(emitter->position.y + emitter->direction.y * 0.05),
+					static_cast<float>(emitter->position.z + emitter->direction.z * 0.05)
 				);
 				
-				// Direction line color - dimmer than the exit point
-				float weight = static_cast<float>(emitter.weight);
-				glm::vec4 direction_color;
-				if (weight > 0.7f) {
-					direction_color = glm::vec4(0.8f, 0.8f, 0.6f, 0.8f);
-				} else {
-					direction_color = glm::vec4(0.6f, 0.4f, 0.2f, 0.6f);
-				}
+				// Use the same percentage-based coloring as the corresponding point
+				auto combined_record = simulator_->get_combined_record();
+				float energy_percentage = static_cast<float>(emitter->weight / combined_record.surface_refraction);
+				glm::vec4 direction_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
+				direction_color.a = 0.8f; // Slightly transparent for distinction
 				
 				add_line(start_pos, end_pos, direction_color);
+			}
+		}
+		
+		// Add surface specular reflection direction vector
+		auto combined_record = simulator_->get_combined_record();
+		if (combined_record.specular_reflection > 0.0 && !simulator_->sources.empty()) {
+			const Source& source = simulator_->sources[0];
+			
+			// Use actual source intersection point
+			glm::vec3 surface_entry(static_cast<float>(source.intersect.x),
+									static_cast<float>(source.intersect.y),
+									static_cast<float>(source.intersect.z));
+			
+			// Use specular direction from simulator
+			glm::vec3 specular_dir(static_cast<float>(source.specular_direction.x),
+								   static_cast<float>(source.specular_direction.y),
+								   static_cast<float>(source.specular_direction.z));
+			
+			// Only render if we have a valid direction
+			if (glm::length(specular_dir) > 0.0f) {
+				specular_dir = glm::normalize(specular_dir);
+				
+				// Create reflection line segment
+				glm::vec3 reflection_end = surface_entry + specular_dir * 0.05f;
+
+				// Use percentage-based coloring for surface reflection direction
+				float energy_percentage = static_cast<float>(combined_record.specular_reflection / combined_record.surface_refraction);
+				glm::vec4 surface_direction_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
+				surface_direction_color.a = 0.8f; // Slightly transparent for distinction
+
+				add_line(surface_entry, reflection_end, surface_direction_color);
 			}
 		}
 		
@@ -2080,22 +2225,19 @@ void Renderer::cache_energy_labels() {
 							bool at_top = (std::abs(pos.y - top_y) < 0.05f);
 							bool at_bottom = (std::abs(pos.y - bottom_y) < 0.05f);
 
-							if (at_top) {
-								// At incident interface - reflected light
+							// Instead of using geometric position to guess reflection/transmission,
+							// use the actual physics-based classification from the simulation.
+							// The simulation now correctly classifies reflection vs transmission
+							// based on proper directional analysis.
+							
+							if (at_top || at_bottom) {
+								// For exit points, show the energy percentage without incorrect R/T labels
+								// The actual R/T classification is shown in the overlay statistics
 								if (energy_percent < 1.0f) {
-									label_text = "Reflected: <1%";
+									label_text = "Exit: <1%";
 								}
 								else {
-									label_text = std::format("Reflected: {}%", static_cast<int>(energy_percent));
-								}
-							}
-							else if (at_bottom) {
-								// At exit interface - transmitted light
-								if (energy_percent < 1.0f) {
-									label_text = "Transmitted: <1%";
-								}
-								else {
-									label_text = std::format("Transmitted: {}%", static_cast<int>(energy_percent));
+									label_text = std::format("Exit: {}%", static_cast<int>(energy_percent));
 								}
 							}
 							else {
@@ -2180,7 +2322,10 @@ void Renderer::cache_energy_labels() {
 
 			// Add surface scattering label
 			float surface_scattering = static_cast<float>(record.specular_reflection);
-			float scatter_percent = surface_scattering * 100.0f;
+			float scatter_percent = (surface_scattering / static_cast<float>(record.surface_refraction)) * 100.0f;
+			
+			// Use percentage for consistent coloring with other energy labels
+			float energy_percentage = scatter_percent / 100.0f; // Convert back to 0-1 range
 
 			std::string label_text;
 			if (scatter_percent < 1.0f) {
@@ -2193,11 +2338,146 @@ void Renderer::cache_energy_labels() {
 			EnergyLabel surface_label;
 			surface_label.world_position = surface_entry;
 			surface_label.text = label_text;
-			surface_label.color = get_layer_specific_energy_color(surface_scattering, 0.0f, 1.0f, 0);
+			surface_label.color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
 			surface_label.scale = 1.0f;
 
 			cached_energy_labels_.push_back(surface_label);
 		}
+	}
+
+	energy_labels_cached_ = true;
+}
+
+void Renderer::cache_energy_labels_from_emitters() {
+	cached_energy_labels_.clear();
+	energy_labels_cached_ = false;
+
+	if (!simulator_)
+		return;
+
+	// Use emitter data for accurate energy labels with proper classification
+	const auto& emitters = simulator_->emitters;
+	
+	if (emitters.empty()) {
+		energy_labels_cached_ = true;
+		return;
+	}
+	
+	// Group emitters by approximate position to avoid overlapping labels
+	std::map<std::tuple<int, int, int>, std::vector<std::shared_ptr<Emitter>>> position_groups;
+	
+	for (const auto& emitter : emitters) {
+		if (emitter->weight < 0.001) continue; // Skip very low energy exits
+		
+		// Group by position rounded to nearest 0.01 units
+		int pos_x = static_cast<int>(std::round(emitter->position.x * 100));
+		int pos_y = static_cast<int>(std::round(emitter->position.y * 100));
+		int pos_z = static_cast<int>(std::round(emitter->position.z * 100));
+		auto pos_key = std::make_tuple(pos_x, pos_y, pos_z);
+		
+		position_groups[pos_key].push_back(emitter);
+	}
+	
+	// Create labels for each position group
+	for (const auto& [pos_key, emitters_at_pos] : position_groups) {
+		if (emitters_at_pos.empty()) continue;
+		
+		// Use the first emitter's position as the label position
+		const auto& representative = emitters_at_pos[0];
+		glm::vec3 label_pos(
+			static_cast<float>(representative->position.x),
+			static_cast<float>(representative->position.y),
+			static_cast<float>(representative->position.z)
+		);
+		
+		// Sum up energy and classify by exit type
+		double total_reflected_energy = 0.0;
+		double total_transmitted_energy = 0.0;
+		double total_unclassified_energy = 0.0;
+		
+		for (const auto& emitter : emitters_at_pos) {
+			switch (emitter->exit_type) {
+				case Emitter::ExitType::REFLECTED:
+					total_reflected_energy += emitter->weight;
+					break;
+				case Emitter::ExitType::TRANSMITTED:
+					total_transmitted_energy += emitter->weight;
+					break;
+				default:
+					total_unclassified_energy += emitter->weight;
+					break;
+			}
+		}
+		
+		// Create label with proper classification and NORMALIZED percentages
+		std::string label_text;
+		glm::vec4 label_color(1.0f, 1.0f, 1.0f, 1.0f);
+		
+		double total_energy = total_reflected_energy + total_transmitted_energy + total_unclassified_energy;
+		
+		// Get surface refraction for proper normalization (matches console output)
+		auto combined_record = simulator_->get_combined_record();
+		double surface_refraction = combined_record.surface_refraction;
+		
+		// Calculate normalized percentage like the console does
+		double energy_percent = (total_energy / surface_refraction) * 100.0;
+		
+		// Format percentage, showing "<1%" instead of "0%" for very small values
+		int rounded_percent = static_cast<int>(energy_percent);
+		std::string percent_text = (rounded_percent == 0 && energy_percent > 0.0) ? "<1%" : std::format("{}%", rounded_percent);
+		
+		if (total_reflected_energy > total_transmitted_energy && total_reflected_energy > total_unclassified_energy) {
+			// Predominantly reflected
+			label_text = percent_text;
+			label_color = glm::vec4(0.4f, 0.8f, 0.4f, 1.0f); // Green for reflection (changed from yellow)
+		} else if (total_transmitted_energy > total_reflected_energy && total_transmitted_energy > total_unclassified_energy) {
+			// Predominantly transmitted
+			label_text = percent_text;
+			label_color = glm::vec4(0.3f, 0.8f, 1.0f, 1.0f); // Blue for transmission
+		} else {
+			// Mixed or unclassified
+			label_text = percent_text;
+			label_color = glm::vec4(0.8f, 0.8f, 0.8f, 1.0f); // Gray for mixed/unclassified
+		}
+		
+		cached_energy_labels_.push_back({
+			.world_position = label_pos,
+			.text = label_text,
+			.color = label_color,
+			.scale = 1.0f,
+			.screen_position = glm::vec2(0.0f),
+			.screen_position_valid = false
+		});
+	}
+
+	// Add surface specular reflection label
+	auto combined_record = simulator_->get_combined_record();
+	if (combined_record.specular_reflection > 0.0 && !simulator_->sources.empty()) {
+		const Source& source = simulator_->sources[0];
+		
+		// Use actual source intersection point for label position
+		glm::vec3 surface_label_pos(static_cast<float>(source.intersect.x),
+									static_cast<float>(source.intersect.y),
+									static_cast<float>(source.intersect.z));
+		
+		// Calculate normalized percentage for surface reflection
+		double energy_percent = (combined_record.specular_reflection / combined_record.surface_refraction) * 100.0;
+		
+		// Format percentage, showing "<1%" instead of "0%" for very small values
+		int rounded_percent = static_cast<int>(energy_percent);
+		std::string surface_percent_text = (rounded_percent == 0 && energy_percent > 0.0) ? "<1%" : std::format("{}%", rounded_percent);
+		
+		// Use green color for surface reflection (same as regular reflection)
+		glm::vec4 surface_label_color = glm::vec4(0.4f, 0.8f, 0.4f, 1.0f);
+		
+		cached_energy_labels_.push_back({
+			.world_position = surface_label_pos,
+			.text = surface_percent_text,
+			.color = surface_label_color,
+			.scale = 1.0f,
+			.screen_position = glm::vec2(0.0f),
+			.screen_position_valid = false
+		});
 	}
 
 	energy_labels_cached_ = true;
@@ -2252,7 +2532,7 @@ void Renderer::draw_labels(const Settings& settings) {
 
 	// Cache energy labels if not already cached
 	if (!energy_labels_cached_) {
-		cache_energy_labels();
+		cache_energy_labels_from_emitters();
 	}
 
 	// Render cached text labels using pre-calculated screen positions

@@ -66,6 +66,7 @@ find_package(glm CONFIG REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)
 find_package(glew CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
+find_package(cxxopts CONFIG REQUIRED)
 
 # Compiler-specific flags
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -140,6 +141,7 @@ target_link_libraries(Photron PRIVATE
     opengl32 
     glm::glm 
     imgui::imgui
+    cxxopts::cxxopts
 )
 
 # Platform-specific additional libraries

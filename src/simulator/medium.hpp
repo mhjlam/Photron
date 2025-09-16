@@ -62,6 +62,9 @@ public:
 
     // Setters
     void set_layers(std::vector<Layer>&& layers) { layers_ = std::move(layers); }
+    
+    // Photon tracking
+    void increment_photons_entered() { record_.photons_entered++; }
 
     // voxel computation
 	Voxel* voxel_at(glm::dvec3& position);

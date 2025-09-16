@@ -193,6 +193,12 @@ void Simulator::simulate() {
 			// launch the photon (create a new path)
 			launch(photons[p], source);
 			
+			// CRITICAL FIX: Update source with calculated specular direction from first photon
+			// This ensures the renderer can access the correct reflection direction
+			if (p == 0 && photons[p].alive) {
+				source.specular_direction = photons[p].specular_direction;
+			}
+			
 		// Track launched energy
 		if (photons[p].alive) {
 			total_launched_energy += photons[p].weight;
@@ -264,11 +270,14 @@ void Simulator::simulate() {
 	total_absorption = total_voxel_absorption;
 	specular_transmission = 0.0; // No specular transmission in current config  
 	
-	// Calculate diffuse reflection and transmission from voxel emittance by direction
+	// Aggregate voxel data to medium records before calculating metrics
+	aggregate_voxel_data();
+	
+	// Calculate diffuse reflection and transmission from medium records (now populated)
 	diffuse_reflection = 0.0;
 	diffuse_transmission = 0.0;
 	
-	// Use the direction-classified totals from medium records (populated by radiate() calls)
+	// Use the direction-classified totals from medium records (populated by aggregate_voxel_data)
 	for (const auto& medium : mediums) {
 		const auto& record = medium.get_record();
 		diffuse_reflection += record.diffuse_reflection;
@@ -407,6 +416,9 @@ void Simulator::launch(Photon& photon, const Source& source) {
 		photon.alive = false;
 		return;
 	}
+	
+	// Count this photon as entering the medium
+	start_medium->increment_photons_entered();
 	
 	photon.alive = true;
 	photon.weight = 1.0;  // Each photon starts with full energy
@@ -587,11 +599,11 @@ void Simulator::track_voxel_path_and_deposit(Photon& photon) {
 		photon.total_energy_absorbed += total_absorption;
 	}
 	
-	// Update photon weight and record total absorption in medium
+	// Update photon weight
 	photon.weight = remaining_weight;
-	if (current_medium && total_absorption > 0.0) {
-		current_medium->get_record().total_absorption += total_absorption;
-	}
+	
+	// ENERGY CONSERVATION: Only voxel-level recording prevents double-counting
+	// Medium records will be populated via aggregation functions later
 	
 	// Update photon voxel assignment to the last surface voxel for proper emittance recording
 	photon.prev_voxel = photon.voxel;
@@ -941,11 +953,8 @@ void Simulator::deposit(Photon& photon) {
 	// assign deposited weight to voxel
 	photon.voxel->absorption += actual_absorbed_weight;
 
-	// update total absorption in the current medium
-	Medium* current_medium = find_medium_at(photon.position);
-	if (current_medium) {
-		current_medium->get_record().total_absorption += actual_absorbed_weight;
-	}
+	// ENERGY CONSERVATION: Only voxel-level recording
+	// Medium records populated via aggregation before output
 }
 
 /***********************************************************
@@ -1302,30 +1311,55 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 	Voxel* exit_voxel = photon.voxel;
 	exit_voxel->emittance += weight;
 	
-	// Classify exit as diffuse reflection or transmission based on direction
-	Tissue* tissue = exit_voxel->tissue;
-	
-	if (tissue && (tissue->id - '0') < mediums.size()) {
-		Record& record = mediums[tissue->id - '0'].get_record(); // Get mutable reference
-		
-		// Use dot product to determine if exit opposes entry direction
-		// Entry direction: photon.source_direction (direction photon entered medium)
-		// Exit direction: direction (direction photon exits medium)
-		double direction_dot_product = glm::dot(photon.source_direction, direction);
-		
-		// Diffuse reflection: exit direction opposes entry direction (dot product < 0)
-		// Diffuse transmission: exit direction similar to entry direction (dot product >= 0)
-		if (direction_dot_product < 0.0) {
-			record.diffuse_reflection += weight;
-		} else {
-			record.diffuse_transmission += weight;
-		}
+	// Use proper reflection/transmission determination based on exit position relative to entry
+	if (is_photon_reflecting(photon)) {
+		// Exit on same side as entry - classify as reflection
+		exit_voxel->emittance_reflected += weight;
+		photon.exit_type = Photon::ExitType::REFLECTED;
+	} else {
+		// Exit on opposite side from entry - classify as transmission  
+		exit_voxel->emittance_transmitted += weight;
+		photon.exit_type = Photon::ExitType::TRANSMITTED;
 	}
 	
-	// ENERGY CONSERVATION: Only voxel totals are used for energy conservation
-	// Medium records are NOT updated here to avoid double-counting from multiple
-	// radiate() calls per photon (True Splitting can call radiate() 20+ times per photon)
-	// Final metrics should use voxel emittance totals instead of medium records
+	// Create external vertex for photon path with proper exit classification
+	// Convert Photon::ExitType to PhotonNode::ExitType
+	PhotonNode::ExitType node_exit_type = PhotonNode::ExitType::NONE;
+	if (photon.exit_type == Photon::ExitType::REFLECTED) {
+		node_exit_type = PhotonNode::ExitType::REFLECTED;
+	} else if (photon.exit_type == Photon::ExitType::TRANSMITTED) {
+		node_exit_type = PhotonNode::ExitType::TRANSMITTED;
+	}
+	
+	// Add external vertex to the current photon path
+	std::shared_ptr<PhotonNode> exit_node = nullptr;
+	if (!paths.empty()) {
+		exit_node = std::make_shared<PhotonNode>(photon.intersect, weight, node_exit_type);
+		paths.back().add_external_vertex(exit_node);
+	}
+	
+	// Create Emitter object with proper exit classification for renderer use
+	Emitter::ExitType emitter_exit_type = Emitter::ExitType::NONE;
+	if (photon.exit_type == Photon::ExitType::REFLECTED) {
+		emitter_exit_type = Emitter::ExitType::REFLECTED;
+	} else if (photon.exit_type == Photon::ExitType::TRANSMITTED) {
+		emitter_exit_type = Emitter::ExitType::TRANSMITTED;
+	}
+	
+	// Create shared emitter and establish connection with exit node
+	auto emitter = std::make_shared<Emitter>(photon.id, photon.intersect, direction, weight, emitter_exit_type);
+	emitters.push_back(emitter);
+	
+	// Establish bidirectional connection between exit node and emitter
+	if (exit_node) {
+		exit_node->emitter = emitter;
+	}
+	
+	// ENERGY CONSERVATION: Only voxel-level recording
+	// Medium records populated via aggregation before output
+	
+	// ENERGY CONSERVATION: Only voxel-level recording prevents double-counting
+	// Direction-classified emittance recorded in voxel fields for aggregation later
 	
 	// Optional: Log when recording at non-ideal voxels
 }
@@ -1571,6 +1605,53 @@ glm::dvec3 Simulator::move_delta(glm::dvec3& position, glm::dvec3& direction) {
 }
 
 /***********************************************************
+ * Aggregate voxel energy data into medium records for output.
+ * This prevents double-counting by using only voxel-level data.
+ ***********************************************************/
+void Simulator::aggregate_voxel_data() {
+	// Clear all medium records first (except surface interactions)
+	for (auto& medium : mediums) {
+		auto& record = medium.get_record();
+		record.total_absorption = 0.0;
+		record.diffuse_reflection = 0.0;
+		// record.specular_reflection preserved (set by specular_reflection() function)
+		// record.surface_refraction preserved (set by specular_reflection() function)
+		record.diffuse_transmission = 0.0;
+		record.specular_transmission = 0.0;
+	}
+	
+	// Aggregate data from all voxels
+	for (auto& medium : mediums) {
+		auto& record = medium.get_record();
+		auto& volume = medium.get_volume();  // Remove const since we need non-const access
+		
+		// Iterate through all voxels in this medium
+		for (uint32_t z = 0; z < volume.depth(); ++z) {
+			for (uint32_t y = 0; y < volume.height(); ++y) {
+				for (uint32_t x = 0; x < volume.width(); ++x) {
+					Voxel* voxel = volume.at(x, y, z);
+					if (voxel && voxel->tissue) {
+						// Only aggregate voxels that belong to this medium
+						// Check if voxel's tissue ID matches this medium's ID
+						if (voxel->tissue->id - '0' == (&medium - &mediums[0])) {
+							// Aggregate absorption
+							record.total_absorption += voxel->absorption;
+							
+							// Aggregate emittance by direction classification
+							record.diffuse_reflection += voxel->emittance_reflected;
+							record.diffuse_transmission += voxel->emittance_transmitted;
+							
+							// Note: surface_refraction and specular_reflection handled separately
+							// Note: specular_transmission currently unused
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+/***********************************************************
  *	Write the resulting physical quantities to a file.
  ***********************************************************/
 void Simulator::report() {
@@ -1742,12 +1823,12 @@ void Simulator::report() {
 		for (const auto& emitter : emitters) {
 			ofs_ptn << "Photon" << std::endl;
 			ofs_ptn << "{" << std::endl;
-			ofs_ptn << std::fixed << '\t' << "id  = " << emitter.id << std::endl;
-			ofs_ptn << std::fixed << '\t' << "position = " << emitter.position.x << ", " << emitter.position.y << ", "
-					<< emitter.position.z << std::endl;
-			ofs_ptn << std::fixed << '\t' << "direction = " << emitter.direction.x << ", " << emitter.direction.y
-					<< ", " << emitter.direction.z << std::endl;
-			ofs_ptn << std::fixed << '\t' << "val = " << emitter.weight << std::endl;
+			ofs_ptn << std::fixed << '\t' << "id  = " << emitter->id << std::endl;
+			ofs_ptn << std::fixed << '\t' << "position = " << emitter->position.x << ", " << emitter->position.y << ", "
+					<< emitter->position.z << std::endl;
+			ofs_ptn << std::fixed << '\t' << "direction = " << emitter->direction.x << ", " << emitter->direction.y
+					<< ", " << emitter->direction.z << std::endl;
+			ofs_ptn << std::fixed << '\t' << "val = " << emitter->weight << std::endl;
 			ofs_ptn << "}" << std::endl;
 			ofs_ptn << std::endl;
 		}

@@ -12,6 +12,7 @@
 
 # Build directories (CMake generates these)
 # Intermediary files go to organized subdirectories
+build/
 build/output/
 build/photron.dir/
 build/x64/
@@ -119,6 +120,9 @@ experiment.out
 
 # MCML data files
 *.dat
+
+# Imgui generated files
+*imgui.ini
 
 # ==============================================================================
 # Development & Temporary Files

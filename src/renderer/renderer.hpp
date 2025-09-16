@@ -81,6 +81,7 @@ public:
 	// Text billboard rendering for energy labels
 	void draw_labels(const Settings& settings);
 	void cache_energy_labels();                  // Cache energy labels from current simulation data
+	void cache_energy_labels_from_emitters();    // New: Cache energy labels from emitter data with proper classification
 	void invalidate_energy_label_cache();        // Force recalculation of energy labels
 	void update_energy_label_screen_positions(); // Update screen positions once per frame
 	void auto_manage_energy_labels(Settings& settings); // Auto-disable energy labels for performance
@@ -128,6 +129,11 @@ private:
 	// Performance optimization: Cache energy range calculation
 	void update_cached_energy_range(const Settings& settings) const;
 	void invalidate_energy_cache() const;
+	
+	// Performance optimization: Cache photon path instances
+	void cache_path_instances(const Settings& settings);
+	void invalidate_path_cache();
+	void invalidate_path_cache() const;
 	
 	std::string load_shader_source(const std::string& file_path);
 	GLuint compile_shader(const std::string& source, GLenum shader_type);
@@ -235,6 +241,12 @@ private:
 	mutable bool energy_range_cached_ {false};
 	mutable size_t last_path_count_ {0};
 	mutable size_t last_voxel_data_version_ {0};
+
+	// Photon path instance caching for performance
+	mutable std::vector<LineInstance> cached_line_instances_;
+	mutable std::vector<PointInstance> cached_point_instances_;
+	mutable bool path_instances_cached_ {false};
+	mutable size_t last_simulation_version_ {0};
 
 	// Camera state tracking for label position updates
 	glm::vec3 last_camera_position_;
