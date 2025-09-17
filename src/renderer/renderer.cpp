@@ -15,7 +15,7 @@
 #include "renderer/camera.hpp"
 #include "renderer/settings.hpp"
 #include "simulator/config.hpp"
-#include "simulator/config_service.hpp"
+#include "simulator/config.hpp"
 #include "simulator/layer.hpp"
 #include "simulator/medium.hpp"
 #include "simulator/simulator.hpp"
@@ -48,7 +48,7 @@ Renderer::~Renderer() {
 }
 
 bool Renderer::initialize() {
-	if (ConfigService::is_initialized() && ConfigService::get().verbose()) {
+	if (Config::is_initialized() && Config::get().verbose()) {
 		std::cout << "Initializing modern OpenGL 4.5 renderer..." << std::endl;
 	}
 
@@ -88,7 +88,7 @@ bool Renderer::initialize() {
 	// Setup initial camera
 	update_camera();
 
-	if (ConfigService::is_initialized() && ConfigService::get().verbose()) {
+	if (Config::is_initialized() && Config::get().verbose()) {
 		std::cout << "Renderer initialized successfully" << std::endl;
 	}
 	return true;
@@ -99,7 +99,7 @@ void Renderer::setup_opengl() {
 	const GLubyte* version = glGetString(GL_VERSION);
 	const GLubyte* renderer = glGetString(GL_RENDERER);
 
-	if (ConfigService::is_initialized() && ConfigService::get().verbose()) {
+	if (Config::is_initialized() && Config::get().verbose()) {
 		std::cout << "OpenGL Version:  " << version << std::endl;
 		std::cout << "Graphics Device: " << renderer << std::endl;
 	}
@@ -492,7 +492,7 @@ void Renderer::draw_voxels(const Settings& settings) {
 	begin_triangles();
 
 	// Get MCML grid parameters - EXACTLY like backup
-	const auto& config = ConfigService::get();
+	const auto& config = Config::get();
 	int nx = config.nx();
 	int ny = config.ny();
 	int nz = config.nz();
@@ -875,7 +875,7 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 	begin_voxel_instances();
 
 	// Get MCML grid parameters
-	const auto& config = ConfigService::get();
+	const auto& config = Config::get();
 	int nx = config.nx();
 	int ny = config.ny();
 	int nz = config.nz();
@@ -2945,7 +2945,7 @@ void Renderer::update_cached_energy_range(const Settings& settings) const {
 	}
 
 	// Collect energies from voxels using the ORIGINAL method for accurate color mapping
-	const auto& config = ConfigService::get();
+	const auto& config = Config::get();
 	if (config.nx() > 0 && config.ny() > 0 && config.nz() > 0) {
 		int nx = config.nx();
 		int ny = config.ny();

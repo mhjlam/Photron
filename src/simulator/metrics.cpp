@@ -11,7 +11,7 @@
 
 // Include for the unified energy conservation method
 #include "simulator.hpp"
-#include "config_service.hpp"
+#include "config.hpp"
 #include <chrono>
 
 void Metrics::increment_scatters() {
@@ -139,7 +139,7 @@ void Metrics::print_report(const class Simulator& simulator) {
 		
 		// Volume Statistics
 		std::cout << "Volume Statistics" << std::endl;
-		const auto& config = ConfigService::get();
+		const auto& config = Config::get();
 		std::cout << "  Volume Grid:         " << config.nx() << "x" 
 		          << config.ny() << "x" << config.nz() << std::endl;
 		std::cout << "  Total Voxels:        " << medium.get_volume().size() << std::endl;

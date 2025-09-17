@@ -9,7 +9,7 @@
 #include <imgui_impl_opengl3.h>
 
 #include "simulator/simulator.hpp"
-#include "simulator/config_service.hpp"
+#include "simulator/config.hpp"
 
 // Helper function for ImGui tooltips
 static void HelpMarker(const char* desc) {
@@ -58,7 +58,7 @@ bool Overlay::initialize(GLFWwindow* window) {
 		return false;
 	}
 
-	if (ConfigService::get().verbose()) {
+	if (Config::get().verbose()) {
 		std::cout << "ImGui overlay initialized successfully" << std::endl;
 	}
 	return true;
@@ -310,7 +310,7 @@ void Overlay::render_control_panel(Simulator* simulator) {
 				if (ImGui::CollapsingHeader(medium_name.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
 					// Volume Statistics
 					ImGui::Text("Volume Statistics");
-					const auto& config = ConfigService::get();
+					const auto& config = Config::get();
 					ImGui::Text("  Volume Grid:         %dx%dx%d", config.nx(), config.ny(), config.nz());
 					ImGui::Text("  Total Voxels:        %llu", medium.get_volume().size());
 					

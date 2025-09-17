@@ -83,15 +83,6 @@ struct Photon
 		id(i), source_origin(src_origin), source_direction(src_direction),
 		specular_direction(spec_direction), source_intersect(src_intersect), source_triangle(src_triangle) {}
 
-	// Forward declarations for context queries
-	class Simulator;
-	
-	// Context-aware tissue property accessors
-	[[nodiscard]] double g(const Simulator& simulator) const noexcept;
-	[[nodiscard]] double eta(const Simulator& simulator) const noexcept;
-	[[nodiscard]] double mu_a(const Simulator& simulator) const noexcept;
-	[[nodiscard]] double mu_s(const Simulator& simulator) const noexcept;
-
 	// Tissue property accessors with null safety (for backward compatibility)
 	[[nodiscard]] double g() const noexcept { return (voxel && voxel->tissue) ? voxel->tissue->g : 0.0; }
 

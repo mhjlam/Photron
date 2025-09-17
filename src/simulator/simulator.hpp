@@ -39,7 +39,6 @@ public:
 	void report();
 
 public:
-	Config config;
 	Metrics metrics;
 
 	std::vector<PhotonPath> paths;

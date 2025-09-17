@@ -3,24 +3,14 @@
 #include <cstdint>
 #include <list>
 #include <map>
+#include <memory>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
 #include <span>
 #include "math/concepts.hpp"
-#include "simulator/layer.hpp"
-#include "simulator/source.hpp"
-#include "simulator/tissue.hpp"
-
-#include <cstdint>
-#include <list>
-#include <map>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <vector>
-
 #include "simulator/layer.hpp"
 #include "simulator/source.hpp"
 #include "simulator/tissue.hpp"
@@ -34,6 +24,9 @@ enum class SplittingMethod {
 class Config
 {
 private:
+	static std::unique_ptr<Config> instance_;
+	static bool initialized_;
+
 	uint32_t nx_ {0};          // number of voxels in the x direction
 	uint32_t ny_ {0};          // number of voxels in the y direction
 	uint32_t nz_ {0};          // number of voxels in the z direction
@@ -152,7 +145,39 @@ private:
 	}
 
 public:
-	Config() = default;
+	// Delete copy constructor and assignment operator for singleton
+	Config(const Config&) = delete;
+	Config& operator=(const Config&) = delete;
+
+	// Static methods for singleton access
+	/**
+	 * @brief Initialize the global Config instance
+	 */
+	static void initialize();
+	
+	/**
+	 * @brief Initialize the global Config instance with a config file
+	 * @param config_file Path to the configuration file
+	 */
+	static void initialize(const std::string& config_file);
+	
+	/**
+	 * @brief Check if config service has been initialized
+	 * @return true if initialized, false otherwise
+	 */
+	static bool is_initialized();
+	
+	/**
+	 * @brief Get the current config instance
+	 * @return Reference to the current config
+	 * @throws std::runtime_error if config has not been initialized
+	 */
+	static Config& get();
+	
+	/**
+	 * @brief Reset the config service (for testing or shutdown)
+	 */
+	static void shutdown();
 
 	// Getters with [[nodiscard]] for safety
 	[[nodiscard]] constexpr uint32_t nx() const noexcept { return nx_; }
@@ -218,4 +243,7 @@ private:
 	bool extract_config_data(const std::string& filename, std::multimap<std::string, std::list<std::string>>& datamap);
 	void extract_config_block(std::ifstream& in_config, const std::string& section,
 							  std::multimap<std::string, std::list<std::string>>& datamap);
+
+	// Private constructor for singleton
+	Config() = default;
 };

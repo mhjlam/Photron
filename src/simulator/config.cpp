@@ -6,6 +6,44 @@
 
 #include "math/triangle.hpp"
 
+// Static member definitions
+std::unique_ptr<Config> Config::instance_ = nullptr;
+bool Config::initialized_ = false;
+
+void Config::initialize() {
+	if (!initialized_) {
+		instance_ = std::unique_ptr<Config>(new Config());
+		initialized_ = true;
+	}
+}
+
+void Config::initialize(const std::string& config_file) {
+	if (!initialized_) {
+		instance_ = std::unique_ptr<Config>(new Config());
+		if (!instance_->parse_config_file(config_file)) {
+			// Keep the instance but log the error
+			std::cerr << "Warning: Failed to parse config file, using defaults" << std::endl;
+		}
+		initialized_ = true;
+	}
+}
+
+bool Config::is_initialized() {
+	return initialized_;
+}
+
+Config& Config::get() {
+	if (!initialized_) {
+		throw std::runtime_error("Config not initialized. Call Config::initialize() first.");
+	}
+	return *instance_;
+}
+
+void Config::shutdown() {
+	instance_.reset();
+	initialized_ = false;
+}
+
 bool Config::parse_config_file(const std::string& filename) {
 	// Clear existing data
 	sources_.clear();

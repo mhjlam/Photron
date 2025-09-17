@@ -52,10 +52,6 @@ Simulator::~Simulator() {
  * Parse the input file and initializes the data structures.
  ***********************************************************/
 bool Simulator::initialize(std::string file) {
-	if (config.verbose()) {
-		std::cout << "Initializing Photron" << std::endl;
-	}
-
 	// Clear previous simulation data to ensure clean reset
 	mediums.clear();
 	photons.clear();
@@ -67,26 +63,28 @@ bool Simulator::initialize(std::string file) {
 	metrics.reset();
 
 	// read and parse input configuration file
-	if (config.verbose()) {
-		std::cout << "Parsing configuration file: " << file << std::endl;
-	}
 	if (!parse(file)) {
 		std::cerr << "An error occurred while parsing the input file." << std::endl;
 		return false;
 	}
-	if (config.verbose()) {
+	
+	if (Config::get().verbose()) {
+		std::cout << "Initializing Photron" << std::endl;
+	}
+	
+	if (Config::get().verbose()) {
 		std::cout << "Configuration parsed successfully." << std::endl;
 	}
 
 	// Initialize medium (only one for now)
-	mediums.emplace_back(Medium(config));
+	mediums.emplace_back(Medium(Config::get()));
 
 	for (auto& medium : mediums) {
 		if (!medium.initialize()) {
 			std::cerr << "An error occurred while initializing the medium." << std::endl;
 			return false;
 		}
-		if (config.verbose()) {
+		if (Config::get().verbose()) {
 			std::cout << "Medium initialized successfully." << std::endl;
 		}
 	}
@@ -96,15 +94,15 @@ bool Simulator::initialize(std::string file) {
 		std::cerr << "An error occurred while initializing the data structures." << std::endl;
 		return false;
 	}
-	if (config.verbose()) {
+	if (Config::get().verbose()) {
 		std::cout << "Light sources initialized successfully." << std::endl;
 	}
 
 	// Initialize photons
-	for (uint64_t i = 0; i < config.num_photons(); ++i) {
+	for (uint64_t i = 0; i < Config::get().num_photons(); ++i) {
 		photons.emplace_back(i);
 	}
-	if (config.verbose()) {
+	if (Config::get().verbose()) {
 		std::cout << "Photons initialized successfully." << std::endl;
 	}
 	
@@ -125,14 +123,15 @@ bool Simulator::parse(const std::string& fconfig) {
 	paths.clear();
 	mediums.clear();
 
-	// Use Config class to parse the entire configuration file
-	if (!config.parse_config_file(fconfig)) {
+	// Initialize the global Config singleton and parse the configuration file
+	Config::initialize();
+	if (!Config::get().parse_config_file(fconfig)) {
 		std::cerr << "Failed to parse configuration file." << std::endl;
 		return false;
 	}
 
 	// Extract parsed data from Config
-	sources = config.sources_vector();
+	sources = Config::get().sources_vector();
 
 	return true;
 }
@@ -142,7 +141,7 @@ bool Simulator::parse(const std::string& fconfig) {
  ***********************************************************/
 bool Simulator::initialize_sources() {
 	// initialize config properties
-	config.set_num_sources(static_cast<uint64_t>(sources.size()));
+	Config::get().set_num_sources(static_cast<uint64_t>(sources.size()));
 
 	// associate light sources with their geometric intersections
 	for (auto& source : sources) {
@@ -172,7 +171,7 @@ bool Simulator::initialize_sources() {
  * Run the Monte Carlo photon transport simulation.
  ***********************************************************/
 void Simulator::simulate() {
-	if (config.verbose()) {
+	if (Config::get().verbose()) {
 		std::cout << "Running Monte Carlo simulation" << std::endl;
 	}
 
@@ -187,8 +186,8 @@ void Simulator::simulate() {
 		// for each photon
 		for (uint32_t p = 0; p < photons.size(); ++p) {
 			// progress report
-			if (config.progress() && ((p + 1) % 1000) == 0) {
-				std::cout << "Photon " << p + 1 << "/" << config.num_photons() << std::endl;
+			if (Config::get().progress() && ((p + 1) % 1000) == 0) {
+				std::cout << "Photon " << p + 1 << "/" << Config::get().num_photons() << std::endl;
 			}
 
 			// Track initial energy
@@ -1048,7 +1047,7 @@ void Simulator::cross(Photon& photon) {
 		}
 
 		// Photon is exiting the medium - handle as ambient medium crossing
-		double eta = config.ambient_eta();
+		double eta = Config::get().ambient_eta();
 		glm::dvec3 transmittance, reflectance;
 
 		double reflection = internal_reflection(photon, eta, transmittance, reflectance);
@@ -1067,7 +1066,7 @@ void Simulator::cross(Photon& photon) {
 		}
 		else {
 			// Partial reflection/transmission
-			if (config.partial()) {
+			if (Config::get().partial()) {
 				// True Splitting: Always account for both portions
 				// Radiate the transmitted portion (exits medium)
 				if ((1.0 - reflection) > 1e-12) {
@@ -1106,7 +1105,7 @@ void Simulator::cross(Photon& photon) {
 	glm::dvec3 transmittance, reflectance;
 
 	// First compute the transmission and reflection directions using current photon state
-	double eta_ambient = config.ambient_eta();
+	double eta_ambient = Config::get().ambient_eta();
 	double temp_reflection = internal_reflection(photon, eta_ambient, transmittance, reflectance);
 
 	// Determine which medium(s) are involved in this crossing
@@ -1118,7 +1117,7 @@ void Simulator::cross(Photon& photon) {
 	photon.prev_voxel = photon.voxel;
 
 	// determine refractive index of the medium being entered
-	double eta = (newvox == nullptr) ? config.ambient_eta() : newvox->tissue->eta;
+	double eta = (newvox == nullptr) ? Config::get().ambient_eta() : newvox->tissue->eta;
 
 	// Recalculate with correct refractive index
 	temp_reflection = internal_reflection(photon, eta, transmittance, reflectance);
@@ -1192,7 +1191,7 @@ void Simulator::cross(Photon& photon) {
 		}
 		else {
 			// partial reflection
-			if (config.partial()) {
+			if (Config::get().partial()) {
 				// True Splitting: Always account for both portions
 				// Radiate the transmitted portion (exits medium)
 				if (transmission > 1e-12) {
@@ -1302,7 +1301,7 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 	// Record photon's radiate() call origin
 	// ENERGY CONSERVATION ENFORCEMENT (disabled for True Splitting)
 	// True Splitting handles energy conservation differently - through statistical splitting
-	if (!config.partial()) {
+	if (!Config::get().partial()) {
 		photon.radiate_call_count++;
 		
 		// Calculate how much energy this photon has left to radiate
@@ -1440,13 +1439,13 @@ void Simulator::normalize() {
 	// Normalize records for all mediums
 	for (auto& medium : mediums) {
 		auto& record = medium.get_record();
-		record.total_absorption /= config.num_photons() * config.num_sources();
-		record.diffuse_reflection /= config.num_photons() * config.num_sources();
-		record.surface_refraction /= config.num_photons() * config.num_sources();
-		record.diffuse_transmission /= config.num_photons() * config.num_sources();
+		record.total_absorption /= Config::get().num_photons() * Config::get().num_sources();
+		record.diffuse_reflection /= Config::get().num_photons() * Config::get().num_sources();
+		record.surface_refraction /= Config::get().num_photons() * Config::get().num_sources();
+		record.diffuse_transmission /= Config::get().num_photons() * Config::get().num_sources();
 
-		record.specular_reflection /= config.num_photons() * config.num_sources();   // Now accumulates energy per photon
-		record.specular_transmission /= config.num_photons() * config.num_sources(); // ts is computed per photon
+		record.specular_reflection /= Config::get().num_photons() * Config::get().num_sources();   // Now accumulates energy per photon
+		record.specular_transmission /= Config::get().num_photons() * Config::get().num_sources(); // ts is computed per photon
 	}
 
 	// normalize voxel data across all mediums
@@ -1459,8 +1458,8 @@ void Simulator::normalize() {
 				continue;
 			}
 
-			voxel->absorption /= (config.num_photons() * config.num_sources());
-			voxel->emittance /= (config.num_photons() * config.num_sources());
+			voxel->absorption /= (Config::get().num_photons() * Config::get().num_sources());
+			voxel->emittance /= (Config::get().num_photons() * Config::get().num_sources());
 		}
 	}
 }
@@ -1479,7 +1478,7 @@ void Simulator::specular_reflection(Photon& photon) {
 	}
 
 	// refractive indices of ambient medium and medium that is hit
-	double n1 = config.ambient_eta();
+	double n1 = Config::get().ambient_eta();
 	double n2 = voxel->tissue->eta;
 
 	// Calculate specular reflection coefficient from Fresnel equations
@@ -1609,7 +1608,7 @@ glm::dvec3 Simulator::move_delta(glm::dvec3& position, glm::dvec3& direction) {
 	glm::dvec3 point = position;
 
 	// delta distance (based on voxel size)
-	double d = config.vox_size() * 0.00001;
+	double d = Config::get().vox_size() * 0.00001;
 
 	point.x = position.x + direction.x * d;
 	point.y = position.y + direction.y * d;
@@ -1695,13 +1694,13 @@ void Simulator::report() {
 		ofs_rep << "Configuration" << std::endl;
 		ofs_rep << "################################################################" << std::endl;
 		ofs_rep << std::endl;
-		ofs_rep << "Number of photons: " << '\t' << config.num_photons() << std::endl;
-		ofs_rep << "Number of layers:  " << '\t' << config.num_layers() << std::endl;
-		ofs_rep << "Number of voxels:  " << '\t' << config.num_voxels() << std::endl;
-		ofs_rep << "Grid dimensions:   " << '\t' << config.nx() << " x " << config.ny() << " x " << config.nz()
+		ofs_rep << "Number of photons: " << '\t' << Config::get().num_photons() << std::endl;
+		ofs_rep << "Number of layers:  " << '\t' << Config::get().num_layers() << std::endl;
+		ofs_rep << "Number of voxels:  " << '\t' << Config::get().num_voxels() << std::endl;
+		ofs_rep << "Grid dimensions:   " << '\t' << Config::get().nx() << " x " << Config::get().ny() << " x " << Config::get().nz()
 				<< std::endl;
-		ofs_rep << "Voxel dimensions:  " << '\t' << config.vox_size() << " x " << config.vox_size() << " x "
-				<< config.vox_size() << std::endl;
+		ofs_rep << "Voxel dimensions:  " << '\t' << Config::get().vox_size() << " x " << Config::get().vox_size() << " x "
+				<< Config::get().vox_size() << std::endl;
 		ofs_rep << std::endl << std::endl;
 
 		// write recorded parameters: a, rs, rd, (ts, td) - aggregate across all mediums
@@ -1745,22 +1744,22 @@ void Simulator::report() {
 		ofs_abs << std::endl;
 
 		// from rear to front
-		for (uint32_t iz = 0; iz < config.nz(); ++iz) {
-			ofs_abs << "Slice " << iz + 1 << "/" << config.nz();
+		for (uint32_t iz = 0; iz < Config::get().nz(); ++iz) {
+			ofs_abs << "Slice " << iz + 1 << "/" << Config::get().nz();
 			if (iz == 0) {
 				ofs_abs << " (rear)";
 			}
-			if (iz == config.nz() - 1) {
+			if (iz == Config::get().nz() - 1) {
 				ofs_abs << " (front)";
 			}
 			ofs_abs << std::endl;
 
-			for (uint32_t iy = config.ny() - 1; iy > 0; --iy) { // top to bottom
-				for (uint32_t ix = 0; ix < config.nx(); ++ix) { // left to right
+			for (uint32_t iy = Config::get().ny() - 1; iy > 0; --iy) { // top to bottom
+				for (uint32_t ix = 0; ix < Config::get().nx(); ++ix) { // left to right
 					Voxel* voxel = voxel_at(glm::dvec3(
-						ix * config.vox_size(),
-						iy * config.vox_size(),
-						iz * config.vox_size()
+						ix * Config::get().vox_size(),
+						iy * Config::get().vox_size(),
+						iz * Config::get().vox_size()
 					));
 					if (voxel) {
 						ofs_abs << std::fixed << voxel->absorption << '\t';
@@ -1788,22 +1787,22 @@ void Simulator::report() {
 		ofs_emi << std::endl;
 
 		// rear to front
-		for (uint32_t iz = 0; iz < config.nz(); ++iz) {
-			ofs_emi << "Slice " << iz + 1 << "/" << config.nz();
+		for (uint32_t iz = 0; iz < Config::get().nz(); ++iz) {
+			ofs_emi << "Slice " << iz + 1 << "/" << Config::get().nz();
 			if (iz == 0) {
 				ofs_emi << " (rear)";
 			}
-			if (iz == config.nz() - 1) {
+			if (iz == Config::get().nz() - 1) {
 				ofs_emi << " (front)";
 			}
 			ofs_emi << std::endl;
 
-			for (uint32_t iy = config.ny() - 1; iy > 0; --iy) { // top to bottom
-				for (uint32_t ix = 0; ix < config.nx(); ++ix) { // left to right
+			for (uint32_t iy = Config::get().ny() - 1; iy > 0; --iy) { // top to bottom
+				for (uint32_t ix = 0; ix < Config::get().nx(); ++ix) { // left to right
 					Voxel* voxel = voxel_at(glm::dvec3(
-						ix * config.vox_size(),
-						iy * config.vox_size(),
-						iz * config.vox_size()
+						ix * Config::get().vox_size(),
+						iy * Config::get().vox_size(),
+						iz * Config::get().vox_size()
 					));
 					if (voxel) {
 						ofs_emi << std::fixed << voxel->emittance << '\t';
@@ -2075,7 +2074,7 @@ bool Simulator::is_point_inside_geometry(const glm::dvec3& position) const {
 Voxel* Simulator::voxel_grid(uint32_t x, uint32_t y, uint32_t z) const {
 	// Convert grid coordinates to world position using combined bounds
 	// This ensures grid coordinates map correctly to world space
-	double voxel_size = config.vox_size();
+	double voxel_size = Config::get().vox_size();
 	Range3 bounds = get_combined_bounds();
 	glm::dvec3 position(bounds.min_bounds.x + (x + 0.5) * voxel_size,
 	                    bounds.min_bounds.y + (y + 0.5) * voxel_size, 
@@ -2237,7 +2236,7 @@ Record Simulator::get_combined_record() const {
 	
 	// CRITICAL FIX: The voxel emittance needs to be scaled to match the normalization state of record data
 	// If we're in normalized mode (records are per-photon), we need to scale voxel emittance accordingly
-	// The normalization factor is config.num_photons() * config.num_sources()
+	// The normalization factor is Config::get().num_photons() * Config::get().num_sources()
 	// However, we can detect if data is normalized by checking if surface_refraction is around 1.0 (normalized) or much larger (raw)
 	double normalization_factor = 1.0;
 	if (combined.surface_refraction > 0.0 && combined.surface_refraction < 10.0) {
@@ -2247,7 +2246,7 @@ Record Simulator::get_combined_record() const {
 	} else if (combined.surface_refraction > 10.0) {
 		// Data appears to be raw (unnormalized) - this happens during single photon accumulation
 		// Voxel data might be normalized from previous full simulation, so scale it up
-		normalization_factor = config.num_photons() * config.num_sources();
+		normalization_factor = Config::get().num_photons() * Config::get().num_sources();
 	}
 	
 	// FIXED: Remove double-counting of energy

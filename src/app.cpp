@@ -14,7 +14,7 @@
 #include "renderer/overlay.hpp"
 #include "renderer/renderer.hpp"
 #include "simulator/simulator.hpp"
-#include "simulator/config_service.hpp"
+#include "simulator/config.hpp"
 
 // Static pointer for callbacks
 static App* app_instance = nullptr;
@@ -68,19 +68,19 @@ bool App::initialize(int argc, char* argv[]) {
 			// Initialize simulator only
 			simulator_ = std::make_unique<Simulator>();
 			
-			if (verbose_mode) {
-				simulator_->config.set_verbose(true);
-			}
-			
-			if (!simulator_->initialize(config_file_.c_str())) {
-				std::cerr << "Failed to initialize simulator" << std::endl;
-				return false;
-			}
-			
-			// Initialize ConfigService for global config access
-			ConfigService::initialize(simulator_->config);
+	if (verbose_mode) {
+		// We need to initialize Config first to set verbose mode
+		Config::initialize();
+		Config::get().set_verbose(true);
+	}
 
-			// Run simulation
+	if (!simulator_->initialize(config_file_.c_str())) {
+		std::cerr << "Failed to initialize simulator" << std::endl;
+		return false;
+	}
+
+	// Config is already initialized by simulator->initialize()
+	// No need to call Config::initialize(simulator_->config) anymore			// Run simulation
 			simulator_->simulate();
 			simulator_->report();
 			
@@ -134,7 +134,9 @@ bool App::initialize(int argc, char* argv[]) {
 		
 		// Set verbose mode if requested
 		if (verbose_mode) {
-			simulator_->config.set_verbose(true);
+			// We need to initialize Config first to set verbose mode
+			Config::initialize();
+			Config::get().set_verbose(true);
 		}
 		
 		if (!simulator_->initialize(config_file_.c_str())) {
@@ -142,8 +144,8 @@ bool App::initialize(int argc, char* argv[]) {
 			return false;
 		}
 		
-		// Initialize ConfigService for global config access
-		ConfigService::initialize(simulator_->config);
+		// Config is already initialized by simulator->initialize()
+		// No need to call Config::initialize(simulator_->config) anymore
 
 		// Run simulation
 		simulator_->simulate();
@@ -207,7 +209,7 @@ void App::shutdown() {
 	}
 	
 	// Reset config service
-	ConfigService::reset();
+	Config::shutdown();
 
 	if (window_) {
 		glfwDestroyWindow(window_);
@@ -473,10 +475,10 @@ void App::save_results_as_json(const std::string& filepath) {
 	file << "{\n";
 	file << "  \"config_file\": \"" << config_file_ << "\",\n";
 	file << "  \"simulation_parameters\": {\n";
-	file << "    \"num_photons\": " << simulator_->config.num_photons() << ",\n";
-	file << "    \"voxel_size\": " << simulator_->config.vox_size() << ",\n";
-	file << "    \"grid_size\": [" << simulator_->config.nx() << ", " << simulator_->config.ny() << ", "
-		 << simulator_->config.nz() << "]\n";
+	file << "    \"num_photons\": " << Config::get().num_photons() << ",\n";
+	file << "    \"voxel_size\": " << Config::get().vox_size() << ",\n";
+	file << "    \"grid_size\": [" << Config::get().nx() << ", " << Config::get().ny() << ", "
+		 << Config::get().nz() << "]\n";
 	file << "  },\n";
 	file << "  \"results\": {\n";
 	file << "    \"path_length\": " << simulator_->metrics.get_path_length() << ",\n";
@@ -529,13 +531,13 @@ void App::save_results_as_text(const std::string& filepath) {
 	file << "Timestamp: " << std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) << "\n\n";
 
 	file << "Simulation Parameters:\n";
-	file << "  Number of Photons: " << simulator_->config.num_photons() << "\n";
-	file << "  Voxel Size: " << simulator_->config.vox_size() << "\n";
-	file << "  Grid Dimensions: " << simulator_->config.nx() << " x " << simulator_->config.ny() << " x "
-		 << simulator_->config.nz() << "\n";
+	file << "  Number of Photons: " << Config::get().num_photons() << "\n";
+	file << "  Voxel Size: " << Config::get().vox_size() << "\n";
+	file << "  Grid Dimensions: " << Config::get().nx() << " x " << Config::get().ny() << " x "
+		 << Config::get().nz() << "\n";
 	file << "  Total Voxels: " << simulator_->get_total_voxel_count() << "\n\n";
 
-	if (simulator_->config.num_photons() > 1) {
+	if (Config::get().num_photons() > 1) {
 		file << "Multi-Photon Statistics:\n";
 		double total_weight = simulator_->metrics.get_total_absorption() + simulator_->metrics.get_total_reflection()
 							  + simulator_->metrics.get_total_transmission();
@@ -548,8 +550,8 @@ void App::save_results_as_text(const std::string& filepath) {
 				 << "%\n";
 		}
 		file << "\nAverages Per Photon:\n";
-		file << "  Path Length: " << simulator_->metrics.get_path_length() / simulator_->config.num_photons() << "\n";
-		file << "  Scatter Events: " << simulator_->metrics.get_scatter_events() / simulator_->config.num_photons() << "\n";
+		file << "  Path Length: " << simulator_->metrics.get_path_length() / Config::get().num_photons() << "\n";
+		file << "  Scatter Events: " << simulator_->metrics.get_scatter_events() / Config::get().num_photons() << "\n";
 		file << "  Step Size: " << simulator_->metrics.get_average_step_size() << "\n";
 	}
 	else {
