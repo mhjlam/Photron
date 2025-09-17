@@ -25,7 +25,7 @@ public:
 	void stop_clock();
 
 	void write_to_file();
-	void print_report();
+	void print_report(const class Simulator& simulator); // Unified energy conservation reporting
 	void reset(); // Reset all accumulated data
 
 	// Getters for UI display

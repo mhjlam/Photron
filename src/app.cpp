@@ -14,6 +14,7 @@
 #include "renderer/overlay.hpp"
 #include "renderer/renderer.hpp"
 #include "simulator/simulator.hpp"
+#include "simulator/config_service.hpp"
 
 // Static pointer for callbacks
 static App* app_instance = nullptr;
@@ -75,9 +76,11 @@ bool App::initialize(int argc, char* argv[]) {
 				std::cerr << "Failed to initialize simulator" << std::endl;
 				return false;
 			}
+			
+			// Initialize ConfigService for global config access
+			ConfigService::initialize(simulator_->config);
 
 			// Run simulation
-			std::cout << "Running photon transport simulation..." << std::endl;
 			simulator_->simulate();
 			simulator_->report();
 			
@@ -123,8 +126,6 @@ bool App::initialize(int argc, char* argv[]) {
 			return false;
 		}
 
-		std::cout << "OpenGL Version: " << glGetString(GL_VERSION) << std::endl;
-
 		// Setup callbacks
 		setup_callbacks();
 
@@ -140,9 +141,11 @@ bool App::initialize(int argc, char* argv[]) {
 			std::cerr << "Failed to initialize simulator" << std::endl;
 			return false;
 		}
+		
+		// Initialize ConfigService for global config access
+		ConfigService::initialize(simulator_->config);
 
 		// Run simulation
-		std::cout << "Running photon transport simulation..." << std::endl;
 		simulator_->simulate();
 		simulator_->report();
 
@@ -202,6 +205,9 @@ void App::shutdown() {
 	if (simulator_) {
 		simulator_.reset();
 	}
+	
+	// Reset config service
+	ConfigService::reset();
 
 	if (window_) {
 		glfwDestroyWindow(window_);

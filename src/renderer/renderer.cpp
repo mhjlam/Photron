@@ -15,6 +15,7 @@
 #include "renderer/camera.hpp"
 #include "renderer/settings.hpp"
 #include "simulator/config.hpp"
+#include "simulator/config_service.hpp"
 #include "simulator/layer.hpp"
 #include "simulator/medium.hpp"
 #include "simulator/simulator.hpp"
@@ -47,7 +48,9 @@ Renderer::~Renderer() {
 }
 
 bool Renderer::initialize() {
-	std::cout << "Initializing modern OpenGL 4.5 renderer..." << std::endl;
+	if (ConfigService::is_initialized() && ConfigService::get().verbose()) {
+		std::cout << "Initializing modern OpenGL 4.5 renderer..." << std::endl;
+	}
 
 	setup_opengl();
 
@@ -85,7 +88,9 @@ bool Renderer::initialize() {
 	// Setup initial camera
 	update_camera();
 
-	std::cout << "Consolidated renderer initialized successfully" << std::endl;
+	if (ConfigService::is_initialized() && ConfigService::get().verbose()) {
+		std::cout << "Renderer initialized successfully" << std::endl;
+	}
 	return true;
 }
 
@@ -93,8 +98,11 @@ void Renderer::setup_opengl() {
 	// Query OpenGL version
 	const GLubyte* version = glGetString(GL_VERSION);
 	const GLubyte* renderer = glGetString(GL_RENDERER);
-	std::cout << "OpenGL Version: " << version << std::endl;
-	std::cout << "Renderer: " << renderer << std::endl;
+
+	if (ConfigService::is_initialized() && ConfigService::get().verbose()) {
+		std::cout << "OpenGL Version:  " << version << std::endl;
+		std::cout << "Graphics Device: " << renderer << std::endl;
+	}
 
 	// Enable depth testing with polygon offset to reduce Z-fighting
 	glEnable(GL_DEPTH_TEST);
@@ -117,8 +125,6 @@ void Renderer::setup_opengl() {
 	// Set clear color to dark charcoal gray - easy on the eyes and neutral
 	// Avoids conflicts with layer colors (red, blue, green, magenta, yellow, cyan)
 	glClearColor(0.15f, 0.15f, 0.15f, 1.0f);
-
-	std::cout << "OpenGL 4.5 setup complete" << std::endl;
 }
 
 void Renderer::update() {
@@ -147,8 +153,18 @@ void Renderer::render(Simulator& simulator) {
 	// Store simulator reference for use in drawing functions
 	simulator_ = &simulator;
 	
-	// Invalidate energy cache if simulation data might have changed
-	invalidate_energy_cache();
+	// PERFORMANCE FIX: Only invalidate caches when simulation data actually changes
+	uint64_t current_sim_version = simulator.get_simulation_version();
+	if (current_sim_version != last_simulation_version_) {
+		// When simulation data changes, invalidate all relevant caches
+		// This includes both energy caches AND path instances since the path data may have changed
+		invalidate_energy_cache();
+		invalidate_energy_label_cache();
+		invalidate_path_instances_cache();
+		surface_cached_ = false;
+		
+		last_simulation_version_ = current_sim_version;
+	}
 
 	// Update camera target based on simulation bounds
 	static bool first_frame = true;
@@ -181,9 +197,6 @@ void Renderer::render(Simulator& simulator) {
 	if (settings_.draw_paths) {
 		draw_paths_instanced(settings_); // High-performance instanced version
 	}
-
-	// Draw emitters (exit points with direction vectors)
-	draw_emitters(settings_);
 
 	// Draw energy labels as billboards (user request 3)
 	draw_labels(settings_);
@@ -479,10 +492,11 @@ void Renderer::draw_voxels(const Settings& settings) {
 	begin_triangles();
 
 	// Get MCML grid parameters - EXACTLY like backup
-	int nx = simulator_->config.nx();
-	int ny = simulator_->config.ny();
-	int nz = simulator_->config.nz();
-	double voxsize = simulator_->config.vox_size();
+	const auto& config = ConfigService::get();
+	int nx = config.nx();
+	int ny = config.ny();
+	int nz = config.nz();
+	double voxsize = config.vox_size();
 	double half_voxsize = voxsize * 0.5;
 
 	// Collect voxels with distance for depth sorting (user request 4)
@@ -861,10 +875,11 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 	begin_voxel_instances();
 
 	// Get MCML grid parameters
-	int nx = simulator_->config.nx();
-	int ny = simulator_->config.ny();
-	int nz = simulator_->config.nz();
-	double voxsize = simulator_->config.vox_size();
+	const auto& config = ConfigService::get();
+	int nx = config.nx();
+	int ny = config.ny();
+	int nz = config.nz();
+	double voxsize = config.vox_size();
 	double half_voxsize = voxsize * 0.5;
 	float voxel_scale = static_cast<float>(voxsize * 0.95); // Slightly smaller to show gaps
 
@@ -1248,10 +1263,6 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 	if (!simulator_)
 		return;
 
-	// Render all line instances without caching for now (will add back later)
-	std::vector<LineInstance> line_instances;
-	std::vector<PointInstance> point_instances;
-
 	// PERFORMANCE OPTIMIZATION: Use cached energy range instead of expensive per-frame analysis
 	update_cached_energy_range(settings);
 
@@ -1260,25 +1271,46 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 		return get_adaptive_energy_color(energy, cached_min_energy_, cached_max_energy_);
 	};
 
-	// PERFORMANCE: Cache surface calculation instead of computing every frame
-	static float cached_surface_y = 0.1f;
-	static bool surface_cached = false;
+	// PERFORMANCE OPTIMIZATION: Use incremental caching instead of rebuilding every frame
+	size_t current_photon_count = simulator_->paths.size();
 	
-	const auto& layers = simulator_->get_all_layers();
-	if (!surface_cached && !layers.empty()) {
-		cached_surface_y = -1000.0f;
-		for (const auto& layer : layers) {
-			for (const auto& triangle : layer.mesh) {
-				cached_surface_y = std::max(cached_surface_y, static_cast<float>(triangle.v0().y));
-				cached_surface_y = std::max(cached_surface_y, static_cast<float>(triangle.v1().y));
-				cached_surface_y = std::max(cached_surface_y, static_cast<float>(triangle.v2().y));
-			}
-		}
-		surface_cached = true;
+	// Check if we need to rebuild cache completely or just add new photons
+	if (!path_instances_cached_ || current_photon_count < cached_photon_count_) {
+		// Complete rebuild needed (first time or photons were removed)
+		cached_line_instances_.clear();
+		cached_point_instances_.clear();
+		cached_photon_count_ = 0;
+		// Reset buffer upload flags when cache is invalidated
+		line_buffer_uploaded_ = false;
+		point_buffer_uploaded_ = false;
+	} else if (current_photon_count > cached_photon_count_) {
+		// Incremental update - only process new photons
+		// Keep existing cache, just mark buffers for re-upload
+		line_buffer_uploaded_ = false;
+		point_buffer_uploaded_ = false;
 	}
+	
+	// Only process photons if we have new ones to add
+	if (current_photon_count > cached_photon_count_) {
 
-	// Generate all line instances
-	for (const PhotonPath& path : simulator_->paths) {
+		// PERFORMANCE: Use cached surface calculation - moved to class member for proper caching
+		const auto& layers = simulator_->get_all_layers();
+		if (!surface_cached_ && !layers.empty()) {
+			cached_surface_y_ = -1000.0f;
+			for (const auto& layer : layers) {
+				for (const auto& triangle : layer.mesh) {
+					cached_surface_y_ = std::max(cached_surface_y_, static_cast<float>(triangle.v0().y));
+					cached_surface_y_ = std::max(cached_surface_y_, static_cast<float>(triangle.v1().y));
+					cached_surface_y_ = std::max(cached_surface_y_, static_cast<float>(triangle.v2().y));
+				}
+			}
+			surface_cached_ = true;
+		}
+
+		// PERFORMANCE: Process only NEW photons (incremental caching)
+		const auto& paths = simulator_->paths;
+		for (size_t i = cached_photon_count_; i < paths.size(); ++i) {
+			const PhotonPath& path = paths[i];
 		if (path.head) {
 			// Generate connected line segments with energy gradient
 			auto current = path.head;
@@ -1298,17 +1330,17 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 
 				// Use cached surface calculation
 				if (source_dir.y != 0.0f) {
-					float t = (cached_surface_y - source_pos.y) / source_dir.y;
+					float t = (cached_surface_y_ - source_pos.y) / source_dir.y;
 					glm::vec3 surface_entry = source_pos + t * source_dir;
 
 					// Add incident ray
 					glm::vec4 incident_color(1.0f, 1.0f, 1.0f, 1.0f);
-					line_instances.push_back({source_pos, surface_entry, incident_color});
+					cached_line_instances_.push_back({source_pos, surface_entry, incident_color});
 
 					// Add refracted ray if needed
-					if (first_interaction.y < cached_surface_y - 0.001f) {
+					if (first_interaction.y < cached_surface_y_ - 0.001f) {
 						glm::vec4 refracted_color(0.9f, 0.9f, 1.0f, 0.8f);
-						line_instances.push_back({surface_entry, first_interaction, refracted_color});
+						cached_line_instances_.push_back({surface_entry, first_interaction, refracted_color});
 					}
 				}
 			}
@@ -1328,7 +1360,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 							  static_cast<float>(next->position.z));
 
 				// Single line segment per path segment (10x fewer instances!)
-				line_instances.push_back({start, end, line_color});
+				cached_line_instances_.push_back({start, end, line_color});
 
 				// Check for emitter connections at EVERY node during path traversal
 				// Check if current node has an emit connection (external vertex)
@@ -1348,7 +1380,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 					glm::vec4 exit_line_color = adaptive_log_color(exit_energy);
 					exit_line_color.a = 0.8f; // Slightly transparent to distinguish from main path
 					
-					line_instances.push_back({scatter_pos, exit_point, exit_line_color});
+					cached_line_instances_.push_back({scatter_pos, exit_point, exit_line_color});
 				}
 				
 				// Also check direct emitter connection (fallback)
@@ -1368,7 +1400,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 					glm::vec4 exit_line_color = adaptive_log_color(exit_energy);
 					exit_line_color.a = 0.8f; // Slightly transparent to distinguish from main path
 					
-					line_instances.push_back({scatter_pos, exit_point, exit_line_color});
+					cached_line_instances_.push_back({scatter_pos, exit_point, exit_line_color});
 				}
 
 				// Move to next segment
@@ -1395,7 +1427,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 					glm::vec4 exit_line_color = adaptive_log_color(exit_energy);
 					exit_line_color.a = 0.8f; // Slightly transparent to distinguish from main path
 					
-					line_instances.push_back({last_scatter, exit_point, exit_line_color});
+					cached_line_instances_.push_back({last_scatter, exit_point, exit_line_color});
 				}
 				
 				// Also check direct emitter connection (fallback) for final node
@@ -1415,301 +1447,243 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 					glm::vec4 exit_line_color = adaptive_log_color(exit_energy);
 					exit_line_color.a = 0.8f; // Slightly transparent to distinguish from main path
 					
-					line_instances.push_back({last_scatter, exit_point, exit_line_color});
+					cached_line_instances_.push_back({last_scatter, exit_point, exit_line_color});
 				}
 			}
 		}
+		}
+
+		// PERFORMANCE: Add all emitter direction vectors to instanced rendering cache
+		if (!simulator_->emitters.empty()) {
+			for (const auto& emitter : simulator_->emitters) {
+				if (emitter->weight > 0.001) { // Show exits with threshold
+					glm::vec3 start_pos(
+						static_cast<float>(emitter->position.x),
+						static_cast<float>(emitter->position.y),
+						static_cast<float>(emitter->position.z)
+					);
+					
+					glm::vec3 end_pos(
+						static_cast<float>(emitter->position.x + emitter->direction.x * 0.05),
+						static_cast<float>(emitter->position.y + emitter->direction.y * 0.05),
+						static_cast<float>(emitter->position.z + emitter->direction.z * 0.05)
+					);
+					
+					// Use percentage-based coloring consistent with emitter points
+					auto combined_record = simulator_->get_combined_record();
+					float energy_percentage = static_cast<float>(emitter->weight / combined_record.surface_refraction);
+					glm::vec4 direction_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
+					direction_color.a = 0.8f; // Slightly transparent for distinction
+					
+					cached_line_instances_.push_back({start_pos, end_pos, direction_color});
+				}
+			}
+		}
+
+		// PERFORMANCE: Collect scatter points INSIDE cache block to eliminate per-frame processing
+		// First, collect scatter points from photon paths
+		for (const PhotonPath& path : simulator_->paths) {
+			if (path.head) {
+				auto current = path.head;
+				int vertex_count = 0;
+
+				// Count total vertices to identify key points properly
+				auto temp = current;
+				while (temp) {
+					vertex_count++;
+					temp = temp->next;
+				}
+
+				// Only add markers at specific key points: incident, scatter, exit
+				auto path_current = path.head;
+				std::shared_ptr<PhotonNode> prev = nullptr;
+				std::shared_ptr<PhotonNode> next = nullptr;
+				int current_index = 0;
+
+				while (path_current) {
+					glm::vec3 pos(static_cast<float>(path_current->position.x),
+								  static_cast<float>(path_current->position.y),
+								  static_cast<float>(path_current->position.z));
+
+					bool should_mark = false;
+					glm::vec4 marker_color{};
+
+					if (current_index == 0) {
+						// First vertex - incident point (bright white)
+						should_mark = true;
+						marker_color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+					}
+					else if (current_index == vertex_count - 1) {
+						// Last vertex - exit point with adaptive energy-based coloring
+						should_mark = true;
+						float energy = static_cast<float>(path_current->value);
+						marker_color = adaptive_log_color(energy);
+					}
+					else if (current_index > 0 && current_index < vertex_count - 1) {
+						// Check for medium boundary crossings and path splits
+						next = path_current->next;
+						if (prev && next && simulator_) {
+							// Get positions
+							glm::vec3 prev_pos(static_cast<float>(prev->position.x), static_cast<float>(prev->position.y),
+											   static_cast<float>(prev->position.z));
+							glm::vec3 next_pos(static_cast<float>(next->position.x), static_cast<float>(next->position.y),
+											   static_cast<float>(next->position.z));
+
+							// Check if this point represents a medium boundary crossing
+							bool is_medium_boundary = false;
+
+							// Surface entry/exit detection (z-coordinate near 0)
+							if (std::abs(pos.z) < 0.001f && std::abs(prev_pos.z) > 0.001f) {
+								is_medium_boundary = true; // Entry into medium
+							}
+							else if (std::abs(pos.z) < 0.001f && std::abs(next_pos.z) > 0.001f) {
+								is_medium_boundary = true; // Exit from medium
+							}
+
+							// Check for path splits (if this vertex has emitted paths)
+							bool has_emit = (path_current->emit != nullptr);
+
+							if (is_medium_boundary || has_emit) {
+								should_mark = true;
+								// Use adaptive energy-based coloring for all boundary/split points
+								float energy = static_cast<float>(path_current->value);
+								marker_color = adaptive_log_color(energy);
+							}
+						}
+					}
+
+					if (should_mark) {
+						// Add scatter points to point instances
+						PointInstance point_instance;
+						point_instance.position = pos;
+						point_instance.color = marker_color;
+						point_instance.size = 6.0f; // Smaller size for scatter points
+						cached_point_instances_.push_back(point_instance);
+					}
+
+					prev = path_current;
+					path_current = path_current->next;
+					current_index++;
+				}
+			}
+		}
+
+		// PERFORMANCE: Collect emitter points INSIDE cache block  
+		// Second, add emitter exit points (these are the accurate surface boundary points)
+		if (simulator_ && !simulator_->emitters.empty()) {
+			// Add emitter points to the point instances vector
+			for (const auto& emitter : simulator_->emitters) {
+				// Use emitter->position which contains the corrected surface intersection coordinates
+				glm::vec3 exit_pos(
+					static_cast<float>(emitter->position.x),
+					static_cast<float>(emitter->position.y), 
+					static_cast<float>(emitter->position.z)
+				);
+				
+				// Use percentage-based coloring instead of absolute weights for consistency
+				// Convert absolute weight to percentage of total energy budget
+				auto combined_record = simulator_->get_combined_record();
+				float energy_percentage = static_cast<float>(emitter->weight / combined_record.surface_refraction);
+				glm::vec4 exit_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
+				exit_color.a = 1.0f; // Full opacity for emitter points
+				
+				// Add emitter points to point instances
+				PointInstance point_instance;
+				point_instance.position = exit_pos;
+				point_instance.color = exit_color;
+				point_instance.size = 6.0f; // Same size as scatter points
+				cached_point_instances_.push_back(point_instance);
+			}
+			
+			// Add surface specular reflection as an emitter point
+			auto combined_record = simulator_->get_combined_record();
+			if (combined_record.specular_reflection > 0.0 && !simulator_->sources.empty()) {
+				const Source& source = simulator_->sources[0];
+				
+				// Use actual source intersection point
+				glm::vec3 surface_entry(static_cast<float>(source.intersect.x),
+										static_cast<float>(source.intersect.y),
+										static_cast<float>(source.intersect.z));
+
+				// Use percentage-based coloring for surface reflection
+				float energy_percentage = static_cast<float>(combined_record.specular_reflection / combined_record.surface_refraction);
+				glm::vec4 surface_point_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
+				surface_point_color.a = 1.0f; // Full opacity for surface reflection point
+
+				PointInstance surface_point;
+				surface_point.position = surface_entry;
+				surface_point.color = surface_point_color;
+				surface_point.size = 8.0f; // Slightly larger for surface reflection point
+				cached_point_instances_.push_back(surface_point);
+			}
+		}
+
+		// Update cached photon count and mark cache as up to date
+		cached_photon_count_ = current_photon_count;
+		path_instances_cached_ = true;
+		
 	}
 
-	// Render all line instances using cached data (MASSIVE performance improvement)
-	if (!line_instances.empty() && line_instanced_shader_program_) {
+	// Render cached line instances (MASSIVE performance improvement)
+	if (!cached_line_instances_.empty() && line_instanced_shader_program_) {
 		glUseProgram(line_instanced_shader_program_);
 		
-		// Set MVP matrix
+		// PERFORMANCE: Use cached uniform location, compute MVP directly
 		glm::mat4 mvp = camera_.get_projection_matrix() * camera_.get_view_matrix();
-		GLint mvp_location = glGetUniformLocation(line_instanced_shader_program_, "uMVP");
-		glUniformMatrix4fv(mvp_location, 1, GL_FALSE, glm::value_ptr(mvp));
+		glUniformMatrix4fv(line_mvp_uniform_location_, 1, GL_FALSE, glm::value_ptr(mvp));
 		
-		// Upload instance buffer (use GL_STATIC_DRAW for better performance)
-		glBindBuffer(GL_ARRAY_BUFFER, line_instance_vbo_);
-		glBufferData(GL_ARRAY_BUFFER, line_instances.size() * sizeof(LineInstance), 
-					 line_instances.data(), GL_STATIC_DRAW);
+		// PERFORMANCE FIX: Only upload buffer when data has changed, not every frame!
+		if (!line_buffer_uploaded_) {
+			glBindBuffer(GL_ARRAY_BUFFER, line_instance_vbo_);
+			glBufferData(GL_ARRAY_BUFFER, cached_line_instances_.size() * sizeof(LineInstance), 
+						 cached_line_instances_.data(), GL_STATIC_DRAW);
+			line_buffer_uploaded_ = true;
+		}
 		
-		// Render
+		// Render using uploaded buffer
 		glBindVertexArray(line_instanced_vao_);
-		glDrawArraysInstanced(GL_LINES, 0, 2, static_cast<GLsizei>(line_instances.size()));
+		glDrawArraysInstanced(GL_LINES, 0, 2, static_cast<GLsizei>(cached_line_instances_.size()));
 		glBindVertexArray(0);
 		
 		glUseProgram(0);
 	}
 
-	// Collect both scatter points AND emitter points for instanced rendering
-	
-	// First, collect scatter points from photon paths
-	for (const PhotonPath& path : simulator_->paths) {
-		if (path.head) {
-			auto current = path.head;
-			int vertex_count = 0;
-
-			// Count total vertices to identify key points properly
-			auto temp = current;
-			while (temp) {
-				vertex_count++;
-				temp = temp->next;
-			}
-
-			// Only add markers at specific key points: incident, scatter, exit
-			auto path_current = path.head;
-			std::shared_ptr<PhotonNode> prev = nullptr;
-			std::shared_ptr<PhotonNode> next = nullptr;
-			int current_index = 0;
-
-			while (path_current) {
-				glm::vec3 pos(static_cast<float>(path_current->position.x),
-							  static_cast<float>(path_current->position.y),
-							  static_cast<float>(path_current->position.z));
-
-				bool should_mark = false;
-				glm::vec4 marker_color{};
-
-				if (current_index == 0) {
-					// First vertex - incident point (bright white)
-					should_mark = true;
-					marker_color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
-				}
-				else if (current_index == vertex_count - 1) {
-					// Last vertex - exit point with adaptive energy-based coloring
-					should_mark = true;
-					float energy = static_cast<float>(path_current->value);
-					marker_color = adaptive_log_color(energy);
-				}
-				else if (current_index > 0 && current_index < vertex_count - 1) {
-					// Check for medium boundary crossings and path splits
-					next = path_current->next;
-					if (prev && next && simulator_) {
-						// Get positions
-						glm::vec3 prev_pos(static_cast<float>(prev->position.x), static_cast<float>(prev->position.y),
-										   static_cast<float>(prev->position.z));
-						glm::vec3 next_pos(static_cast<float>(next->position.x), static_cast<float>(next->position.y),
-										   static_cast<float>(next->position.z));
-
-						// Check if this point represents a medium boundary crossing
-						bool is_medium_boundary = false;
-
-						// Surface entry/exit detection (z-coordinate near 0)
-						if (std::abs(pos.z) < 0.001f && std::abs(prev_pos.z) > 0.001f) {
-							is_medium_boundary = true; // Entry into medium
-						}
-						else if (std::abs(pos.z) < 0.001f && std::abs(next_pos.z) > 0.001f) {
-							is_medium_boundary = true; // Exit from medium
-						}
-
-						// Check for path splits (if this vertex has emitted paths)
-						bool has_emit = (path_current->emit != nullptr);
-
-						if (is_medium_boundary || has_emit) {
-							should_mark = true;
-							// Use adaptive energy-based coloring for all boundary/split points
-							float energy = static_cast<float>(path_current->value);
-							marker_color = adaptive_log_color(energy);
-						}
-					}
-				}
-
-				if (should_mark) {
-					// Add scatter points to point instances
-					PointInstance point_instance;
-					point_instance.position = pos;
-					point_instance.color = marker_color;
-					point_instance.size = 6.0f; // Smaller size for scatter points
-					point_instances.push_back(point_instance);
-				}
-
-				prev = path_current;
-				path_current = path_current->next;
-				current_index++;
-			}
-		}
-	}
-
-	// Second, add emitter exit points (these are the accurate surface boundary points)
-	if (simulator_ && !simulator_->emitters.empty()) {
-		// Calculate energy range for consistent coloring
-		std::vector<float> emitter_energies;
-		for (const auto& emitter : simulator_->emitters) {
-			if (emitter->weight > 0.0f) {
-				emitter_energies.push_back(static_cast<float>(emitter->weight));
-			}
-		}
-		
-		float min_energy = 1e-8f, max_energy = 1.0f;
-		if (!emitter_energies.empty()) {
-			auto [min_it, max_it] = std::minmax_element(emitter_energies.begin(), emitter_energies.end());
-			min_energy = *min_it;
-			max_energy = *max_it;
-		}
-
-		// Add emitter points to the point instances vector
-		for (const auto& emitter : simulator_->emitters) {
-			// Use emitter->position which contains the corrected surface intersection coordinates
-			glm::vec3 exit_pos(
-				static_cast<float>(emitter->position.x),
-				static_cast<float>(emitter->position.y), 
-				static_cast<float>(emitter->position.z)
-			);
-			
-			// Use percentage-based coloring instead of absolute weights for consistency
-			// Convert absolute weight to percentage of total energy budget
-			auto combined_record = simulator_->get_combined_record();
-			float energy_percentage = static_cast<float>(emitter->weight / combined_record.surface_refraction);
-			glm::vec4 exit_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
-			exit_color.a = 1.0f; // Full opacity for emitter points
-			
-			// Add emitter points to point instances
-			PointInstance point_instance;
-			point_instance.position = exit_pos;
-			point_instance.color = exit_color;
-			point_instance.size = 6.0f; // Same size as scatter points
-			point_instances.push_back(point_instance);
-		}
-		
-		// Add surface specular reflection as an emitter point
-		auto combined_record = simulator_->get_combined_record();
-		if (combined_record.specular_reflection > 0.0 && !simulator_->sources.empty()) {
-			const Source& source = simulator_->sources[0];
-			
-			// Use actual source intersection point
-			glm::vec3 surface_entry(static_cast<float>(source.intersect.x),
-									static_cast<float>(source.intersect.y),
-									static_cast<float>(source.intersect.z));
-
-			// Use percentage-based coloring for surface reflection
-			float energy_percentage = static_cast<float>(combined_record.specular_reflection / combined_record.surface_refraction);
-			glm::vec4 surface_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
-			surface_color.a = 1.0f; // Full opacity
-
-			// Add surface reflection point to point instances
-			PointInstance surface_point;
-			surface_point.position = surface_entry;
-			surface_point.color = surface_color;
-			surface_point.size = 6.0f; // Same size as other points
-			point_instances.push_back(surface_point);
-		}
-	}
-
-	// Render both scatter points and emitter points using instanced rendering
-	if (!point_instances.empty()) {
-		glUseProgram(point_instanced_shader_program_);
-		
-		// Set MVP matrix uniform
-		glm::mat4 mvp = camera_.get_projection_matrix() * camera_.get_view_matrix();
-		GLint mvp_loc = glGetUniformLocation(point_instanced_shader_program_, "uMVP");
-		glUniformMatrix4fv(mvp_loc, 1, GL_FALSE, glm::value_ptr(mvp));
-
-		// Upload instance data
-		glBindBuffer(GL_ARRAY_BUFFER, point_instance_vbo_);
-		glBufferData(GL_ARRAY_BUFFER, point_instances.size() * sizeof(PointInstance), 
-					 point_instances.data(), GL_DYNAMIC_DRAW);
-
-		// Bind VAO and render
-		glBindVertexArray(point_instanced_vao_);
-		
-		// Enable point size and blending for nice looking points
+	// Render cached scatter points and emitter points using instanced rendering
+	if (!cached_point_instances_.empty()) {
+		// PERFORMANCE: Minimize OpenGL state changes during camera movement
+		// Set up blending state once before rendering points
 		glEnable(GL_PROGRAM_POINT_SIZE);
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		
-		glDrawArraysInstanced(GL_POINTS, 0, 1, static_cast<GLsizei>(point_instances.size()));
+		glUseProgram(point_instanced_shader_program_);
 		
+		// PERFORMANCE: Use cached uniform location, compute MVP directly
+		glm::mat4 mvp = camera_.get_projection_matrix() * camera_.get_view_matrix();
+		glUniformMatrix4fv(point_mvp_uniform_location_, 1, GL_FALSE, glm::value_ptr(mvp));
+
+		// PERFORMANCE FIX: Only upload buffer when data has changed, not every frame!
+		if (!point_buffer_uploaded_) {
+			glBindBuffer(GL_ARRAY_BUFFER, point_instance_vbo_);
+			glBufferData(GL_ARRAY_BUFFER, cached_point_instances_.size() * sizeof(PointInstance), 
+						 cached_point_instances_.data(), GL_STATIC_DRAW);
+			point_buffer_uploaded_ = true;
+		}
+
+		// Bind VAO and render using uploaded buffer
+		glBindVertexArray(point_instanced_vao_);
+		glDrawArraysInstanced(GL_POINTS, 0, 1, static_cast<GLsizei>(cached_point_instances_.size()));
+		glBindVertexArray(0);
+		
+		glUseProgram(0);
+		
+		// PERFORMANCE: Restore OpenGL state once after rendering
 		glDisable(GL_BLEND);
 		glDisable(GL_PROGRAM_POINT_SIZE);
-		glBindVertexArray(0);
-		glUseProgram(0);
-	}
-}void Renderer::draw_emitters(const Settings& settings) {
-	if (!simulator_ || simulator_->emitters.empty()) {
-		return;
-	}
-
-	// Draw exit direction vectors for all emitters (both reflections and transmissions)
-	// Note: The emitter points themselves are now rendered via instanced rendering in draw_paths_instanced()
-	if (settings.draw_paths) {  // Use existing draw_paths setting
-		begin_lines();
-		
-		// Calculate energy range for consistent coloring with emitter points
-		std::vector<float> emitter_energies;
-		for (const auto& emitter : simulator_->emitters) {
-			if (emitter->weight > 0.0f) {
-				emitter_energies.push_back(static_cast<float>(emitter->weight));
-			}
-		}
-		
-		float min_energy = 1e-8f, max_energy = 1.0f;
-		if (!emitter_energies.empty()) {
-			auto [min_it, max_it] = std::minmax_element(emitter_energies.begin(), emitter_energies.end());
-			min_energy = *min_it;
-			max_energy = *max_it;
-		}
-
-		for (const auto& emitter : simulator_->emitters) {
-			if (emitter->weight > 0.001) { // Show more exits with lower threshold
-				glm::vec3 start_pos(
-					static_cast<float>(emitter->position.x),
-					static_cast<float>(emitter->position.y),
-					static_cast<float>(emitter->position.z)
-				);
-				
-				glm::vec3 end_pos(
-					static_cast<float>(emitter->position.x + emitter->direction.x * 0.05),
-					static_cast<float>(emitter->position.y + emitter->direction.y * 0.05),
-					static_cast<float>(emitter->position.z + emitter->direction.z * 0.05)
-				);
-				
-				// Use the same percentage-based coloring as the corresponding point
-				auto combined_record = simulator_->get_combined_record();
-				float energy_percentage = static_cast<float>(emitter->weight / combined_record.surface_refraction);
-				glm::vec4 direction_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
-				direction_color.a = 0.8f; // Slightly transparent for distinction
-				
-				add_line(start_pos, end_pos, direction_color);
-			}
-		}
-		
-		// Add surface specular reflection direction vector
-		auto combined_record = simulator_->get_combined_record();
-		if (combined_record.specular_reflection > 0.0 && !simulator_->sources.empty()) {
-			const Source& source = simulator_->sources[0];
-			
-			// Use actual source intersection point
-			glm::vec3 surface_entry(static_cast<float>(source.intersect.x),
-									static_cast<float>(source.intersect.y),
-									static_cast<float>(source.intersect.z));
-			
-			// Use specular direction from simulator
-			glm::vec3 specular_dir(static_cast<float>(source.specular_direction.x),
-								   static_cast<float>(source.specular_direction.y),
-								   static_cast<float>(source.specular_direction.z));
-			
-			// Only render if we have a valid direction
-			if (glm::length(specular_dir) > 0.0f) {
-				specular_dir = glm::normalize(specular_dir);
-				
-				// Create reflection line segment
-				glm::vec3 reflection_end = surface_entry + specular_dir * 0.05f;
-
-				// Use percentage-based coloring for surface reflection direction
-				float energy_percentage = static_cast<float>(combined_record.specular_reflection / combined_record.surface_refraction);
-				glm::vec4 surface_direction_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
-				surface_direction_color.a = 0.8f; // Slightly transparent for distinction
-
-				add_line(surface_entry, reflection_end, surface_direction_color);
-			}
-		}
-		
-		end_lines();
-		draw_lines();
 	}
 }
+
+
 
 // ========================================
 // CONSOLIDATED SHADER-BASED RENDERING METHODS
@@ -2496,24 +2470,8 @@ void Renderer::update_energy_label_screen_positions() {
 
 	// Check if camera has actually changed
 	glm::vec3 current_position = camera_.get_position();
-	float current_distance = camera_.get_distance();
-	float current_azimuth = camera_.get_azimuth();
-	float current_elevation = camera_.get_elevation();
-
-	bool camera_changed = false;
-	if (glm::length(current_position - last_camera_position_) > 1e-4f
-		|| std::abs(current_distance - last_camera_distance_) > 1e-4f
-		|| std::abs(current_azimuth - last_camera_azimuth_) > 1e-4f
-		|| std::abs(current_elevation - last_camera_elevation_) > 1e-4f) {
-		camera_changed = true;
-	}
-
-	// Update screen positions only when camera changes
-	if (camera_changed || camera_state_changed_) {
-		last_camera_position_ = current_position;
-		last_camera_distance_ = current_distance;
-		last_camera_azimuth_ = current_azimuth;
-		last_camera_elevation_ = current_elevation;
+	// Update screen positions only when camera changes (simplified without detailed tracking)
+	if (camera_state_changed_) {
 		camera_state_changed_ = false;
 
 		// Update all cached screen positions
@@ -2915,6 +2873,9 @@ bool Renderer::setup_point_instanced_rendering() {
 		return false;
 	}
 
+	// PERFORMANCE: Cache uniform location to avoid glGetUniformLocation every frame
+	point_mvp_uniform_location_ = glGetUniformLocation(point_instanced_shader_program_, "uMVP");
+
 	// Create and bind VAO for instanced point rendering
 	glGenVertexArrays(1, &point_instanced_vao_);
 	glBindVertexArray(point_instanced_vao_);
@@ -2961,22 +2922,15 @@ void Renderer::update_cached_energy_range(const Settings& settings) const {
 		return;
 	}
 
-	// Check if we need to recalculate (data has changed)
-	size_t current_path_count = simulator_->paths.size();
-	bool paths_changed = (current_path_count != last_path_count_);
-	
-	// For now, assume voxel data version changes when simulation runs
-	// In a more advanced implementation, you'd track voxel data changes
-	bool voxels_changed = !energy_range_cached_;
-
-	if (energy_range_cached_ && !paths_changed && !voxels_changed) {
-		return; // Use cached values
+	// PERFORMANCE FIX: Use proper cache invalidation instead of checking every frame
+	if (energy_range_cached_) {
+		return; // Use cached values - they're already invalidated by simulation version changes
 	}
 
-	// Recalculate energy range using the ORIGINAL method for accurate color mapping
+	// Recalculate energy range using optimized method
 	std::vector<float> all_energies;
 	
-	// Collect energies from photon paths (SAME as original)
+	// Collect energies from photon paths
 	for (const PhotonPath& path : simulator_->paths) {
 		if (path.head) {
 			auto current = path.head;
@@ -2991,10 +2945,11 @@ void Renderer::update_cached_energy_range(const Settings& settings) const {
 	}
 
 	// Collect energies from voxels using the ORIGINAL method for accurate color mapping
-	if (simulator_->config.nx() > 0 && simulator_->config.ny() > 0 && simulator_->config.nz() > 0) {
-		int nx = simulator_->config.nx();
-		int ny = simulator_->config.ny();
-		int nz = simulator_->config.nz();
+	const auto& config = ConfigService::get();
+	if (config.nx() > 0 && config.ny() > 0 && config.nz() > 0) {
+		int nx = config.nx();
+		int ny = config.ny();
+		int nz = config.nz();
 		
 		// Use full scan like the original to maintain color accuracy
 		for (int iz = 0; iz < nz; iz++) {
@@ -3056,13 +3011,48 @@ void Renderer::update_cached_energy_range(const Settings& settings) const {
 
 	// Update cache state
 	energy_range_cached_ = true;
-	last_path_count_ = current_path_count;
-	last_voxel_data_version_++; // Increment version
 }
 
 // Invalidate energy cache when simulation data changes
 void Renderer::invalidate_energy_cache() const {
 	energy_range_cached_ = false;
+}
+
+// PERFORMANCE OPTIMIZATION: Comprehensive cache invalidation
+void Renderer::invalidate_all_caches() {
+	// Invalidate energy-related caches
+	invalidate_energy_cache();
+	invalidate_energy_label_cache();
+	
+	// Invalidate path instance caches
+	invalidate_path_instances_cache();
+	
+	// Invalidate surface geometry cache
+	surface_cached_ = false;
+}
+
+void Renderer::invalidate_path_instances_cache() {
+	path_instances_cached_ = false;
+	cached_line_instances_.clear();
+	cached_point_instances_.clear();
+	cached_photon_count_ = 0; // Reset photon count for complete rebuild
+	// Reset buffer upload flags when cache is invalidated
+	line_buffer_uploaded_ = false;
+	point_buffer_uploaded_ = false;
+}
+
+// PERFORMANCE: Smart settings update - only invalidate path cache when path-related settings change
+void Renderer::set_settings(const Settings& new_settings) {
+	// Check if path-related settings have changed
+	bool path_settings_changed = (settings_.draw_paths != new_settings.draw_paths);
+	
+	// Update settings
+	settings_ = new_settings;
+	
+	// Only invalidate path cache if path visualization settings changed
+	if (path_settings_changed) {
+		invalidate_path_instances_cache();
+	}
 }
 
 bool Renderer::setup_line_instanced_rendering() {
@@ -3079,6 +3069,9 @@ bool Renderer::setup_line_instanced_rendering() {
 	if (!line_instanced_shader_program_) {
 		return false;
 	}
+	
+	// PERFORMANCE: Cache uniform location to avoid glGetUniformLocation every frame
+	line_mvp_uniform_location_ = glGetUniformLocation(line_instanced_shader_program_, "uMVP");
 	
 	// Create line geometry (just two endpoints: 0 and 1)
 	float line_vertices[] = {

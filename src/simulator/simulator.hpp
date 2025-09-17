@@ -51,6 +51,15 @@ public:
 	std::shared_ptr<Random> rng;
 	double mcml_weight_threshold;
 
+	// Version tracking for renderer cache optimization
+	mutable uint64_t simulation_version_ = 0;
+	
+	// Get current simulation version (increments when data changes)
+	uint64_t get_simulation_version() const { return simulation_version_; }
+	
+	// Increment version when simulation data changes (called internally)
+	void increment_simulation_version() const { ++simulation_version_; }
+
 	// Accessor methods for aggregating data across all mediums
 	std::vector<Tissue> get_all_tissues() const;
 	const std::vector<Layer>& get_all_layers() const;
@@ -59,6 +68,18 @@ public:
 	size_t get_total_voxel_count() const;
 	Range3 get_combined_bounds() const;
 	Record get_combined_record() const;
+	
+	// Energy conservation calculation (shared between console and overlay)
+	struct EnergyConservation {
+		double total_absorption = 0.0;
+		double total_reflection = 0.0; 
+		double total_transmission = 0.0;
+		double surface_reflection = 0.0;
+		double surface_refraction = 0.0;
+		double total_energy = 0.0;
+		double total_diffusion = 0.0;
+	};
+	EnergyConservation calculate_energy_conservation() const;
 	
 	// Compatibility properties for existing code
 	[[deprecated("Use get_all_tissues() instead")]] 

@@ -24,3 +24,4 @@ Simulator controls and maintains the Monte Carlo simulation, which propogates ph
 - Material represents the optical properties of a Layer. It contains properties like refractive index, absorption coefficient, scattering coefficient, anisotropy factor, etc.
 - Cell represents a single cell in the Volume. It is an axis-aligned bounding box (AABB) that contains a position, size, and optical properties like absorption and emittance. A Cell is associated with a Voxel for rendering purposes.
 - Photon represents a single photon in the simulation. It contains properties like position, direction, weight, and state (alive or dead), methods for propagating the photon through the medium, handling interactions with layers, and recording radiance in the medium. Each Photon consists of a Path with Nodes that represent a history of interactions like scattering events, reflections, absorptions, etc.
+

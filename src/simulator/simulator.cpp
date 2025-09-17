@@ -52,7 +52,9 @@ Simulator::~Simulator() {
  * Parse the input file and initializes the data structures.
  ***********************************************************/
 bool Simulator::initialize(std::string file) {
-	std::cout << "Initializing Photron" << std::endl;
+	if (config.verbose()) {
+		std::cout << "Initializing Photron" << std::endl;
+	}
 
 	// Clear previous simulation data to ensure clean reset
 	mediums.clear();
@@ -170,7 +172,9 @@ bool Simulator::initialize_sources() {
  * Run the Monte Carlo photon transport simulation.
  ***********************************************************/
 void Simulator::simulate() {
-	std::cout << "Running Monte Carlo simulation" << std::endl;
+	if (config.verbose()) {
+		std::cout << "Running Monte Carlo simulation" << std::endl;
+	}
 
 	metrics.start_clock();
 
@@ -240,6 +244,9 @@ void Simulator::simulate() {
 	normalize();
 
 	metrics.stop_clock();
+	
+	// Increment simulation version since data has changed
+	increment_simulation_version();
 	
 	// Aggregate record data across all mediums for metrics collection
 	double total_absorption = 0.0, specular_reflection = 0.0, diffuse_reflection = 0.0;
@@ -313,7 +320,7 @@ void Simulator::simulate() {
 	metrics.collect_data(total_absorption, specular_reflection, diffuse_reflection,
 						 surface_refraction, specular_transmission, diffuse_transmission);
 	metrics.write_to_file();
-	metrics.print_report();
+	metrics.print_report(*this);
 }
 
 /***********************************************************
@@ -363,6 +370,10 @@ void Simulator::simulate_single_photon() {
 	// Add the completed photon to the photons vector for rendering
 	photons.push_back(new_photon);
 	
+	// CRITICAL FIX: Aggregate voxel data to medium records after adding new photon
+	// This ensures diffuse_reflection and diffuse_transmission are updated for the overlay
+	aggregate_voxel_data();
+	
 	// Recalculate metrics to include the new photon
 	double total_absorption = 0.0, specular_reflection = 0.0, diffuse_reflection = 0.0;
 	double surface_refraction = 0.0, specular_transmission = 0.0, diffuse_transmission = 0.0;
@@ -403,6 +414,9 @@ void Simulator::simulate_single_photon() {
 	
 	metrics.collect_data(total_absorption, specular_reflection, diffuse_reflection,
 						 surface_refraction, specular_transmission, diffuse_transmission);
+	
+	// Increment simulation version since data has changed
+	increment_simulation_version();
 }
 
 /***********************************************************
@@ -2242,6 +2256,59 @@ Record Simulator::get_combined_record() const {
 	// combined.diffuse_transmission += total_voxel_emittance * normalization_factor;
 	
 	return combined;
+}
+
+Simulator::EnergyConservation Simulator::calculate_energy_conservation() const {
+	EnergyConservation result;
+	
+	// First, get the combined record data for surface interactions
+	Record combined_record = get_combined_record();
+	result.surface_reflection = combined_record.specular_reflection;
+	result.surface_refraction = combined_record.surface_refraction;
+	
+	// Calculate total voxel-based energy for accurate accounting
+	// This approach bypasses normalization issues and gives the most accurate energy accounting
+	double total_voxel_absorption = 0.0;
+	double total_voxel_reflection = 0.0;
+	double total_voxel_transmission = 0.0;
+	
+	for (const auto& medium : mediums) {
+		const auto& volume = medium.get_volume();
+		for (const auto& voxel : volume) {
+			if (voxel && voxel->tissue != nullptr) {
+				total_voxel_absorption += voxel->absorption;
+				
+				// Classify emittance into reflection vs transmission based on medium records
+				// The medium records contain direction-classified emittance after aggregate_voxel_data()
+				const auto& record = medium.get_record();
+				double total_medium_emittance = record.diffuse_reflection + record.diffuse_transmission;
+				
+				if (total_medium_emittance > 0.0) {
+					// Proportionally split voxel emittance based on medium record ratios
+					double reflection_ratio = record.diffuse_reflection / total_medium_emittance;
+					double transmission_ratio = record.diffuse_transmission / total_medium_emittance;
+					
+					total_voxel_reflection += voxel->emittance * reflection_ratio;
+					total_voxel_transmission += voxel->emittance * transmission_ratio;
+				} else {
+					// No medium emittance recorded, assume all goes to transmission
+					total_voxel_transmission += voxel->emittance;
+				}
+			}
+		}
+	}
+	
+	result.total_absorption = total_voxel_absorption;
+	result.total_reflection = total_voxel_reflection;
+	result.total_transmission = total_voxel_transmission;
+	result.total_diffusion = total_voxel_reflection + total_voxel_transmission;
+	
+	// Total energy should include ALL components for proper conservation check
+	// This represents the total energy accounted for across all interaction types
+	result.total_energy = result.surface_reflection + result.total_absorption + 
+	                     result.total_reflection + result.total_transmission;
+	
+	return result;
 }
 
 /***********************************************************

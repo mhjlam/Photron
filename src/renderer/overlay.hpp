@@ -10,6 +10,20 @@
 
 class Simulator;
 
+enum class FileDialogMode
+{
+	LoadConfig,
+	SaveResults
+};
+
+// World text overlay system
+struct WorldText 
+{
+	std::string text;
+	float screen_x, screen_y;
+	glm::vec4 color;
+};
+
 class Overlay
 {
 public:
@@ -54,16 +68,7 @@ private:
 	void render_world_text_overlays();
 	void handle_keyboard_shortcuts();
 
-	enum class FileDialogMode
-	{
-		LoadConfig,
-		SaveResults
-	};
-
 	Settings settings_;
-	bool show_options_window_;
-	bool show_info_window_;
-	bool show_demo_window_;
 	bool ui_enabled_;
 
 	// File dialog state
@@ -80,13 +85,5 @@ private:
 	std::function<void(const std::string&)> save_results_callback_;
 	std::function<void()> reset_view_callback_;
 	std::function<void(bool)> camera_mode_changed_callback_;
-
-	// World text overlay system
-	struct WorldText
-	{
-		std::string text;
-		float screen_x, screen_y;
-		glm::vec4 color;
-	};
 	std::vector<WorldText> world_text_queue_;
 };

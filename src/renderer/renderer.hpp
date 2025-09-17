@@ -51,7 +51,7 @@ public:
 	}
 
 	// Settings
-	void set_settings(const Settings& settings) { settings_ = settings; }
+	void set_settings(const Settings& settings);
 	const Settings& get_settings() const { return settings_; }
 
 	// Consolidated shader-based rendering methods
@@ -86,6 +86,10 @@ public:
 	void update_energy_label_screen_positions(); // Update screen positions once per frame
 	void auto_manage_energy_labels(Settings& settings); // Auto-disable energy labels for performance
 
+	// Performance optimization: Cache invalidation
+	void invalidate_all_caches();                // Invalidate all cached data when simulation changes
+	void invalidate_path_instances_cache();      // Invalidate cached line/point instances
+
 	// World-to-screen coordinate conversion for text rendering
 	glm::vec2 world_to_screen(const glm::vec3& world_pos, int screen_width, int screen_height) const;
 
@@ -113,7 +117,6 @@ private:
 	void draw_voxels_instanced(const Settings& settings); // High-performance instanced version
 	void draw_paths(const Settings& settings);
 	void draw_paths_instanced(const Settings& settings); // High-performance instanced version
-	void draw_emitters(const Settings& settings);  // Draw true exit points
 	
 	// Utility methods
 	bool is_point_inside_mesh(const glm::vec3& point, const Simulator& simulator) const;
@@ -242,17 +245,26 @@ private:
 	mutable size_t last_path_count_ {0};
 	mutable size_t last_voxel_data_version_ {0};
 
+	// Surface geometry caching for performance
+	mutable float cached_surface_y_ {0.1f};
+	mutable bool surface_cached_ {false};
+
 	// Photon path instance caching for performance
 	mutable std::vector<LineInstance> cached_line_instances_;
 	mutable std::vector<PointInstance> cached_point_instances_;
 	mutable bool path_instances_cached_ {false};
-	mutable size_t last_simulation_version_ {0};
+	mutable size_t cached_photon_count_ {0}; // Track how many photons are already cached
+	mutable uint64_t last_simulation_version_ {0};
 
-	// Camera state tracking for label position updates
-	glm::vec3 last_camera_position_;
-	float last_camera_distance_;
-	float last_camera_azimuth_;
-	float last_camera_elevation_;
+	// GPU buffer upload state tracking for performance
+	mutable bool line_buffer_uploaded_ {false};
+	mutable bool point_buffer_uploaded_ {false};
+
+	// Uniform location caching for performance (avoid glGetUniformLocation every frame)
+	mutable GLint line_mvp_uniform_location_ {-1};
+	mutable GLint point_mvp_uniform_location_ {-1};
+	
+	// Camera state change tracking
 	bool camera_state_changed_ {true};
 
 	// Key state tracking for smooth movement

@@ -8,6 +8,10 @@
 #include <iomanip>
 #include <iostream>
 #include <string>
+
+// Include for the unified energy conservation method
+#include "simulator.hpp"
+#include "config_service.hpp"
 #include <chrono>
 
 void Metrics::increment_scatters() {
@@ -120,59 +124,114 @@ void Metrics::write_to_file() {
 	out << std::endl;
 }
 
-void Metrics::print_report() {
-	std::cout << "=== Monte Carlo Simulation Results ===" << std::endl;
-	
-	// Transport statistics
-	std::cout << "Transport Statistics:" << std::endl;
-	std::cout << "  Path length:       " << std::fixed << std::setprecision(6) << path_length_ << std::endl;
-	std::cout << "  Scatter events:    " << scatter_events_ << std::endl;
-	std::cout << "  Average step size: " << std::fixed << std::setprecision(6) << average_step_size_ << std::endl;
-	std::cout << "  Diffusion distance:" << std::fixed << std::setprecision(6) << diffusion_distance_ << std::endl;
+void Metrics::print_report(const class Simulator& simulator) {
+	std::cout << std::endl << "=== Monte Carlo Simulation Results ===" << std::endl << std::endl;
 
-	std::cout << std::endl;
-	
-	// Radiance values
-	std::cout << "Radiance Properties:" << std::endl;
-	std::cout << "  Total absorption:   " << std::fixed << std::setprecision(6) << total_absorption_ << std::endl;
-	std::cout << "  Total reflection:   " << std::fixed << std::setprecision(6) << total_reflection_ << std::endl;
-	std::cout << "  Total transmission: " << std::fixed << std::setprecision(6) << total_transmission_ << std::endl;
-	std::cout << "  Total diffusion:    " << std::fixed << std::setprecision(6) << total_diffusion_ << std::endl;
-
-	std::cout << std::endl;
-	
-	// Surface interactions
-	std::cout << "Surface Interactions:" << std::endl;
-	std::cout << "  Surface reflection: " << std::fixed << std::setprecision(6) << surface_reflection_ << std::endl;
-	std::cout << "  Surface refraction: " << std::fixed << std::setprecision(6) << surface_refraction_ << std::endl;
-
-	std::cout << std::endl;
-	
-	// Energy conservation check - what happens to energy that entered the medium
-	double total_energy = total_absorption_ + total_reflection_ + total_transmission_;
-	std::cout << "Energy Conservation (of refracted energy):" << std::endl;
-	std::cout << "  Total accounted:    " << std::fixed << std::setprecision(6) << total_energy << std::endl;
-	std::cout << "  Conservation ratio: " << std::fixed << std::setprecision(3) << (total_energy / surface_refraction_) << std::endl;
-	
-	if (total_energy > 0) {
-		std::cout << "  Absorption:         " << std::fixed << std::setprecision(1) 
-				  << (total_absorption_ / surface_refraction_) * 100.0 << "%" << std::endl;
-		std::cout << "  Reflection:         " << std::fixed << std::setprecision(1) 
-				  << (total_reflection_ / surface_refraction_) * 100.0 << "%" << std::endl;
-		std::cout << "  Transmission:       " << std::fixed << std::setprecision(1) 
-				  << (total_transmission_ / surface_refraction_) * 100.0 << "%" << std::endl;
+	// Per-medium statistics (matching overlay format)
+	auto& mediums = simulator.mediums;
+	for (size_t i = 0; i < mediums.size(); ++i) {
+		auto& medium = mediums[i];
+		const auto& record = medium.get_record();
+		auto& metrics = medium.get_metrics();  // Non-const to call compute methods
 		
-		// Check if energy is conserved relative to surface refraction
-		double conservation_ratio = total_energy / surface_refraction_;
-		if (std::abs(conservation_ratio - 1.0) > 0.05) {
-			std::cout << "  WARNING: Energy not conserved! Ratio = " << std::fixed << std::setprecision(3) 
-					  << conservation_ratio << std::endl;
+		// Medium header with ID
+		std::cout << "Medium " << (i + 1) << std::endl;
+		
+		// Volume Statistics
+		std::cout << "Volume Statistics" << std::endl;
+		const auto& config = ConfigService::get();
+		std::cout << "  Volume Grid:         " << config.nx() << "x" 
+		          << config.ny() << "x" << config.nz() << std::endl;
+		std::cout << "  Total Voxels:        " << medium.get_volume().size() << std::endl;
+		
+		// Count surface voxels manually
+		size_t surface_count = 0;
+		const auto& volume = medium.get_volume();
+		for (uint64_t idx = 0; idx < volume.size(); ++idx) {
+			auto voxel = volume.at(static_cast<uint32_t>(idx));
+			if (voxel && voxel->is_surface_voxel) {
+				surface_count++;
+			}
 		}
+		std::cout << "  Surface Voxels:      " << surface_count << std::endl;
+		
+		std::cout << std::endl;
+		
+		// Transport Statistics
+		std::cout << "Transport Statistics" << std::endl;
+		std::cout << "  Total photons:       " << simulator.paths.size() << std::endl;
+		std::cout << "  Photons entered:     " << record.photons_entered << std::endl;
+		std::cout << "  Scatter events:      " << std::fixed << std::setprecision(0) 
+		          << metrics.get_scatter_events() << std::endl;
+		std::cout << "  Total path length:   " << std::fixed << std::setprecision(6) 
+		          << metrics.get_path_length() << std::endl;
+		std::cout << "  Average step size:   " << std::fixed << std::setprecision(6) 
+		          << metrics.get_average_step_size() << std::endl;
+		std::cout << "  Diffusion distance:  " << std::fixed << std::setprecision(6) 
+		          << metrics.get_diffusion_distance() << std::endl;
+		
+		std::cout << std::endl;
+		
+		// Use unified energy conservation calculation (same as overlay)
+		auto energy = simulator.calculate_energy_conservation();
+
+		std::cout << "Radiance Properties" << std::endl;
+		std::cout << "  Total absorption:    " << std::fixed << std::setprecision(6) 
+		          << energy.total_absorption << std::endl;
+		std::cout << "  Total diffusion:     " << std::fixed << std::setprecision(6) 
+		          << energy.total_diffusion << std::endl;
+		std::cout << "    Reflection:        " << std::fixed << std::setprecision(6) 
+		          << energy.total_reflection << std::endl;
+		std::cout << "    Transmission:      " << std::fixed << std::setprecision(6) 
+		          << energy.total_transmission << std::endl;
+		
+		std::cout << std::endl;
+		
+		// Energy Conservation
+		std::cout << "Energy Conservation" << std::endl;
+		if (energy.surface_refraction > 0) {
+			// Use TOTAL initial energy as baseline (specular reflection + refracted energy)
+			double baseline_energy = energy.surface_reflection + energy.surface_refraction;
+			
+			// Calculate percentages relative to total initial energy
+			double surface_reflection_percent = (energy.surface_reflection / baseline_energy) * 100.0;
+			double absorption_percent = (energy.total_absorption / baseline_energy) * 100.0;
+			double reflection_percent = (energy.total_reflection / baseline_energy) * 100.0;
+			double transmission_percent = (energy.total_transmission / baseline_energy) * 100.0;
+			
+			// Total should equal baseline_energy for perfect conservation
+			double total_accounted = energy.surface_reflection + energy.total_absorption + 
+			                        energy.total_reflection + energy.total_transmission;
+			double total_percent = (total_accounted / baseline_energy) * 100.0;
+
+			std::cout << "  Specular reflection: " << std::fixed << std::setprecision(1) 
+			          << surface_reflection_percent << "%" << std::endl;
+			std::cout << "  Absorption:          " << std::fixed << std::setprecision(1) 
+			          << absorption_percent << "%" << std::endl;
+			std::cout << "  Reflection:          " << std::fixed << std::setprecision(1) 
+			          << reflection_percent << "%" << std::endl;
+			std::cout << "  Transmission:        " << std::fixed << std::setprecision(1) 
+			          << transmission_percent << "%" << std::endl;
+			std::cout << "  Total:               " << std::fixed << std::setprecision(1) 
+			          << total_percent << "%" << std::endl;
+
+			// Check if energy is conserved
+			if (std::abs(total_percent - 100.0) > 2.0) {
+				std::cout << "  WARNING: Energy not conserved!" << std::endl;
+			}
+		} else {
+			std::cout << "  Specular reflection: 0.0%" << std::endl;
+			std::cout << "  Absorption:          0.0%" << std::endl;
+			std::cout << "  Reflection:          0.0%" << std::endl;
+			std::cout << "  Transmission:        0.0%" << std::endl;
+			std::cout << "  Total:               0.0%" << std::endl;
+		}
+		
+		std::cout << std::endl;
 	}
 
-	std::cout << std::endl;
-	std::cout << "Execution time: " << elapsed_time_ms_ << " ms" << std::endl;
-	std::cout << "======================================" << std::endl;
+	std::cout << "Execution time:        " << elapsed_time_ms_ << " ms" << std::endl;
+	std::cout << "======================================" << std::endl << std::endl;
 }
 
 void Metrics::reset() {

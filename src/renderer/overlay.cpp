@@ -9,6 +9,7 @@
 #include <imgui_impl_opengl3.h>
 
 #include "simulator/simulator.hpp"
+#include "simulator/config_service.hpp"
 
 // Helper function for ImGui tooltips
 static void HelpMarker(const char* desc) {
@@ -23,8 +24,8 @@ static void HelpMarker(const char* desc) {
 }
 
 Overlay::Overlay() :
-	show_options_window_(true), show_info_window_(false), show_demo_window_(false), ui_enabled_(true),
-	show_file_dialog_(false), file_dialog_mode_(FileDialogMode::LoadConfig), current_directory_("config/") {
+	ui_enabled_(true), show_file_dialog_(false), 
+	file_dialog_mode_(FileDialogMode::LoadConfig), current_directory_("config/") {
 	std::fill(std::begin(file_path_buffer_), std::end(file_path_buffer_), '\0');
 	file_path_.clear();
 }
@@ -57,7 +58,9 @@ bool Overlay::initialize(GLFWwindow* window) {
 		return false;
 	}
 
-	std::cout << "ImGui overlay initialized successfully" << std::endl;
+	if (ConfigService::get().verbose()) {
+		std::cout << "ImGui overlay initialized successfully" << std::endl;
+	}
 	return true;
 }
 
@@ -156,13 +159,21 @@ void Overlay::render_main_menu_bar() {
 			}
 			ImGui::EndMenu();
 		}
+		if (ImGui::BeginMenu("View")) {
+			if (ImGui::MenuItem("Reset", nullptr, false, ui_enabled_)) {
+				if (reset_view_callback_) {
+					reset_view_callback_();
+				}
+			}
+			ImGui::EndMenu();
+		}
 		if (ImGui::BeginMenu("Simulation")) {
-			if (ImGui::MenuItem("Add Run", "R", false, ui_enabled_)) {
+			if (ImGui::MenuItem("Add Photon", "P", false, ui_enabled_)) {
 				if (run_simulation_callback_) {
 					run_simulation_callback_();
 				}
 			}
-			if (ImGui::MenuItem("Re-Run", "Ctrl+R", false, ui_enabled_)) {
+			if (ImGui::MenuItem("Re-Run Simulation", "Ctrl+R", false, ui_enabled_)) {
 				if (rerun_simulation_callback_) {
 					rerun_simulation_callback_();
 				}
@@ -202,7 +213,7 @@ void Overlay::render_main_menu_bar() {
 void Overlay::render_control_panel(Simulator* simulator) {
 	// Set window position and size to be larger to accommodate more information
 	ImGui::SetNextWindowPos(ImVec2(10, 30), ImGuiCond_FirstUseEver);
-	ImGui::SetNextWindowSize(ImVec2(240, 480), ImGuiCond_Always); // Force size update every time
+	ImGui::SetNextWindowSize(ImVec2(250, 480), ImGuiCond_Always); // Force size update every time
 
 	// Create non-movable, non-resizable window like VolRec
 	ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
@@ -220,10 +231,6 @@ void Overlay::render_control_panel(Simulator* simulator) {
 		ImGui::SameLine();
 		HelpMarker("Show photon paths and scatter points");
 
-		ImGui::Checkbox("Geometry Bounds", &settings_.draw_volume);
-		ImGui::SameLine();
-		HelpMarker("Show actual geometry boundary with triangles/quads");
-
 		// Energy Labels - auto-disabled after 10 photons (handled by renderer)
 		bool many_photons = (simulator && simulator->paths.size() > 10);
 		
@@ -236,13 +243,17 @@ void Overlay::render_control_panel(Simulator* simulator) {
 			HelpMarker("Show energy percentage labels at interaction points");
 		}
 
+		ImGui::Checkbox("Volume Geometry", &settings_.draw_volume);
+		ImGui::SameLine();
+		HelpMarker("Show actual geometry boundary with triangles/quads");
+
 		ImGui::Spacing();
 
 		// Camera mode
 		{
 			const char* camera_modes[] = {"Orbit", "Free"};
 			int current_camera = static_cast<int>(settings_.camera_mode);
-			ImGui::SetNextItemWidth(120.0f); // Make combo box shorter
+			ImGui::SetNextItemWidth(100.0f); // Make combo box shorter
 			if (ImGui::Combo("Camera Mode", &current_camera, camera_modes, IM_ARRAYSIZE(camera_modes))) {
 				settings_.camera_mode = static_cast<CameraMode>(current_camera);
 				if (camera_mode_changed_callback_) {
@@ -259,7 +270,7 @@ void Overlay::render_control_panel(Simulator* simulator) {
 		{
 			const char* voxel_modes[] = {"Layers", "Absorption", "Emittance"};
 			int current_voxel = static_cast<int>(settings_.voxel_mode);
-			ImGui::SetNextItemWidth(120.0f); // Make combo box shorter
+			ImGui::SetNextItemWidth(100.0f); // Make combo box shorter
 
 			if (!settings_.draw_voxels) {
 				ImGui::BeginDisabled();
@@ -274,18 +285,10 @@ void Overlay::render_control_panel(Simulator* simulator) {
 			}
 
 			ImGui::SameLine();
-			HelpMarker(
-				"Visualization mode for voxels:\n• Layers: Show layer colors with light transparency\n• Absorption: Color by absorbed energy\n• "
-				"Emittance: Color by emitted energy");
-		}
-
-		ImGui::Spacing();
-
-		// Reset View button
-		if (ImGui::Button("Reset View") && ui_enabled_) {
-			if (reset_view_callback_) {
-				reset_view_callback_();
-			}
+			HelpMarker("Visualization mode for voxels:\n"
+					   "- Layers: Show layer colors with light transparency\n"
+					   "- Absorption: Color by absorbed energy\n"
+					   "- Emittance: Color by emitted energy");
 		}
 
 		ImGui::Spacing();
@@ -294,9 +297,6 @@ void Overlay::render_control_panel(Simulator* simulator) {
 		if (simulator) {
 			ImGui::SeparatorText("Simulation Statistics");
 
-			// Only global photons traced
-			ImGui::Text("Photons Traced: %zu", simulator->paths.size());
-			
 			// Per-medium statistics (collapsible)
 			ImGui::Spacing();
 			auto& mediums = simulator->mediums;
@@ -310,9 +310,9 @@ void Overlay::render_control_panel(Simulator* simulator) {
 				if (ImGui::CollapsingHeader(medium_name.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
 					// Volume Statistics
 					ImGui::Text("Volume Statistics");
-					ImGui::Text("  Grid:               %dx%dx%d", simulator->config.nx(), simulator->config.ny(), simulator->config.nz());
-					ImGui::Text("  Total Voxels:       %llu", medium.get_volume().size());
-					ImGui::Text("  Voxel Size:         %.4f", simulator->config.vox_size());
+					const auto& config = ConfigService::get();
+					ImGui::Text("  Volume Grid:         %dx%dx%d", config.nx(), config.ny(), config.nz());
+					ImGui::Text("  Total Voxels:        %llu", medium.get_volume().size());
 					
 					// Count surface voxels manually
 					size_t surface_count = 0;
@@ -323,72 +323,69 @@ void Overlay::render_control_panel(Simulator* simulator) {
 							surface_count++;
 						}
 					}
-					ImGui::Text("  Surface Voxels:     %zu", surface_count);
+					ImGui::Text("  Surface Voxels:      %zu", surface_count);
 					
 					ImGui::Spacing();
 					
 					// Transport Statistics (matching console format)
 					ImGui::Text("Transport Statistics");
-					ImGui::Text("  Photons entered:    %d", record.photons_entered);
-					ImGui::Text("  Scatter events:     %.0f", metrics.get_scatter_events());
-					ImGui::Text("  Total path length:  %7.6f", metrics.compute_path_length());
-					ImGui::Text("  Average step size:  %.6f", metrics.compute_average_step_size());
-					ImGui::Text("  Diffusion distance: %.6f", metrics.compute_diffusion_distance());
+					ImGui::Text("  Total photons:       %zu", simulator->paths.size());
+					ImGui::Text("  Photons entered:     %d", record.photons_entered);
+					ImGui::Text("  Scatter events:      %.0f", metrics.get_scatter_events());
+					ImGui::Text("  Total path length:   %7.6f", metrics.compute_path_length());
+					ImGui::Text("  Average step size:   %.6f", metrics.compute_average_step_size());
+					ImGui::Text("  Diffusion distance:  %.6f", metrics.compute_diffusion_distance());
 					
 					ImGui::Spacing();
 					
-					// Surface Interactions (matching console format)
-					ImGui::Text("Surface Interaction");
-					ImGui::Text("  Surface reflection: %.6f", record.specular_reflection);
-					ImGui::Text("  Surface refraction: %.6f", record.surface_refraction);
-
-					ImGui::Spacing();
-					
-					// CORRECTED VOXEL-BASED ENERGY CALCULATIONS (matching console format)
-					double total_voxel_absorption = 0.0;
-					double total_voxel_emittance = 0.0;
-					
-					// Calculate voxel-based totals using existing volume variable
-					for (uint64_t idx = 0; idx < volume.size(); ++idx) {
-						auto voxel = volume.at(static_cast<uint32_t>(idx));
-						if (voxel) {
-							total_voxel_absorption += voxel->absorption;
-							total_voxel_emittance += voxel->emittance;
-						}
-					}
-					
-					// Radiance Properties (using direction-classified medium records)
-					double total_reflection = record.diffuse_reflection; // Direction-classified reflection
-					double total_transmission = record.diffuse_transmission; // Direction-classified transmission  
-					double total_diffusion = record.diffuse_reflection + record.diffuse_transmission;
+					// Use unified energy conservation calculation (same as console output)
+					auto energy = simulator->calculate_energy_conservation();
 
 					ImGui::Text("Radiance Properties");
-					ImGui::Text("  Total absorption:   %.6f", total_voxel_absorption);
-					ImGui::Text("  Total diffusion:    %.6f", total_diffusion);
-					ImGui::Text("    Reflection:       %.6f", total_reflection);
-					ImGui::Text("    Transmission:     %.6f", total_transmission);
+					ImGui::Text("  Total absorption:    %.6f", energy.total_absorption);
+					ImGui::Text("  Total diffusion:     %.6f", energy.total_diffusion);
+					ImGui::Text("    Reflection:        %.6f", energy.total_reflection);
+					ImGui::Text("    Transmission:      %.6f", energy.total_transmission);
 					
 					ImGui::Spacing();
 					
-					// Energy Conservation (using corrected voxel-based totals)
-					double corrected_total_energy = total_voxel_absorption + total_reflection + total_transmission;
+					// Energy Conservation
 					ImGui::Text("Energy Conservation");
-					if (record.surface_refraction > 0) {
-						double conservation_ratio = corrected_total_energy / record.surface_refraction;
+					if (energy.surface_refraction > 0) {
+						// Use TOTAL initial energy as baseline (specular reflection + refracted energy)
+						double baseline_energy = energy.surface_reflection + energy.surface_refraction;
 						
-						if (corrected_total_energy > 0) {
-							ImGui::Text("  Absorption:         %.1f%%", (total_voxel_absorption / record.surface_refraction) * 100.0);
-							ImGui::Text("  Reflection:         %.1f%%", (total_reflection / record.surface_refraction) * 100.0);
-							ImGui::Text("  Transmission:       %.1f%%", (total_transmission / record.surface_refraction) * 100.0);
-							
-							// Energy conservation total as percentage with color coding
-							ImVec4 total_color = (std::abs(conservation_ratio - 1.0) > 0.05) ? 
-								ImVec4(1.0f, 0.3f, 0.3f, 1.0f) :  // Red if not conserved
-								ImVec4(0.3f, 1.0f, 0.3f, 1.0f);   // Green if conserved
-							
-							ImGui::TextColored(total_color, "  Total:              %.1f%%", corrected_total_energy / record.surface_refraction * 100.0);
-						}
+						// Calculate percentages relative to total initial energy
+						double surface_reflection_percent = (energy.surface_reflection / baseline_energy) * 100.0;
+						double absorption_percent = (energy.total_absorption / baseline_energy) * 100.0;
+						double reflection_percent = (energy.total_reflection / baseline_energy) * 100.0;
+						double transmission_percent = (energy.total_transmission / baseline_energy) * 100.0;
+						
+						// Total should equal baseline_energy for perfect conservation
+						double total_accounted = energy.surface_reflection + energy.total_absorption + 
+						                        energy.total_reflection + energy.total_transmission;
+						double total_percent = (total_accounted / baseline_energy) * 100.0;
+
+						// Energy conservation total as percentage with color coding
+						ImVec4 total_color = (std::abs(total_percent - 100.0) > 5.0) ? 
+							ImVec4(1.0f, 0.3f, 0.3f, 1.0f) :  // Red if not conserved
+							ImVec4(0.3f, 1.0f, 0.3f, 1.0f);   // Green if conserved
+
+						ImGui::Text("  Specular reflection: %7.1f%%", surface_reflection_percent);
+						ImGui::Text("  Absorption:          %7.1f%%", absorption_percent);
+						ImGui::Text("  Reflection:          %7.1f%%", reflection_percent);
+						ImGui::Text("  Transmission:        %7.1f%%", transmission_percent);
+						ImGui::TextColored(total_color, "  Total:               %7.1f%%", total_percent);
 					}
+					else {
+						ImGui::Text("  Specular reflection: 0.0%%");
+						ImGui::Text("  Absorption:          0.0%%");
+						ImGui::Text("  Reflection:          0.0%%");
+						ImGui::Text("  Transmission:        0.0%%");
+						ImGui::Text("  Total:               0.0%%");
+					}
+
+					ImGui::Spacing();
 				}
 			}
 		}

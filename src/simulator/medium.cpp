@@ -35,29 +35,39 @@ bool Medium::initialize() {
 		std::cerr << "An error occurred while initializing the voxel grid." << std::endl;
 		return false;
 	}
-	std::cout << "Voxel grid initialized successfully." << std::endl;
+	if (config_.verbose()) {
+		std::cout << "Voxel grid initialized successfully." << std::endl;
+	}
 
 	// Intialize layers
 	if (!initialize_layers()) {
 		std::cerr << "An error occurred while initializing the layers." << std::endl;
 		return false;
 	}
-	std::cout << "Layers initialized successfully." << std::endl;
+	if (config_.verbose()) {
+		std::cout << "Layers initialized successfully." << std::endl;
+	}
 
 	// Reset simulation data after voxels are created
 	reset_simulation_data();
-    std::cout << "Simulation data reset completed." << std::endl;
+	if (config_.verbose()) {
+		std::cout << "Simulation data reset completed." << std::endl;
+	}
 
 	// voxelize the geometry
 	if (!voxelize_layers()) {
 		std::cerr << "An error occurred during geometry voxelization." << std::endl;
 		return false;
 	}
-	std::cout << "Geometry voxelization completed successfully." << std::endl;
+	if (config_.verbose()) {
+		std::cout << "Geometry voxelization completed successfully." << std::endl;
+	}
 
 	// Identify surface voxels
 	identify_surface_voxels();
-	std::cout << "Surface voxel identification completed." << std::endl;
+	if (config_.verbose()) {
+		std::cout << "Surface voxel identification completed." << std::endl;
+	}
 
 	return true;
 }
@@ -174,22 +184,22 @@ bool Medium::voxelize_layers() {
 	uint32_t nz = config_.nz();
 	double vox_size = config_.vox_size();
 
-	std::cout << "Voxelizing geometry using point-containment method..." << std::endl;
-	std::cout << "Grid dimensions: " 
-              << nx << "x" 
-              << ny << "x" 
-              << nz << " (total: " 
-              << (nx * ny * nz) << " voxels)"
-			  << std::endl;
-	std::cout << "Voxel size: " << vox_size << std::endl;
-	std::cout << "Grid bounds: min(" 
-              << bounds_.min_bounds.x << "," 
-              << bounds_.min_bounds.y << "," 
-              << bounds_.min_bounds.z << ") max(" 
-              << bounds_.max_bounds.x << "," 
-              << bounds_.max_bounds.y << "," 
-              << bounds_.max_bounds.z << ")"
-			  << std::endl;
+	if (config_.verbose()) {
+		std::cout << "Voxelizing geometry..." << std::endl;
+		std::cout << "Grid dimensions: " 
+		          << nx << "x" << ny << "x" << nz 
+				  << " (total: " << (nx * ny * nz) 
+				  << " voxels, size: )" << vox_size 
+				  << std::endl;
+		std::cout << "Grid bounds: min(" 
+		          << bounds_.min_bounds.x << "," 
+		          << bounds_.min_bounds.y << "," 
+		          << bounds_.min_bounds.z << ") max(" 
+		          << bounds_.max_bounds.x << "," 
+		          << bounds_.max_bounds.y << "," 
+		          << bounds_.max_bounds.z << ")"
+				  << std::endl;
+	}
 
 	int total_voxels_assigned = 0;
 	int partial_voxels = 0;
@@ -328,8 +338,10 @@ bool Medium::voxelize_layers() {
 		}
 	}
 
-	std::cout << "Point-containment voxelization completed. Assigned tissue to " << total_voxels_assigned << " voxels ("
-			  << partial_voxels << " partial)." << std::endl;
+	if (config_.verbose()) {
+		std::cout << "Point-containment voxelization completed. Assigned tissue to " << total_voxels_assigned << " voxels ("
+				  << partial_voxels << " partial)." << std::endl;
+	}
 	return true;
 }
 
@@ -449,7 +461,9 @@ void Medium::identify_surface_voxels() {
 		}
 	}
 	
-	std::cout << "Identified " << surface_voxel_count << " surface voxels." << std::endl;
+	if (config_.verbose()) {
+		std::cout << "Identified " << surface_voxel_count << " surface voxels." << std::endl;
+	}
 }
 
 void Medium::reset_simulation_data() {
