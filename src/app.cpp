@@ -1,7 +1,9 @@
 #include "app.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -252,9 +254,9 @@ void App::setup_overlay_callbacks() {
 		// Run a single additional photon instead of the full simulation
 		simulator_->simulate_single_photon();
 
-		// Invalidate energy label cache since simulation data has changed
+		// Invalidate all caches since simulation data has changed
 		if (renderer_) {
-			renderer_->invalidate_energy_label_cache();
+			renderer_->invalidate_all_caches();
 		}
 
 		// Re-enable UI
@@ -278,9 +280,9 @@ void App::setup_overlay_callbacks() {
 			std::cout << "No config file loaded. Please load a configuration first." << std::endl;
 		}
 
-		// Invalidate energy label cache since simulation data has been reset
+		// Invalidate all caches since simulation data has been reset
 		if (renderer_) {
-			renderer_->invalidate_energy_label_cache();
+			renderer_->invalidate_all_caches();
 		}
 
 		// Re-enable UI
@@ -288,8 +290,6 @@ void App::setup_overlay_callbacks() {
 	});
 
 	overlay_->set_save_results_callback([this](const std::string& filepath) {
-		std::cout << "Saving simulation results to: " << filepath << std::endl;
-
 		// Implement JSON results export
 		if (filepath.find(".json") != std::string::npos) {
 			save_results_as_json(filepath);
@@ -459,53 +459,219 @@ void App::scroll_callback(GLFWwindow*, double xoffset, double yoffset) {
 	}
 }
 
+// Helper methods to aggregate metrics from all mediums
+double App::aggregate_path_length() const {
+	if (!simulator_) return 0.0;
+	
+	double total_path_length = 0.0;
+	const auto& mediums = simulator_->mediums;
+	for (const auto& medium : mediums) {
+		const auto& metrics = medium.get_metrics();
+		total_path_length += metrics.compute_path_length();
+	}
+	return total_path_length;
+}
+
+double App::aggregate_scatter_events() const {
+	if (!simulator_) return 0.0;
+	
+	double total_scatter_events = 0.0;
+	const auto& mediums = simulator_->mediums;
+	for (const auto& medium : mediums) {
+		const auto& metrics = medium.get_metrics();
+		total_scatter_events += metrics.get_scatter_events();
+	}
+	return total_scatter_events;
+}
+
+double App::aggregate_average_step_size() const {
+	if (!simulator_) return 0.0;
+	
+	double total_step_size = 0.0;
+	double total_steps = 0.0;
+	const auto& mediums = simulator_->mediums;
+	
+	for (const auto& medium : mediums) {
+		const auto& metrics = medium.get_metrics();
+		double step_size = metrics.compute_average_step_size();
+		if (step_size > 0.0) {
+			// Weight by number of steps (path vertices - 1)
+			size_t num_vertices = metrics.get_path_vertices().size();
+			if (num_vertices > 1) {
+				double num_steps = static_cast<double>(num_vertices - 1);
+				total_step_size += step_size * num_steps;
+				total_steps += num_steps;
+			}
+		}
+	}
+	
+	return (total_steps > 0.0) ? (total_step_size / total_steps) : 0.0;
+}
+
+double App::aggregate_diffusion_distance() const {
+	if (!simulator_) return 0.0;
+	
+	// For diffusion distance, we'll take the maximum across all mediums
+	// since it represents the overall extent of photon travel
+	double max_diffusion_distance = 0.0;
+	const auto& mediums = simulator_->mediums;
+	for (const auto& medium : mediums) {
+		const auto& metrics = medium.get_metrics();
+		double diffusion_distance = metrics.compute_diffusion_distance();
+		max_diffusion_distance = std::max(max_diffusion_distance, diffusion_distance);
+	}
+	return max_diffusion_distance;
+}
+
+// Helper methods to aggregate energy conservation values from all mediums
+double App::aggregate_total_absorption() const {
+	if (!simulator_) return 0.0;
+	
+	double total_absorption = 0.0;
+	const auto& mediums = simulator_->mediums;
+	for (const auto& medium : mediums) {
+		total_absorption += medium.get_metrics().get_total_absorption();
+	}
+	return total_absorption;
+}
+
+double App::aggregate_total_reflection() const {
+	if (!simulator_) return 0.0;
+	
+	double total_reflection = 0.0;
+	const auto& mediums = simulator_->mediums;
+	for (const auto& medium : mediums) {
+		total_reflection += medium.get_metrics().get_diffuse_reflection();
+	}
+	return total_reflection;
+}
+
+double App::aggregate_total_transmission() const {
+	if (!simulator_) return 0.0;
+	
+	double total_transmission = 0.0;
+	const auto& mediums = simulator_->mediums;
+	for (const auto& medium : mediums) {
+		total_transmission += medium.get_metrics().get_diffuse_transmission();
+	}
+	return total_transmission;
+}
+
+double App::aggregate_total_diffusion() const {
+	return aggregate_total_reflection() + aggregate_total_transmission();
+}
+
+double App::aggregate_surface_reflection() const {
+	if (!simulator_) return 0.0;
+	
+	double surface_reflection = 0.0;
+	const auto& mediums = simulator_->mediums;
+	for (const auto& medium : mediums) {
+		surface_reflection += medium.get_metrics().get_surface_reflection();
+	}
+	return surface_reflection;
+}
+
+double App::aggregate_surface_refraction() const {
+	if (!simulator_) return 0.0;
+	
+	double surface_refraction = 0.0;
+	const auto& mediums = simulator_->mediums;
+	for (const auto& medium : mediums) {
+		surface_refraction += medium.get_metrics().get_surface_refraction();
+	}
+	return surface_refraction;
+}
+
 void App::save_results_as_json(const std::string& filepath) {
 	if (!simulator_) {
 		std::cerr << "No simulator available for saving results." << std::endl;
 		return;
 	}
 
-	std::ofstream file(filepath);
+	// Create results directory if it doesn't exist
+	std::filesystem::path results_dir = "results";
+	if (!std::filesystem::exists(results_dir)) {
+		std::filesystem::create_directory(results_dir);
+	}
+	
+	// Construct full path in results subfolder
+	std::filesystem::path full_path = results_dir / filepath;
+
+	std::ofstream file(full_path);
 	if (!file.is_open()) {
-		std::cerr << "Failed to open file for writing: " << filepath << std::endl;
+		std::cerr << "Failed to open file for writing: " << full_path << std::endl;
 		return;
 	}
 
 	// Save simulation results as JSON
 	file << "{\n";
-	file << "  \"config_file\": \"" << config_file_ << "\",\n";
-	file << "  \"simulation_parameters\": {\n";
-	file << "    \"num_photons\": " << Config::get().num_photons() << ",\n";
-	file << "    \"voxel_size\": " << Config::get().vox_size() << ",\n";
-	file << "    \"grid_size\": [" << Config::get().nx() << ", " << Config::get().ny() << ", "
-		 << Config::get().nz() << "]\n";
-	file << "  },\n";
-	file << "  \"results\": {\n";
-	file << "    \"path_length\": " << simulator_->metrics.get_path_length() << ",\n";
-	file << "    \"scatter_events\": " << simulator_->metrics.get_scatter_events() << ",\n";
-	file << "    \"average_step_size\": " << simulator_->metrics.get_average_step_size() << ",\n";
-	file << "    \"diffusion_distance\": " << simulator_->metrics.get_diffusion_distance() << ",\n";
-	file << "    \"total_absorption\": " << simulator_->metrics.get_total_absorption() << ",\n";
-	file << "    \"total_reflection\": " << simulator_->metrics.get_total_reflection() << ",\n";
-	file << "    \"total_transmission\": " << simulator_->metrics.get_total_transmission() << ",\n";
-	file << "    \"total_diffusion\": " << simulator_->metrics.get_total_diffusion() << ",\n";
-	file << "    \"surface_reflection\": " << simulator_->metrics.get_surface_reflection() << ",\n";
-	file << "    \"surface_refraction\": " << simulator_->metrics.get_surface_refraction() << "\n";
-	file << "  },\n";
-	file << "  \"tissue_properties\": [\n";
+	
+	// Sanitize config file path for JSON (escape backslashes)
+	std::string sanitized_config = config_file_;
+	std::replace(sanitized_config.begin(), sanitized_config.end(), '\\', '/');
+	
+	file << "  \"config_file\": \"" << sanitized_config << "\",\n";
+	file << "  \"medium_statistics\": [\n";
 
-	auto tissues = simulator_->get_all_tissues();
-	for (size_t i = 0; i < tissues.size(); ++i) {
-		const auto& tissue = tissues[i];
+	// Export per-medium statistics array
+	auto& mediums = simulator_->mediums;
+	for (size_t i = 0; i < mediums.size(); ++i) {
+		auto& medium = mediums[i];
+		const auto& metrics = medium.get_metrics();
+		const auto& volume = medium.get_volume();
+		const auto& dimensions = volume.dimensions();
+		
+		// Count surface voxels
+		size_t surface_count = 0;
+		for (uint64_t idx = 0; idx < volume.size(); ++idx) {
+			auto voxel = volume.at(static_cast<uint32_t>(idx));
+			if (voxel && voxel->is_surface_voxel) {
+				surface_count++;
+			}
+		}
+		
 		file << "    {\n";
-		file << "      \"id\": " << tissue.id << ",\n";
-		file << "      \"eta\": " << tissue.eta << ",\n";
-		file << "      \"mua\": " << tissue.mu_a << ",\n";
-		file << "      \"mus\": " << tissue.mu_s << ",\n";
-		file << "      \"ani\": " << tissue.g << "\n";
-		file << "    }" << (i < tissues.size() - 1 ? "," : "") << "\n";
+		file << "      \"medium_id\": " << (i + 1) << ",\n";
+		file << "      \"volume_statistics\": {\n";
+		file << "        \"grid_size\": [" << dimensions.x << ", " << dimensions.y << ", " << dimensions.z << "],\n";
+		file << "        \"voxel_size\": " << volume.voxel_size() << ",\n";
+		file << "        \"total_voxels\": " << volume.size() << ",\n";
+		file << "        \"surface_voxels\": " << surface_count << "\n";
+		file << "      },\n";
+		file << "      \"transport_statistics\": {\n";
+		file << "        \"total_photons\": " << simulator_->get_paths().size() << ",\n";
+		file << "        \"photons_entered\": " << medium.get_metrics().get_photons_entered() << ",\n";
+		file << "        \"scatter_events\": " << metrics.get_scatter_events() << ",\n";
+		file << "        \"path_length\": " << metrics.compute_path_length() << ",\n";
+		file << "        \"average_step_size\": " << metrics.compute_average_step_size() << ",\n";
+		file << "        \"diffusion_distance\": " << metrics.compute_diffusion_distance() << "\n";
+		file << "      },\n";
+		file << "      \"energy_conservation\": {\n";
+		file << "        \"total_absorption\": " << medium.get_metrics().get_total_absorption() << ",\n";
+		file << "        \"diffuse_reflection\": " << medium.get_metrics().get_diffuse_reflection() << ",\n";
+		file << "        \"specular_reflection\": " << medium.get_metrics().get_surface_reflection() << ",\n";
+		file << "        \"diffuse_transmission\": " << medium.get_metrics().get_diffuse_transmission() << ",\n";
+		file << "        \"specular_transmission\": " << medium.get_metrics().get_specular_transmission() << ",\n";
+		file << "        \"surface_refraction\": " << medium.get_metrics().get_surface_refraction() << "\n";
+		file << "      },\n";
+		file << "      \"tissue_properties\": [\n";
+		
+		// Export tissues for this medium
+		auto& tissues = medium.get_tissues();
+		for (size_t j = 0; j < tissues.size(); ++j) {
+			const auto& tissue = tissues[j];
+			file << "        {\n";
+			file << "          \"id\": " << tissue.id << ",\n";
+			file << "          \"eta\": " << tissue.eta << ",\n";
+			file << "          \"mua\": " << tissue.mu_a << ",\n";
+			file << "          \"mus\": " << tissue.mu_s << ",\n";
+			file << "          \"ani\": " << tissue.g << "\n";
+			file << "        }" << (j < tissues.size() - 1 ? "," : "") << "\n";
+		}
+		file << "      ]\n";
+		file << "    }" << (i < mediums.size() - 1 ? "," : "") << "\n";
 	}
-
 	file << "  ]\n";
 	file << "}\n";
 
@@ -519,9 +685,18 @@ void App::save_results_as_text(const std::string& filepath) {
 		return;
 	}
 
-	std::ofstream file(filepath);
+	// Create results directory if it doesn't exist
+	std::filesystem::path results_dir = "results";
+	if (!std::filesystem::exists(results_dir)) {
+		std::filesystem::create_directory(results_dir);
+	}
+	
+	// Construct full path in results subfolder
+	std::filesystem::path full_path = results_dir / filepath;
+
+	std::ofstream file(full_path);
 	if (!file.is_open()) {
-		std::cerr << "Failed to open file for writing: " << filepath << std::endl;
+		std::cerr << "Failed to open file for writing: " << full_path << std::endl;
 		return;
 	}
 
@@ -530,54 +705,90 @@ void App::save_results_as_text(const std::string& filepath) {
 	file << "Configuration File: " << config_file_ << "\n";
 	file << "Timestamp: " << std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) << "\n\n";
 
-	file << "Simulation Parameters:\n";
-	file << "  Number of Photons: " << Config::get().num_photons() << "\n";
-	file << "  Voxel Size: " << Config::get().vox_size() << "\n";
-	file << "  Grid Dimensions: " << Config::get().nx() << " x " << Config::get().ny() << " x "
-		 << Config::get().nz() << "\n";
-	file << "  Total Voxels: " << simulator_->get_total_voxel_count() << "\n\n";
-
-	if (Config::get().num_photons() > 1) {
-		file << "Multi-Photon Statistics:\n";
-		double total_weight = simulator_->metrics.get_total_absorption() + simulator_->metrics.get_total_reflection()
-							  + simulator_->metrics.get_total_transmission();
-		if (total_weight > 0) {
-			file << "  Absorption Probability: " << (simulator_->metrics.get_total_absorption() / total_weight) * 100.0
-				 << "%\n";
-			file << "  Reflection Probability: " << (simulator_->metrics.get_total_reflection() / total_weight) * 100.0
-				 << "%\n";
-			file << "  Transmission Probability: " << (simulator_->metrics.get_total_transmission() / total_weight) * 100.0
-				 << "%\n";
+	// Per-medium statistics section (matching overlay format)
+	auto& mediums = simulator_->mediums;
+	for (size_t i = 0; i < mediums.size(); ++i) {
+		auto& medium = mediums[i];
+		const auto& metrics = medium.get_metrics();
+		const auto& volume = medium.get_volume();
+		const auto& dimensions = volume.dimensions();
+		
+		file << "Medium " << (i + 1) << "\n";
+		file << "Volume Statistics\n";
+		file << "  Volume Grid:         " << dimensions.x << "x" << dimensions.y << "x" << dimensions.z << "\n";
+		file << "  Total Voxels:        " << volume.size() << "\n";
+		
+		// Count surface voxels
+		size_t surface_count = 0;
+		for (uint64_t idx = 0; idx < volume.size(); ++idx) {
+			auto voxel = volume.at(static_cast<uint32_t>(idx));
+			if (voxel && voxel->is_surface_voxel) {
+				surface_count++;
+			}
 		}
-		file << "\nAverages Per Photon:\n";
-		file << "  Path Length: " << simulator_->metrics.get_path_length() / Config::get().num_photons() << "\n";
-		file << "  Scatter Events: " << simulator_->metrics.get_scatter_events() / Config::get().num_photons() << "\n";
-		file << "  Step Size: " << simulator_->metrics.get_average_step_size() << "\n";
-	}
-	else {
-		file << "Single Photon Results:\n";
-		file << "  Path Length: " << simulator_->metrics.get_path_length() << "\n";
-		file << "  Scatter Events: " << simulator_->metrics.get_scatter_events() << "\n";
-		file << "  Average Step Size: " << simulator_->metrics.get_average_step_size() << "\n";
-		file << "  Diffusion Distance: " << simulator_->metrics.get_diffusion_distance() << "\n";
-	}
-
-	file << "\nDetailed Results:\n";
-	file << "  Total Absorption: " << simulator_->metrics.get_total_absorption() << "\n";
-	file << "  Total Reflection: " << simulator_->metrics.get_total_reflection() << "\n";
-	file << "  Total Transmission: " << simulator_->metrics.get_total_transmission() << "\n";
-	file << "  Total Diffusion: " << simulator_->metrics.get_total_diffusion() << "\n";
-	file << "  Surface Reflection: " << simulator_->metrics.get_surface_reflection() << "\n";
-	file << "  Surface Refraction: " << simulator_->metrics.get_surface_refraction() << "\n";
-
-	file << "\nTissue Properties:\n";
-	auto tissues = simulator_->get_all_tissues();
-	for (const auto& tissue : tissues) {
-		file << "  Tissue " << tissue.id << ":\n";
-		file << "    Refractive Index (eta): " << tissue.eta << "\n";
-		file << "    Absorption Coefficient (mua): " << tissue.mu_a << " cm^-1\n";
-		file << "    Scattering Coefficient (mus): " << tissue.mu_s << " cm^-1\n";
-		file << "    Anisotropy Factor (g): " << tissue.g << "\n";
+		file << "  Surface Voxels:      " << surface_count << "\n";
+		
+		file << "\nTransport Statistics\n";
+		file << "  Total photons:       " << simulator_->get_paths().size() << "\n";
+		file << "  Photons entered:     " << medium.get_metrics().get_photons_entered() << "\n";
+		file << "  Scatter events:      " << static_cast<int>(metrics.get_scatter_events()) << "\n";
+		file << "  Total path length:   " << std::fixed << std::setprecision(6) << metrics.compute_path_length() << "\n";
+		file << "  Average step size:   " << std::fixed << std::setprecision(6) << metrics.compute_average_step_size() << "\n";
+		file << "  Diffusion distance:  " << std::fixed << std::setprecision(6) << metrics.compute_diffusion_distance() << "\n";
+		
+		// Use unified energy conservation calculation (same as console output)
+		auto energy = simulator_->calculate_energy_conservation();
+		
+		file << "\nRadiance Properties\n";
+		file << "  Total absorption:    " << std::fixed << std::setprecision(6) << energy.total_absorption << "\n";
+		file << "  Total diffusion:     " << std::fixed << std::setprecision(6) << energy.total_diffusion << "\n";
+		file << "    Reflection:        " << std::fixed << std::setprecision(6) << energy.total_reflection << "\n";
+		file << "    Transmission:      " << std::fixed << std::setprecision(6) << energy.total_transmission << "\n";
+		
+		file << "\nEnergy Conservation\n";
+		if (energy.surface_refraction > 0) {
+			// Use TOTAL initial energy as baseline (specular reflection + refracted energy)
+			double baseline_energy = energy.surface_reflection + energy.surface_refraction;
+			
+			// Calculate percentages relative to total initial energy
+			double surface_reflection_percent = (energy.surface_reflection / baseline_energy) * 100.0;
+			double absorption_percent = (energy.total_absorption / baseline_energy) * 100.0;
+			double reflection_percent = (energy.total_reflection / baseline_energy) * 100.0;
+			double transmission_percent = (energy.total_transmission / baseline_energy) * 100.0;
+			
+			// Total should equal baseline_energy for perfect conservation
+			double total_accounted = energy.surface_reflection + energy.total_absorption + 
+									energy.total_reflection + energy.total_transmission;
+			double total_percent = (total_accounted / baseline_energy) * 100.0;
+			
+			file << "  Specular reflection: " << std::fixed << std::setprecision(1) << surface_reflection_percent << "%\n";
+			file << "  Absorption:          " << std::fixed << std::setprecision(1) << absorption_percent << "%\n";
+			file << "  Reflection:          " << std::fixed << std::setprecision(1) << reflection_percent << "%\n";
+			file << "  Transmission:        " << std::fixed << std::setprecision(1) << transmission_percent << "%\n";
+			file << "  Total:               " << std::fixed << std::setprecision(1) << total_percent << "%\n";
+		}
+		else {
+			file << "  Specular reflection: 0.0%\n";
+			file << "  Absorption:          0.0%\n";
+			file << "  Reflection:          0.0%\n";
+			file << "  Transmission:        0.0%\n";
+			file << "  Total:               0.0%\n";
+		}
+		
+		// Add tissue properties for this medium
+		file << "\nTissue Properties\n";
+		auto& tissues = medium.get_tissues();
+		for (const auto& tissue : tissues) {
+			file << "  Tissue " << tissue.id << ":\n";
+			file << "    Refractive Index (eta): " << tissue.eta << "\n";
+			file << "    Absorption Coefficient (mua): " << tissue.mu_a << " cm^-1\n";
+			file << "    Scattering Coefficient (mus): " << tissue.mu_s << " cm^-1\n";
+			file << "    Anisotropy Factor (g): " << tissue.g << "\n";
+		}
+		
+		if (i < mediums.size() - 1) {
+			file << "\n======================================\n\n";
+		}
 	}
 
 	file.close();

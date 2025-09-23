@@ -12,7 +12,7 @@
 #include <span>
 #include "math/concepts.hpp"
 #include "simulator/layer.hpp"
-#include "simulator/source.hpp"
+#include "simulator/photon.hpp"
 #include "simulator/tissue.hpp"
 
 // Monte Carlo splitting methods for partial reflection/transmission
@@ -42,6 +42,7 @@ private:
 	bool partial_ {true};         // partial reflection
 	bool progress_ {false};        // display progress messages
 	bool verbose_ {false};         // display verbose initialization messages
+	bool deterministic_ {false};   // use deterministic random seed for reproducible results
 	SplittingMethod splitting_method_ {SplittingMethod::RUSSIAN_ROULETTE}; // Monte Carlo splitting method
 
 	// Parsing configuration data
@@ -192,6 +193,7 @@ public:
 	[[nodiscard]] constexpr bool partial() const noexcept { return partial_; }
 	[[nodiscard]] constexpr bool progress() const noexcept { return progress_; }
 	[[nodiscard]] constexpr bool verbose() const noexcept { return verbose_; }
+	[[nodiscard]] constexpr bool deterministic() const noexcept { return deterministic_; }
 	[[nodiscard]] constexpr SplittingMethod splitting_method() const noexcept { return splitting_method_; }
 
 	// Access parsed data with span for zero-copy access
@@ -227,6 +229,7 @@ public:
 	void set_partial(bool partial) noexcept { partial_ = partial; }
 	void set_progress(bool progress) noexcept { progress_ = progress; }
 	void set_verbose(bool verbose) noexcept { verbose_ = verbose; }
+	void set_deterministic(bool deterministic) noexcept { deterministic_ = deterministic; }
 	void set_splitting_method(SplittingMethod method) noexcept { splitting_method_ = method; }
 
 	// Main parsing interface

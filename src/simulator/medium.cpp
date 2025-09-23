@@ -63,10 +63,16 @@ bool Medium::initialize() {
 		std::cout << "Geometry voxelization completed successfully." << std::endl;
 	}
 
-	// Identify surface voxels
-	identify_surface_voxels();
+	// PHASE 2: Skip old surface detection - Distance Field Based voxelization already set correct surface flags
+	// disambiguate_surface_voxels();  // DISABLED: SDF voxelization is already accurate
 	if (config_.verbose()) {
-		std::cout << "Surface voxel identification completed." << std::endl;
+		std::cout << "Surface voxel disambiguation skipped (using SDF results)." << std::endl;
+	}
+
+	// Identify surface voxels - DISABLED: SDF already set is_surface_voxel correctly
+	// identify_surface_voxels();  // DISABLED: Trust SDF voxelization results
+	if (config_.verbose()) {
+		std::cout << "Surface voxel identification skipped (using SDF results)." << std::endl;
 	}
 
 	return true;
@@ -204,132 +210,30 @@ bool Medium::voxelize_layers() {
 	int total_voxels_assigned = 0;
 	int partial_voxels = 0;
 
+	// Use Distance Field Based voxelization for robust surface detection
 	for (uint32_t iz = 0; iz < nz; iz++) {
 		for (uint32_t iy = 0; iy < ny; iy++) {
 			for (uint32_t ix = 0; ix < nx; ix++) {
-				// Calculate voxel center in world coordinates
-				glm::dvec3 voxel_center = glm::dvec3(bounds_.min_bounds.x + (ix + 0.5) * vox_size,
-                                                     bounds_.min_bounds.y + (iy + 0.5) * vox_size,
-                                                     bounds_.min_bounds.z + (iz + 0.5) * vox_size);
-
-				// Calculate voxel corners to check for partial intersection
+				// Calculate voxel position in world coordinates
 				glm::dvec3 voxel_min = glm::dvec3(bounds_.min_bounds.x + ix * vox_size, 
                                                   bounds_.min_bounds.y + iy * vox_size,
                                                   bounds_.min_bounds.z + iz * vox_size);
-				
-                glm::dvec3 voxel_max = voxel_min + glm::dvec3(vox_size);
+				glm::dvec3 voxel_max = voxel_min + glm::dvec3(vox_size);
 
-				// Check if voxel intersects with geometry
-				bool center_inside = false;
-				bool any_corner_inside = false;
+				// Use Distance Field Based voxelization for robust classification
+				VoxelClassification classification = volume_.distance_field_voxelization(voxel_min, voxel_max, layers_);
 
-				// Test center and corners
-				for (const auto& layer : layers_) {
-					if (layer.contains_point(voxel_center)) {
-						center_inside = true;
-						break;
-					}
-				}
-
-				// Test corners to detect partial intersection
-				std::vector<glm::dvec3> corners = {
-                    voxel_min,
-					{voxel_max.x, voxel_min.y, voxel_min.z},
-					{voxel_min.x, voxel_max.y, voxel_min.z},
-					{voxel_max.x, voxel_max.y, voxel_min.z},
-					{voxel_min.x, voxel_min.y, voxel_max.z},
-					{voxel_max.x, voxel_min.y, voxel_max.z},
-					{voxel_min.x, voxel_max.y, voxel_max.z},
-					voxel_max
-                };
-
-				for (const auto& corner : corners) {
-					for (const auto& layer : layers_) {
-						if (layer.contains_point(corner)) {
-							any_corner_inside = true;
-							break;
-						}
-					}
-					if (any_corner_inside) {
-						break;
-                    }
-				}
-
-				// Assign tissue if center is inside OR any corner is inside (partial voxel)
-				if (center_inside || any_corner_inside) {
+				if (classification.is_inside_geometry) {
 					Voxel* voxel = volume_(ix, iy, iz);
-
-					// Find which specific layer contains this voxel (check center point)
-					// IMPORTANT: Process layers in reverse order so inner layers override outer layers
-					for (const auto& layer : layers_) {
-						if (layer.contains_point(voxel_center)) {
-							voxel->tissue = &tissues_[layer.tissue_id];
-							break; // Use the innermost layer that contains the center
-						}
-					}
-
-					// If center point didn't hit any layer but corners did,
-					// use the innermost layer that contains any corner
-					if (voxel->tissue == nullptr) {
-						for (const auto& corner : corners) {
-							for (const auto& layer : layers_) {
-								if (layer.contains_point(corner)) {
-									voxel->tissue = &tissues_[layer.tissue_id];
-									break;
-								}
-							}
-                            if (voxel->tissue != nullptr) {
-								break;
-                            }
-						}
-					}
-
-					// Compute volume fractions for proper boundary physics
-					if (center_inside && any_corner_inside) {
-						// Check if this is actually a boundary voxel
-						bool all_corners_inside = true;
-						for (const auto& corner : corners) {
-							bool corner_inside = false;
-							for (const auto& layer : layers_) {
-								if (layer.contains_point(corner)) {
-									corner_inside = true;
-									break;
-								}
-							}
-							if (!corner_inside) {
-								all_corners_inside = false;
-								break;
-							}
-						}
-
-						if (all_corners_inside) {
-							// Fully inside
-							voxel->volume_fraction_inside = 1.0;
-							voxel->volume_fraction_outside = 0.0;
-							voxel->is_boundary_voxel = false;
-						}
-						else {
-							// Partial voxel - compute accurate volume fractions
-							voxel->volume_fraction_inside = volume_.fraction_inside_fast(voxel_min, voxel_max, layers_, 2);
-							voxel->volume_fraction_outside = 1.0 - voxel->volume_fraction_inside;
-							voxel->is_boundary_voxel = true;
-						}
-					}
-					else if (center_inside) {
-						// Center inside but some corners outside - partial
-						voxel->volume_fraction_inside = volume_.fraction_inside_fast(voxel_min, voxel_max, layers_, 2);
-						voxel->volume_fraction_outside = 1.0 - voxel->volume_fraction_inside;
-						voxel->is_boundary_voxel = true;
-					}
-					else {
-						// Only corners inside - partial
-						voxel->volume_fraction_inside = volume_.fraction_inside_fast(voxel_min, voxel_max, layers_, 2);
-						voxel->volume_fraction_outside = 1.0 - voxel->volume_fraction_inside;
-						voxel->is_boundary_voxel = true;
-					}
-
+					
+					// Assign tissue from dominant layer
+					voxel->tissue = &tissues_[classification.dominant_tissue_id];
+					voxel->volume_fraction_inside = classification.volume_fraction;
+					voxel->volume_fraction_outside = 1.0 - classification.volume_fraction;
+					voxel->is_boundary_voxel = classification.is_boundary_voxel;
+					voxel->is_surface_voxel = classification.is_surface_voxel;
+					
 					total_voxels_assigned++;
-
 					if (voxel->is_boundary_voxel) {
 						partial_voxels++;
 					}
@@ -342,7 +246,105 @@ bool Medium::voxelize_layers() {
 		std::cout << "Point-containment voxelization completed. Assigned tissue to " << total_voxels_assigned << " voxels ("
 				  << partial_voxels << " partial)." << std::endl;
 	}
+
+	// PHASE 2: Detect external surface voxels (voxels adjacent to ambient)
+	detect_external_surface_voxels();
+	
 	return true;
+}
+
+void Medium::disambiguate_surface_voxels() {
+	const glm::uvec3& dimensions = volume_.dimensions();
+	int false_positives_removed = 0;
+	
+	std::cout << "Starting surface disambiguation for boundary voxels..." << std::endl;
+	
+	// Debug: Check specific problematic voxels first
+	int problematic_coords[][3] = {{20, 7, 2}, {19, 9, 5}, {13, 8, 12}};
+	for (int i = 0; i < 3; i++) {
+		int x = problematic_coords[i][0], y = problematic_coords[i][1], z = problematic_coords[i][2];
+		if (x < (int)dimensions.x && y < (int)dimensions.y && z < (int)dimensions.z) {
+			Voxel* voxel = volume_.at(x, y, z);
+			std::cout << "DEBUG: Problematic voxel (" << x << "," << y << "," << z 
+					  << ") - tissue=" << (voxel->tissue ? "YES" : "NO")
+					  << " boundary=" << (voxel->is_boundary_voxel ? "YES" : "NO")
+					  << " surface=" << (voxel->is_surface_voxel ? "YES" : "NO")
+					  << " volume_fraction=" << voxel->volume_fraction_inside << std::endl;
+		}
+	}
+	
+	// Check all voxels with tissue for potential false positives (not just boundary voxels)
+	for (uint32_t z = 0; z < dimensions.z; z++) {
+		for (uint32_t y = 0; y < dimensions.y; y++) {
+			for (uint32_t x = 0; x < dimensions.x; x++) {
+				Voxel* voxel = volume_.at(x, y, z);
+				
+				// Only process voxels that have tissue
+				if (!voxel->tissue) {
+					continue;
+				}
+				
+				// Debug output for specific problematic voxels
+				bool is_problematic = (x == 20 && y == 7 && z == 2) || (x == 19 && y == 9 && z == 5) || (x == 13 && y == 8 && z == 12);
+				if (is_problematic) {
+					std::cout << "DEBUG: Processing boundary voxel (" << x << "," << y << "," << z 
+							  << ") with volume_inside=" << voxel->volume_fraction_inside << std::endl;
+				}
+				
+				// Check 6-connected neighbors (faces only, not edges/corners)
+				// These are the potential "opposing" voxels across a surface
+				struct FaceOffset { int dx, dy, dz; };
+				std::vector<FaceOffset> face_neighbors = {
+					{-1, 0, 0}, {1, 0, 0},   // left, right
+					{0, -1, 0}, {0, 1, 0},   // down, up  
+					{0, 0, -1}, {0, 0, 1}    // back, front
+				};
+				
+				bool should_remove_tissue = false;
+				
+				for (const auto& offset : face_neighbors) {
+					int dx = offset.dx, dy = offset.dy, dz = offset.dz;
+					int nx = (int)x + dx;
+					int ny = (int)y + dy; 
+					int nz = (int)z + dz;
+					
+					// Check bounds
+					if (nx < 0 || ny < 0 || nz < 0 
+					|| 	nx >= (int)dimensions.x
+					|| 	ny >= (int)dimensions.y 
+					|| 	nz >= (int)dimensions.z) {
+						continue;
+					}
+					
+					Voxel* neighbor = volume_.at(nx, ny, nz);
+					
+					// If neighbor is also a boundary voxel with tissue,
+					// check if it has significantly more volume inside
+					if (neighbor->tissue && neighbor->is_boundary_voxel) {
+						// Surface disambiguation: if neighbor has much more volume inside,
+						// then current voxel is likely a false positive
+						double volume_difference = neighbor->volume_fraction_inside - voxel->volume_fraction_inside;
+						
+						if (volume_difference > 0.3) { // Neighbor has 30%+ more volume inside
+							should_remove_tissue = true;
+							break;
+						}
+					}
+				}
+				
+				// Remove tissue from false positive voxels
+				if (should_remove_tissue) {
+					voxel->tissue = nullptr;
+					voxel->is_boundary_voxel = false; // No longer a boundary since no tissue
+					false_positives_removed++;
+				}
+			}
+		}
+	}
+	
+	if (config_.verbose()) {
+		std::cout << "Surface disambiguation removed " << false_positives_removed << " false positive voxels." << std::endl;
+	}
 }
 
 void Medium::identify_surface_voxels() {
@@ -354,102 +356,48 @@ void Medium::identify_surface_voxels() {
 			for (uint32_t x = 0; x < dimensions.x; x++) {
 				Voxel* voxel = volume_.at(x, y, z);
 				
-				// Only consider voxels that have tissue assigned (inside or partially inside geometry)
-				if (!voxel->tissue) {
-					voxel->is_surface_voxel = false;
-					continue;
-				}
+				// SIMPLE SURFACE DETECTION: A voxel is surface if:
+				// 1. It has tissue (part of medium)
+				// 2. It's a boundary voxel (intersects geometry boundary)
+				// 3. OR it has an empty neighbor (adjacent to outside)
 				
 				bool is_surface = false;
 				
-				// Method 1: Boundary voxels are automatically surface voxels
-				if (voxel->is_boundary_voxel) {
-					is_surface = true;
-				}
-				
-				// Method 2: Check for empty neighbors (traditional surface detection)
-				if (!is_surface) {
-					bool has_empty_neighbor = false;
-					
-					for (int dz = -1; dz <= 1; dz++) {
-						for (int dy = -1; dy <= 1; dy++) {
-							for (int dx = -1; dx <= 1; dx++) {
-								if (dx == 0 && dy == 0 && dz == 0){
-                                    continue; // Skip self
-                                }
-								
-								int nx = (int)x + dx;
-								int ny = (int)y + dy;
-								int nz = (int)z + dz;
-								
-								// Check bounds
-								if (nx < 0 || ny < 0 || nz < 0 
-                                || 	nx >= (int)dimensions.x
-                                || 	ny >= (int)dimensions.y 
-                                || 	nz >= (int)dimensions.z) {
-									// Out of bounds = empty neighbor
-									has_empty_neighbor = true;
-									break;
-								}
-								
-								// Check if neighbor has no tissue (is empty)
-								Voxel* neighbor = volume_.at(nx, ny, nz);
-								if (!neighbor->tissue) {
-									has_empty_neighbor = true;
-									break;
-								}
-							}
-							if (has_empty_neighbor) {
-                                break;
-                            }
-						}
-						if (has_empty_neighbor) {
-                            break;
-                        }
-					}
-					
-					if (has_empty_neighbor) {
+				if (voxel->tissue) {
+					// Method 1: Boundary voxel (intersects geometry surface)
+					if (voxel->is_boundary_voxel) {
 						is_surface = true;
 					}
-				}
-				
-				// Method 3: Detect grazing surface voxels by checking if voxel boundary intersects any mesh surface
-				if (!is_surface) {
-					// Get voxel bounding box
-					Cuboid voxel_box = voxel_corners(voxel);
-					glm::dvec3 voxel_min = voxel_box.min_point();
-					glm::dvec3 voxel_max = voxel_box.max_point();
 					
-					// Dynamic tolerance based on voxel size to handle floating-point precision
-					double voxel_size = volume_.voxel_size();
-					double tolerance = voxel_size * 0.1; // 10% of voxel size for floating-point safety
-					
-					// Check if any mesh triangle intersects this voxel
-					for (const auto& layer : layers_) {
-						for (size_t face_idx = 0; face_idx < layer.mesh.size(); face_idx++) {
-							const Triangle& triangle = layer.mesh[face_idx];
-							
-							// Get triangle bounding box with tolerance expansion
-							glm::dvec3 tri_min = glm::min(glm::min(triangle.v0(), triangle.v1()), triangle.v2()) - tolerance;
-							glm::dvec3 tri_max = glm::max(glm::max(triangle.v0(), triangle.v1()), triangle.v2()) + tolerance;
-							
-							// Expand voxel bounding box slightly for floating-point safety
-							glm::dvec3 safe_voxel_min = voxel_min - tolerance;
-							glm::dvec3 safe_voxel_max = voxel_max + tolerance;
-							
-							// Check if triangle bounding box overlaps with voxel bounding box
-							bool overlaps_x = (tri_max.x >= safe_voxel_min.x) && (tri_min.x <= safe_voxel_max.x);
-							bool overlaps_y = (tri_max.y >= safe_voxel_min.y) && (tri_min.y <= safe_voxel_max.y);
-							bool overlaps_z = (tri_max.z >= safe_voxel_min.z) && (tri_min.z <= safe_voxel_max.z);
-							
-							if (overlaps_x && overlaps_y && overlaps_z) {
-								is_surface = true;
-								break;
+					// Method 2: Has empty neighbors (traditional surface detection)
+					if (!is_surface) {
+						for (int dz = -1; dz <= 1 && !is_surface; dz++) {
+							for (int dy = -1; dy <= 1 && !is_surface; dy++) {
+								for (int dx = -1; dx <= 1 && !is_surface; dx++) {
+									if (dx == 0 && dy == 0 && dz == 0) continue; // Skip self
+									
+									int nx = (int)x + dx;
+									int ny = (int)y + dy;
+									int nz = (int)z + dz;
+									
+									// Check bounds - if neighbor is outside grid, this is surface
+									if (nx < 0 || ny < 0 || nz < 0 
+									|| 	nx >= (int)dimensions.x
+									|| 	ny >= (int)dimensions.y 
+									|| 	nz >= (int)dimensions.z) {
+										is_surface = true;
+										break;
+									}
+									
+									// Check if neighbor has tissue
+									Voxel* neighbor = volume_.at(nx, ny, nz);
+									if (!neighbor->tissue) {
+										is_surface = true;
+										break;
+									}
+								}
 							}
 						}
-						if (is_surface) {
-                            break;
-                        }
 					}
 				}
 				
@@ -467,9 +415,6 @@ void Medium::identify_surface_voxels() {
 }
 
 void Medium::reset_simulation_data() {
-	// Reset record
-	record_ = Record();
-
 	// Reset voxel data
 	for (auto& voxel_ptr : volume_) {
 		if (voxel_ptr) {
@@ -479,17 +424,13 @@ void Medium::reset_simulation_data() {
 	}
 
 	// Reset metrics
-	metrics_ = Metrics();
+	metrics_.reset();
 }
 
 void Medium::normalize() {
-	// Normalize globally recorded parameters
-	record_.total_absorption /= config_.num_photons() * config_.num_sources();
-	record_.diffuse_reflection /= config_.num_photons() * config_.num_sources();
-	record_.diffuse_transmission /= config_.num_photons() * config_.num_sources();
-
-	record_.specular_reflection /= config_.num_photons() * config_.num_sources();
-	record_.specular_transmission /= config_.num_photons() * config_.num_sources();
+	// Normalize raw accumulator parameters
+	double divisor = config_.num_photons() * config_.num_sources();
+	metrics_.normalize_raw_values(divisor);
 
 	// Normalize voxel data
 	for (const auto& voxel_ptr : volume_) {
@@ -537,8 +478,52 @@ void Medium::write_results() const {
 }
 
 Voxel* Medium::voxel_at(glm::dvec3& position) {
-	if (!bounds_.includes(position)) {
+	// ROBUST BOUNDARY HANDLING: Use larger epsilon tolerance for boundary inclusion
+	static const double BOUNDARY_EPSILON = 1e-6;
+	
+	// CRITICAL: Check if photon is actually exiting the medium completely
+	// Don't try to find voxels for photons that have truly exited
+	if (!contains_point(position)) {
+		// Position is completely outside medium - this is a true exit
 		return nullptr;
+	}
+	
+	// Position is within medium boundaries, but may need voxel coordinate adjustment
+	if (!bounds_.includes(position)) {
+		// ROBUST BOUNDARY HANDLING: Try epsilon-nudged position
+		glm::dvec3 nudged_pos = position;
+		bool position_fixed = false;
+		
+		// If position is very close to bounds, nudge it inside
+		if (position.x <= bounds_.min_bounds.x + BOUNDARY_EPSILON) {
+			nudged_pos.x = bounds_.min_bounds.x + BOUNDARY_EPSILON;
+			position_fixed = true;
+		} else if (position.x >= bounds_.max_bounds.x - BOUNDARY_EPSILON) {
+			nudged_pos.x = bounds_.max_bounds.x - BOUNDARY_EPSILON;
+			position_fixed = true;
+		}
+		
+		if (position.y <= bounds_.min_bounds.y + BOUNDARY_EPSILON) {
+			nudged_pos.y = bounds_.min_bounds.y + BOUNDARY_EPSILON;
+			position_fixed = true;
+		} else if (position.y >= bounds_.max_bounds.y - BOUNDARY_EPSILON) {
+			nudged_pos.y = bounds_.max_bounds.y - BOUNDARY_EPSILON;
+			position_fixed = true;
+		}
+		
+		if (position.z <= bounds_.min_bounds.z + BOUNDARY_EPSILON) {
+			nudged_pos.z = bounds_.min_bounds.z + BOUNDARY_EPSILON;
+			position_fixed = true;
+		} else if (position.z >= bounds_.max_bounds.z - BOUNDARY_EPSILON) {
+			nudged_pos.z = bounds_.max_bounds.z - BOUNDARY_EPSILON;
+			position_fixed = true;
+		}
+		
+		if (position_fixed && bounds_.includes(nudged_pos)) {
+			position = nudged_pos; // Update the reference position
+		} else {
+			return nullptr;
+		}
 	}
 
 	// Calculate relative position from minimum bounds
@@ -546,10 +531,12 @@ Voxel* Medium::voxel_at(glm::dvec3& position) {
 	double dy = position.y - bounds_.min_bounds.y;
 	double dz = position.z - bounds_.min_bounds.z;
 
-	// indices start at minimum boundaries of voxels
-	uint32_t ix = static_cast<uint32_t>(std::floor(dx / config_.vox_size()));
-	uint32_t iy = static_cast<uint32_t>(std::floor(dy / config_.vox_size()));
-	uint32_t iz = static_cast<uint32_t>(std::floor(dz / config_.vox_size()));
+	// ROBUST COORDINATE CALCULATION: Use consistent floor() with boundary epsilon
+	uint32_t ix = static_cast<uint32_t>(std::floor(dx / config_.vox_size() + BOUNDARY_EPSILON));
+	uint32_t iy = static_cast<uint32_t>(std::floor(dy / config_.vox_size() + BOUNDARY_EPSILON));
+	uint32_t iz = static_cast<uint32_t>(std::floor(dz / config_.vox_size() + BOUNDARY_EPSILON));
+
+
 
 	// avoid index overflow
 	if (ix >= config_.nx()) {
@@ -625,12 +612,95 @@ double Medium::intersection(Source& source) const {
 }
 
 bool Medium::contains_point(const glm::dvec3& point) const {
+	// ROBUST BOUNDARY HANDLING: Use epsilon tolerance for boundary inclusion
+	static const double BOUNDARY_EPSILON = 1e-8;
+	
 	// Test if the point is inside any layer's geometry
 	for (const auto& layer : layers_) {
+		// First check if point is strictly inside
 		if (layer.contains_point(point)) {
 			return true;
+		}
+		
+		// If not strictly inside, try epsilon-nudged positions for boundary tolerance
+		// This handles floating point precision issues at exact boundaries
+		for (double dx : {-BOUNDARY_EPSILON, 0.0, BOUNDARY_EPSILON}) {
+			for (double dy : {-BOUNDARY_EPSILON, 0.0, BOUNDARY_EPSILON}) {
+				for (double dz : {-BOUNDARY_EPSILON, 0.0, BOUNDARY_EPSILON}) {
+					if (dx == 0.0 && dy == 0.0 && dz == 0.0) continue; // Skip original point
+					
+					glm::dvec3 nudged_point = point + glm::dvec3(dx, dy, dz);
+					if (layer.contains_point(nudged_point)) {
+						return true;
+					}
+				}
+			}
 		}
 	}
 
 	return false;
+}
+
+void Medium::detect_external_surface_voxels() {
+	const glm::uvec3& dimensions = volume_.dimensions();
+	int surface_voxel_count = 0;
+	
+	if (config_.verbose()) {
+		std::cout << "Detecting external surface voxels..." << std::endl;
+	}
+	
+	// For each voxel with tissue, check if it has neighbors without tissue
+	for (uint32_t z = 0; z < dimensions.z; z++) {
+		for (uint32_t y = 0; y < dimensions.y; y++) {
+			for (uint32_t x = 0; x < dimensions.x; x++) {
+				Voxel* voxel = volume_.at(x, y, z);
+				
+				// Only check voxels that have tissue
+				if (!voxel->tissue) {
+					continue;
+				}
+				
+				bool is_external_surface = false;
+				
+				// Check all 26 neighbors (including face, edge, and corner neighbors)
+				for (int dz = -1; dz <= 1 && !is_external_surface; dz++) {
+					for (int dy = -1; dy <= 1 && !is_external_surface; dy++) {
+						for (int dx = -1; dx <= 1 && !is_external_surface; dx++) {
+							if (dx == 0 && dy == 0 && dz == 0) continue; // Skip self
+							
+							int nx = (int)x + dx;
+							int ny = (int)y + dy;
+							int nz = (int)z + dz;
+							
+							// Check bounds - if neighbor is outside grid, this is external surface
+							if (nx < 0 || ny < 0 || nz < 0 
+							|| 	nx >= (int)dimensions.x
+							|| 	ny >= (int)dimensions.y 
+							|| 	nz >= (int)dimensions.z) {
+								is_external_surface = true;
+								break;
+							}
+							
+							// Check if neighbor has tissue - if not, this is external surface
+							Voxel* neighbor = volume_.at(nx, ny, nz);
+							if (!neighbor->tissue) {
+								is_external_surface = true;
+								break;
+							}
+						}
+					}
+				}
+				
+				// Set surface flag
+				voxel->is_surface_voxel = is_external_surface;
+				if (is_external_surface) {
+					surface_voxel_count++;
+				}
+			}
+		}
+	}
+	
+	if (config_.verbose()) {
+		std::cout << "External surface detection completed. Found " << surface_voxel_count << " surface voxels." << std::endl;
+	}
 }

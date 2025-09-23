@@ -112,11 +112,8 @@ CMakeCache.txt
 # Monte Carlo simulation outputs
 *.mco
 *.mct
-absorption.out
-emittance.out
-photons.out
-simulation.out
-experiment.out
+*.out
+*.csv
 
 # MCML data files
 *.dat

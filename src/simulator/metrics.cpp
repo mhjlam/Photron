@@ -40,7 +40,7 @@ void Metrics::collect_data(double at, double rs, double rd, double sr, double ts
 	diffusion_distance_ = compute_diffusion_distance();
 }
 
-double Metrics::compute_diffusion_distance() {
+double Metrics::compute_diffusion_distance() const {
 	if (path_vertices_.empty()) {
 		return 0.0;
 	}
@@ -60,7 +60,7 @@ double Metrics::compute_diffusion_distance() {
 	return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-double Metrics::compute_average_step_size() {
+double Metrics::compute_average_step_size() const {
 	if (step_sizes_.empty()) {
 		return 0;
 	}
@@ -74,7 +74,7 @@ double Metrics::compute_average_step_size() {
 	return total_step_size / static_cast<double>(num_steps);
 }
 
-double Metrics::compute_path_length() {
+double Metrics::compute_path_length() const {
 	if (path_vertices_.empty()) {
 		return 0;
 	}
@@ -131,8 +131,7 @@ void Metrics::print_report(const class Simulator& simulator) {
 	auto& mediums = simulator.mediums;
 	for (size_t i = 0; i < mediums.size(); ++i) {
 		auto& medium = mediums[i];
-		const auto& record = medium.get_record();
-		auto& metrics = medium.get_metrics();  // Non-const to call compute methods
+		const auto& metrics = medium.get_metrics();  // const reference
 		
 		// Medium header with ID
 		std::cout << "Medium " << (i + 1) << std::endl;
@@ -159,16 +158,16 @@ void Metrics::print_report(const class Simulator& simulator) {
 		
 		// Transport Statistics
 		std::cout << "Transport Statistics" << std::endl;
-		std::cout << "  Total photons:       " << simulator.paths.size() << std::endl;
-		std::cout << "  Photons entered:     " << record.photons_entered << std::endl;
+		std::cout << "  Total photons:       " << simulator.get_paths().size() << std::endl;
+		std::cout << "  Photons entered:     " << metrics.get_photons_entered() << std::endl;
 		std::cout << "  Scatter events:      " << std::fixed << std::setprecision(0) 
 		          << metrics.get_scatter_events() << std::endl;
 		std::cout << "  Total path length:   " << std::fixed << std::setprecision(6) 
-		          << metrics.get_path_length() << std::endl;
+		          << metrics.compute_path_length() << std::endl;
 		std::cout << "  Average step size:   " << std::fixed << std::setprecision(6) 
-		          << metrics.get_average_step_size() << std::endl;
+		          << metrics.compute_average_step_size() << std::endl;
 		std::cout << "  Diffusion distance:  " << std::fixed << std::setprecision(6) 
-		          << metrics.get_diffusion_distance() << std::endl;
+		          << metrics.compute_diffusion_distance() << std::endl;
 		
 		std::cout << std::endl;
 		
@@ -253,4 +252,45 @@ void Metrics::reset() {
 
 	step_sizes_.clear();
 	path_vertices_.clear();
+
+	// Reset all accumulated data
+	total_absorption_ = 0.0;
+	diffuse_reflection_ = 0.0;
+	total_reflection_ = 0.0;
+	diffuse_transmission_ = 0.0;
+	specular_transmission_ = 0.0;
+	total_transmission_ = 0.0;
+	total_diffusion_ = 0.0;
+	surface_reflection_ = 0.0;
+	surface_refraction_ = 0.0;
+	path_length_ = 0.0;
+	scatter_events_ = 0.0;
+	total_steps_ = 0;
+	photons_entered_ = 0;
+}
+
+void Metrics::normalize_raw_values(double divisor) {
+	total_absorption_ /= divisor;
+	diffuse_reflection_ /= divisor;
+	surface_reflection_ /= divisor;
+	surface_refraction_ /= divisor;
+	diffuse_transmission_ /= divisor;
+	specular_transmission_ /= divisor;
+	// Update totals after normalization
+	total_reflection_ = diffuse_reflection_ + surface_reflection_;
+	total_transmission_ = diffuse_transmission_ + specular_transmission_;
+	total_diffusion_ = diffuse_reflection_ + total_transmission_;
+	// Note: path_length_, total_steps_, and photons_entered_ are not normalized
+}
+
+void Metrics::reset_raw_absorption_and_diffuse() {
+	total_absorption_ = 0.0;
+	diffuse_reflection_ = 0.0;
+	diffuse_transmission_ = 0.0;
+	specular_transmission_ = 0.0;
+	// Update totals after reset
+	total_reflection_ = diffuse_reflection_ + surface_reflection_;
+	total_transmission_ = diffuse_transmission_ + specular_transmission_;
+	total_diffusion_ = diffuse_reflection_ + total_transmission_;
+	// Preserve surface_reflection_ and surface_refraction_ as per comment
 }

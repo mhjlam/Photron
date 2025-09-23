@@ -259,10 +259,19 @@ private:
 	// GPU buffer upload state tracking for performance
 	mutable bool line_buffer_uploaded_ {false};
 	mutable bool point_buffer_uploaded_ {false};
+	mutable bool voxel_buffer_uploaded_ {false};    // Track voxel instance buffer state
+	mutable bool voxel_instances_dirty_ {true};     // Flag to force voxel recalculation
 
 	// Uniform location caching for performance (avoid glGetUniformLocation every frame)
-	mutable GLint line_mvp_uniform_location_ {-1};
-	mutable GLint point_mvp_uniform_location_ {-1};
+	mutable GLint line_mvp_uniform_location_ {-1};          // Non-instanced lines
+	mutable GLint point_mvp_uniform_location_ {-1};         // Non-instanced points  
+	mutable GLint voxel_mvp_uniform_location_ {-1};         // Instanced voxels
+	mutable GLint triangle_mvp_uniform_location_ {-1};      // Non-instanced triangles
+	mutable GLint point_size_uniform_location_ {-1};       // Point size uniform
+	mutable GLint triangle_num_planes_uniform_location_ {-1}; // Triangle clipping planes count
+	mutable GLint triangle_clip_planes_uniform_location_ {-1}; // Triangle clipping planes data
+	mutable GLint line_instanced_mvp_uniform_location_ {-1}; // Instanced lines
+	mutable GLint point_instanced_mvp_uniform_location_ {-1}; // Instanced points
 	
 	// Camera state change tracking
 	bool camera_state_changed_ {true};

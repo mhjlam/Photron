@@ -83,6 +83,9 @@ struct Layer
 	// Check if the mesh bounds have been calculated
 	[[nodiscard]] constexpr bool has_bounds() const noexcept { return has_bounds_; }
 
+	// Validate and fix normal orientations to ensure they point outward
+	void validate_and_fix_normals();
+
 	bool operator==(const Layer& other) const noexcept { return other.id == id; }
 
 private:

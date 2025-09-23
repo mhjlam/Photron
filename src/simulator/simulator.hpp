@@ -9,13 +9,12 @@
 #include "math/cuboid.hpp"
 #include "math/range.hpp"
 #include "math/triangle.hpp"
+#include "math/voxel_dda3d.hpp"
 #include "simulator/config.hpp"
+#include "simulator/debug_logger.hpp"
 #include "simulator/layer.hpp"
 #include "simulator/metrics.hpp"
 #include "simulator/photon.hpp"
-#include "simulator/photon_path.hpp"
-#include "simulator/record.hpp"
-#include "simulator/source.hpp"
 #include "simulator/tissue.hpp"
 #include "simulator/voxel.hpp"
 #include "simulator/volume.hpp"
@@ -41,14 +40,16 @@ public:
 public:
 	Metrics metrics;
 
-	std::vector<PhotonPath> paths;
-	std::vector<Photon> photons;
+	std::vector<Photon> photons;  // Unified photon storage (was PhotonPath)
 	std::vector<Source> sources;
 	std::vector<std::shared_ptr<Emitter>> emitters;
 	std::vector<Medium> mediums;
 
 	std::shared_ptr<Random> rng;
 	double mcml_weight_threshold;
+
+	// 3D DDA instances for robust voxel traversal (one per medium)
+	std::vector<std::unique_ptr<VoxelDDA3D>> medium_ddas_;
 
 	// Version tracking for renderer cache optimization
 	mutable uint64_t simulation_version_ = 0;
@@ -66,7 +67,17 @@ public:
 	const std::vector<std::shared_ptr<Voxel>>& get_all_voxels() const;
 	size_t get_total_voxel_count() const;
 	Range3 get_combined_bounds() const;
-	Record get_combined_record() const;
+	
+	// Combined metrics access methods (replacement for get_combined_record)
+	double get_combined_total_absorption() const;
+	double get_combined_diffuse_reflection() const;
+	double get_combined_specular_reflection() const; 
+	double get_combined_surface_refraction() const;
+	double get_combined_diffuse_transmission() const;
+	double get_combined_specular_transmission() const;
+	double get_combined_avg_path_length() const;
+	int get_combined_total_steps() const;
+	int get_combined_photons_entered() const;
 	
 	// Energy conservation calculation (shared between console and overlay)
 	struct EnergyConservation {
@@ -90,14 +101,14 @@ public:
 	[[deprecated("Use get_combined_bounds() instead")]]
 	Range3 bounds() const { return get_combined_bounds(); }
 	
-	[[deprecated("Use get_combined_record() instead")]]
-	Record record() const { return get_combined_record(); }
-	
 	// Geometry queries (needed by renderer)
 	bool is_point_inside_geometry(const glm::dvec3& position) const;
 	
 	// Voxel access by grid coordinates (for renderer compatibility)
 	Voxel* voxel_grid(uint32_t x, uint32_t y, uint32_t z) const;
+
+	// Path access for backward compatibility (creates PhotonPaths from photon data)
+	std::vector<Photon> get_paths() const;
 
 private:
 	// simulation subroutines
@@ -110,6 +121,7 @@ private:
 	void scatter(Photon& photon);
 	void cross(Photon& photon);
 	void radiate(Photon& photon, glm::dvec3& direction, double weight);
+	Voxel* find_last_surface_voxel_with_dda(const Photon& photon, const glm::dvec3& exit_direction);
 	void roulette(Photon& photon);
 	void normalize();
 	
@@ -139,11 +151,19 @@ private:
 
 	// data management
 	void reset_simulation_data();
+	void output_voxel_emittance_summary();
 
 	// medium context management
 	Medium* find_medium_at(const glm::dvec3& position) const;
 	bool is_inside_any_medium(const glm::dvec3& position) const;
 	void handle_medium_transition(Photon& photon, Medium* from, Medium* to);
+	void validate_photon_state_after_interface_transition(Photon& photon, Medium* from_medium, Medium* to_medium);
+	
+	// 3D DDA voxel traversal methods
+	void initialize_dda_instances();
+	void track_voxel_path_with_dda(Photon& photon);
+	void track_photon_path_segments_for_absorption(Photon& photon);
+	Medium* find_medium_at_with_dda(const glm::dvec3& position) const;
 	
 	// Helper methods that delegate to appropriate medium
 	Voxel* voxel_at(const glm::dvec3& position) const;

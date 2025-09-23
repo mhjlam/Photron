@@ -1,6 +1,7 @@
 #include "volume.hpp"
 
 #include <algorithm>
+#include <iostream>
 #include <memory>
 #include <random>
 #include <stdexcept>
@@ -194,7 +195,9 @@ double Volume::fraction_inside(const glm::dvec3& voxel_min, const glm::dvec3& vo
 
 double Volume::fraction_inside_fast(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max,
 									const std::vector<Layer>& layers, int max_subdivisions) const {
-	return subdivide_test(voxel_min, voxel_max, layers, 0, max_subdivisions);
+	// Use robust distance field based voxelization and return volume fraction
+	VoxelClassification classification = distance_field_voxelization(voxel_min, voxel_max, layers);
+	return classification.volume_fraction;
 }
 
 double Volume::fraction(uint32_t x, uint32_t y, uint32_t z, const glm::dvec3& grid_min,
@@ -263,4 +266,337 @@ double Volume::subdivide_test(const glm::dvec3& min_corner, const glm::dvec3& ma
 	}
 
 	return total_fraction / 8.0; // Average of 8 sub-cubes
+}
+
+// Distance Field Based Voxelization Algorithm
+// This is the most robust approach for complex mesh voxelization
+VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max,
+													   const std::vector<Layer>& layers) const {
+	
+	VoxelClassification result;
+	glm::dvec3 voxel_size = voxel_max - voxel_min;
+	glm::dvec3 voxel_center = (voxel_min + voxel_max) * 0.5;
+	
+	// Key parameters for distance field voxelization
+	const double SURFACE_THRESHOLD = voxel_size.x * 0.5;  // Half voxel size
+	
+	// DEBUG: Check for voxels near the problematic area
+	bool is_debug_voxel = (voxel_center.x > -0.1 && voxel_center.x < 0.0 && 
+						   voxel_center.y > -0.15 && voxel_center.y < -0.1 && 
+						   voxel_center.z > -0.35 && voxel_center.z < -0.3);
+	
+	if (is_debug_voxel) {
+		std::cout << "DEBUG VOXEL - Center: (" << voxel_center.x << ", " << voxel_center.y << ", " << voxel_center.z << ")" << std::endl;
+		std::cout << "  Bounds: [" << voxel_min.x << "," << voxel_max.x << "] [" << voxel_min.y << "," << voxel_max.y << "] [" << voxel_min.z << "," << voxel_max.z << "]" << std::endl;
+	}
+	
+	// Step 1: Compute signed distance from voxel center to mesh surface
+	double min_distance = std::numeric_limits<double>::max();
+	bool found_surface = false;
+	uint32_t closest_layer_id = 0;
+	
+	for (size_t i = 0; i < layers.size(); ++i) {
+		const auto& layer = layers[i];
+		double distance = compute_signed_distance_to_mesh(voxel_center, layer.mesh);
+		if (std::abs(distance) < std::abs(min_distance)) {
+			min_distance = distance;
+			closest_layer_id = static_cast<uint32_t>(i);
+			found_surface = true;
+		}
+	}
+	
+	// Step 2: Classify voxel based on distance to surface
+	if (!found_surface) {
+		return result; // Empty result (outside all geometry)
+	}
+	
+	// Step 3: Determine which layer(s) contain the voxel and assign correct tissue
+	bool voxel_intersects_geometry = false;
+	uint32_t correct_tissue_id = 0;
+	bool found_containing_layer = false;
+	
+	// Check if voxel center is inside any layer - assign tissue from the containing layer
+	for (const auto& layer : layers) {
+		if (layer.contains_point(voxel_center)) {
+			voxel_intersects_geometry = true;
+			correct_tissue_id = layer.tissue_id;
+			found_containing_layer = true;
+			if (is_debug_voxel) {
+				std::cout << "  Center inside layer " << layer.id << " (tissue " << layer.tissue_id << ")" << std::endl;
+			}
+			break; // Use first containing layer (layers should not overlap)
+		}
+	}
+	
+	if (is_debug_voxel && !found_containing_layer) {
+		std::cout << "  Center not inside any layer" << std::endl;
+	}
+	
+	// Also check if surface passes through voxel (distance < half voxel size)
+	if (!voxel_intersects_geometry && std::abs(min_distance) <= SURFACE_THRESHOLD) {
+		voxel_intersects_geometry = true;
+		// For boundary voxels not containing center, use closest layer tissue
+		if (!found_containing_layer) {
+			correct_tissue_id = layers[closest_layer_id].tissue_id;
+		}
+	}
+	
+	if (!voxel_intersects_geometry) {
+		if (is_debug_voxel) {
+			std::cout << "  No geometry intersection - returning empty result" << std::endl;
+		}
+		return result; // Empty result (no intersection)
+	}
+	
+	if (is_debug_voxel) {
+		std::cout << "  Final classification: intersects=" << voxel_intersects_geometry 
+				  << ", tissue=" << correct_tissue_id 
+				  << ", boundary=" << (std::abs(min_distance) <= SURFACE_THRESHOLD)
+				  << ", min_dist=" << min_distance << std::endl;
+	}
+	
+	// Step 4: Compute volume fraction and surface classification for intersecting voxels
+	result.is_inside_geometry = true;
+	result.dominant_tissue_id = correct_tissue_id; // Use tissue from containing layer, not closest surface
+	
+	// IMPROVED Boundary voxel detection: Check if surface passes through voxel volume
+	// Method 1: Center-based detection (existing)
+	bool center_near_surface = (std::abs(min_distance) <= SURFACE_THRESHOLD);
+	
+	// Method 2: Volume-based detection - check if surface intersects voxel bounds
+	bool surface_intersects_volume = false;
+	
+	// Sample multiple points within the voxel to detect surface intersection
+	const int SAMPLE_DENSITY = 3; // 3x3x3 sampling grid
+	double step_size = voxel_size.x / SAMPLE_DENSITY;
+	int inside_samples = 0;
+	int total_samples = 0;
+	
+	for (int i = 0; i < SAMPLE_DENSITY; i++) {
+		for (int j = 0; j < SAMPLE_DENSITY; j++) {
+			for (int k = 0; k < SAMPLE_DENSITY; k++) {
+				glm::dvec3 sample_point = voxel_min + glm::dvec3(
+					(i + 0.5) * step_size,
+					(j + 0.5) * step_size,
+					(k + 0.5) * step_size
+				);
+				
+				bool point_inside = false;
+				for (const auto& layer : layers) {
+					if (layer.contains_point(sample_point)) {
+						point_inside = true;
+						break;
+					}
+				}
+				
+				if (point_inside) inside_samples++;
+				total_samples++;
+			}
+		}
+	}
+	
+	// If not all samples have the same inside/outside state, surface intersects volume
+	surface_intersects_volume = (inside_samples > 0 && inside_samples < total_samples);
+	
+	// Boundary voxel if either center is near surface OR surface intersects volume
+	result.is_boundary_voxel = center_near_surface || surface_intersects_volume;
+	
+	if (is_debug_voxel) {
+		std::cout << "  Boundary detection: center_near=" << center_near_surface 
+				  << ", surface_intersects=" << surface_intersects_volume
+				  << ", samples=" << inside_samples << "/" << total_samples
+				  << ", final_boundary=" << result.is_boundary_voxel << std::endl;
+	}
+	
+	if (result.is_boundary_voxel) {
+		// For boundary voxels, compute accurate volume fraction
+		result.volume_fraction = compute_volume_fraction_sdf(voxel_min, voxel_max, layers, 4);
+	} else {
+		// For interior voxels, assume full volume
+		result.volume_fraction = 1.0;
+	}
+	
+	return result;
+}
+
+// Compute accurate volume fraction for surface voxels using SDF sampling
+double Volume::compute_volume_fraction_sdf(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max,
+										   const std::vector<Layer>& layers, int subdivisions) const {
+	
+	glm::dvec3 voxel_size = voxel_max - voxel_min;
+	
+	// Adaptive sampling density - more samples for surface voxels
+	int samples_per_axis = std::max(4, std::min(12, subdivisions * 3));
+	double sample_spacing = voxel_size.x / samples_per_axis;
+	
+	int inside_samples = 0;
+	int total_samples = 0;
+	
+	// Regular grid sampling within the voxel
+	for (int i = 0; i < samples_per_axis; i++) {
+		for (int j = 0; j < samples_per_axis; j++) {
+			for (int k = 0; k < samples_per_axis; k++) {
+				// Sample point within voxel (offset from edges)
+				glm::dvec3 sample_point = voxel_min + glm::dvec3(
+					(i + 0.5) * sample_spacing,
+					(j + 0.5) * sample_spacing,
+					(k + 0.5) * sample_spacing
+				);
+				
+				// Use signed distance to determine if point is inside
+				bool point_inside = false;
+				for (const auto& layer : layers) {
+					double distance = compute_signed_distance_to_mesh(sample_point, layer.mesh);
+					if (distance <= 0.0) {  // Negative distance = inside
+						point_inside = true;
+						break;
+					}
+				}
+				
+				if (point_inside) {
+					inside_samples++;
+				}
+				total_samples++;
+			}
+		}
+	}
+	
+	// Compute raw volume fraction
+	double raw_fraction = static_cast<double>(inside_samples) / total_samples;
+	
+	// Apply minimum threshold to filter out barely-touching voxels
+	const double MIN_VOLUME_THRESHOLD = 0.05;  // 5% minimum
+	if (raw_fraction < MIN_VOLUME_THRESHOLD) {
+		return 0.0;
+	}
+	
+	return raw_fraction;
+}
+
+// Compute signed distance from a point to the closest point on a triangle mesh
+// Negative distance = inside, positive = outside
+double Volume::compute_signed_distance_to_mesh(const glm::dvec3& point, const std::vector<Triangle>& mesh) const {
+	
+	if (mesh.empty()) {
+		return std::numeric_limits<double>::max();
+	}
+	
+	double min_distance_squared = std::numeric_limits<double>::max();
+	glm::dvec3 closest_point;
+	glm::dvec3 closest_normal;
+	
+	// Find closest point on the mesh surface
+	for (const auto& triangle : mesh) {
+		glm::dvec3 closest_on_triangle = closest_point_on_triangle(point, triangle);
+		double dist_squared = glm::length2(point - closest_on_triangle);
+		
+		if (dist_squared < min_distance_squared) {
+			min_distance_squared = dist_squared;
+			closest_point = closest_on_triangle;
+			closest_normal = glm::normalize(glm::cross(
+				triangle.v1() - triangle.v0(),
+				triangle.v2() - triangle.v0()
+			));
+		}
+	}
+	
+	double distance = std::sqrt(min_distance_squared);
+	
+	// Determine sign using normal direction
+	glm::dvec3 to_point = point - closest_point;
+	double sign = glm::dot(to_point, closest_normal);
+	
+	return (sign >= 0.0) ? distance : -distance;
+}
+
+// Find closest point on a triangle to a given point
+glm::dvec3 Volume::closest_point_on_triangle(const glm::dvec3& point, const Triangle& triangle) const {
+	
+	glm::dvec3 v0 = triangle.v0();
+	glm::dvec3 v1 = triangle.v1();
+	glm::dvec3 v2 = triangle.v2();
+	
+	// Vectors from v0 to other vertices
+	glm::dvec3 edge0 = v1 - v0;
+	glm::dvec3 edge1 = v2 - v0;
+	glm::dvec3 v0_to_point = point - v0;
+	
+	// Compute dot products
+	double a = glm::dot(edge0, edge0);
+	double b = glm::dot(edge0, edge1);
+	double c = glm::dot(edge1, edge1);
+	double d = glm::dot(edge0, v0_to_point);
+	double e = glm::dot(edge1, v0_to_point);
+	
+	double det = a * c - b * b;
+	double s = b * e - c * d;
+	double t = b * d - a * e;
+	
+	if (s + t < det) {
+		if (s < 0.0) {
+			if (t < 0.0) {
+				// Region 4
+				if (d < 0.0) {
+					s = std::clamp(-d / a, 0.0, 1.0);
+					t = 0.0;
+				} else {
+					s = 0.0;
+					t = std::clamp(-e / c, 0.0, 1.0);
+				}
+			} else {
+				// Region 3
+				s = 0.0;
+				t = std::clamp(-e / c, 0.0, 1.0);
+			}
+		} else if (t < 0.0) {
+			// Region 5
+			s = std::clamp(-d / a, 0.0, 1.0);
+			t = 0.0;
+		} else {
+			// Region 0
+			double inv_det = 1.0 / det;
+			s *= inv_det;
+			t *= inv_det;
+		}
+	} else {
+		if (s < 0.0) {
+			// Region 2
+			double tmp0 = b + d;
+			double tmp1 = c + e;
+			if (tmp1 > tmp0) {
+				double numer = tmp1 - tmp0;
+				double denom = a - 2.0 * b + c;
+				s = std::clamp(numer / denom, 0.0, 1.0);
+				t = 1.0 - s;
+			} else {
+				t = std::clamp(-e / c, 0.0, 1.0);
+				s = 0.0;
+			}
+		} else if (t < 0.0) {
+			// Region 6
+			double tmp0 = b + e;
+			double tmp1 = a + d;
+			if (tmp1 > tmp0) {
+				double numer = tmp1 - tmp0;
+				double denom = a - 2.0 * b + c;
+				t = std::clamp(numer / denom, 0.0, 1.0);
+				s = 1.0 - t;
+			} else {
+				s = std::clamp(-d / a, 0.0, 1.0);
+				t = 0.0;
+			}
+		} else {
+			// Region 1
+			double numer = c + e - b - d;
+			if (numer <= 0.0) {
+				s = 0.0;
+			} else {
+				double denom = a - 2.0 * b + c;
+				s = std::clamp(numer / denom, 0.0, 1.0);
+			}
+			t = 1.0 - s;
+		}
+	}
+	
+	return v0 + s * edge0 + t * edge1;
 }

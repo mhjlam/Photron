@@ -117,6 +117,9 @@ bool Config::parse_general_config(std::list<std::string>& data) {
 		else if (equals(param, "progress")) {
 			progress_ = str2num<bool>(value);
 		}
+		else if (equals(param, "deterministic")) {
+			deterministic_ = str2num<bool>(value);
+		}
 	}
 
 	// Validation
@@ -339,6 +342,9 @@ bool Config::parse_layer_config(std::list<std::string>& data) {
 	
 	// Initialize the layer's mesh geometry with triangles
 	layer.set_triangles(triangle_mesh);
+	
+	// Validate and fix normal orientations to ensure consistency
+	layer.validate_and_fix_normals();
 	
 	// add to collection using move semantics
 	layers_.push_back(std::move(layer));

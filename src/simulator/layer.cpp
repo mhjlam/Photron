@@ -1,6 +1,7 @@
 #include "layer.hpp"
 
 #include <algorithm>
+#include <iostream>
 #include <limits>
 #include <ranges>
 
@@ -130,4 +131,62 @@ std::vector<std::pair<double, Triangle>> Layer::find_all_intersections(const Ray
 	std::ranges::sort(intersections, [](const auto& a, const auto& b) noexcept { return a.first < b.first; });
 
 	return intersections;
+}
+
+/**
+ * Validate and fix normal orientations to ensure they point outward from the geometry
+ */
+void Layer::validate_and_fix_normals() {
+	if (mesh.empty()) {
+		return;
+	}
+
+	// Calculate the centroid of the mesh for reference
+	glm::dvec3 mesh_centroid(0.0);
+	size_t vertex_count = 0;
+	
+	for (const auto& triangle : mesh) {
+		mesh_centroid += triangle.v0() + triangle.v1() + triangle.v2();
+		vertex_count += 3;
+	}
+	
+	if (vertex_count > 0) {
+		mesh_centroid /= static_cast<double>(vertex_count);
+	}
+
+	// Check and fix each triangle's normal orientation
+	size_t flipped_count = 0;
+	for (auto& triangle : mesh) {
+		// Calculate triangle center
+		glm::dvec3 triangle_center = triangle.center();
+		
+		// Vector from mesh centroid to triangle center (should align with outward normal)
+		glm::dvec3 centroid_to_triangle = triangle_center - mesh_centroid;
+		
+		// Get current normal
+		glm::dvec3 current_normal = triangle.normal();
+		
+		// Check if normal points outward (positive dot product with centroid-to-triangle vector)
+		double alignment = glm::dot(current_normal, glm::normalize(centroid_to_triangle));
+		
+		// If normal points inward (negative dot product), flip it
+		if (alignment < 0.0) {
+			// Flip the normal by swapping two vertices (reverses winding order)
+			glm::dvec3 v0 = triangle.v0();
+			glm::dvec3 v1 = triangle.v1();
+			glm::dvec3 v2 = triangle.v2();
+			
+			// Swap v1 and v2 to reverse winding order
+			triangle.set_vertices(v0, v2, v1);
+			flipped_count++;
+		}
+	}
+
+	if (flipped_count > 0) {
+		std::cout << "Layer " << static_cast<int>(id) << ": Fixed " << flipped_count 
+				  << " inward-pointing normals out of " << mesh.size() << " triangles." << std::endl;
+	}
+
+	// Rebuild spatial acceleration structure with corrected normals
+	bvh_.build(mesh);
 }

@@ -232,7 +232,7 @@ void Overlay::render_control_panel(Simulator* simulator) {
 		HelpMarker("Show photon paths and scatter points");
 
 		// Energy Labels - auto-disabled after 10 photons (handled by renderer)
-		bool many_photons = (simulator && simulator->paths.size() > 10);
+		bool many_photons = (simulator && simulator->get_paths().size() > 10);
 		
 		ImGui::Checkbox("Energy Labels", &settings_.draw_labels);
 		ImGui::SameLine();
@@ -302,7 +302,6 @@ void Overlay::render_control_panel(Simulator* simulator) {
 			auto& mediums = simulator->mediums;
 			for (size_t i = 0; i < mediums.size(); ++i) {
 				auto& medium = mediums[i];
-				const auto& record = medium.get_record();
 				auto& metrics = medium.get_metrics();
 				
 				// Medium header with ID
@@ -329,8 +328,8 @@ void Overlay::render_control_panel(Simulator* simulator) {
 					
 					// Transport Statistics (matching console format)
 					ImGui::Text("Transport Statistics");
-					ImGui::Text("  Total photons:       %zu", simulator->paths.size());
-					ImGui::Text("  Photons entered:     %d", record.photons_entered);
+					ImGui::Text("  Total photons:       %zu", simulator->get_paths().size());
+					ImGui::Text("  Photons entered:     %d", metrics.get_photons_entered());
 					ImGui::Text("  Scatter events:      %.0f", metrics.get_scatter_events());
 					ImGui::Text("  Total path length:   %7.6f", metrics.compute_path_length());
 					ImGui::Text("  Average step size:   %.6f", metrics.compute_average_step_size());

@@ -158,10 +158,7 @@ void Renderer::render(Simulator& simulator) {
 	if (current_sim_version != last_simulation_version_) {
 		// When simulation data changes, invalidate all relevant caches
 		// This includes both energy caches AND path instances since the path data may have changed
-		invalidate_energy_cache();
-		invalidate_energy_label_cache();
-		invalidate_path_instances_cache();
-		surface_cached_ = false;
+		invalidate_all_caches();
 		
 		last_simulation_version_ = current_sim_version;
 	}
@@ -448,6 +445,8 @@ void Renderer::handle_mouse_button(int button, int action, int /*mods*/) {
 
 void Renderer::handle_mouse_scroll(float /*xoffset*/, float yoffset) {
 	camera_.handle_mouse_scroll(yoffset);
+	// Mark camera state as changed to update label positions
+	camera_state_changed_ = true;
 }
 
 void Renderer::reset_camera() {
@@ -513,6 +512,10 @@ void Renderer::draw_voxels(const Settings& settings) {
 	// Get camera position for distance calculation
 	glm::vec3 camera_pos = camera_.get_position();
 
+	// DEBUG: Print when starting voxel rendering
+	std::cout << "VOXEL RENDERING START: mode=" << static_cast<int>(settings.voxel_mode) 
+	          << " (0=Absorption, 1=Emittance, 2=Layers, 3=Combined)" << std::endl;
+
 	// First pass: analyze energy distribution to find dynamic range for adaptive scaling
 	std::vector<float> all_energies;
 	float total_accumulated_energy = 0.0f;
@@ -531,6 +534,25 @@ void Renderer::draw_voxels(const Settings& settings) {
 					if (voxel) {
 						float absorption = static_cast<float>(voxel->absorption);
 						float emittance = static_cast<float>(voxel->emittance);
+
+						// DEBUG: Print ALL voxels that have emittance values
+						if (emittance > 1e-10f) {
+							std::cout << "RENDERER EMITTANCE: grid(" << ix << "," << iy << "," << iz 
+									  << ") voxel(" << voxel->ix() << "," << voxel->iy() << "," << voxel->iz()
+									  << ") emittance=" << emittance << " absorption=" << absorption << std::endl;
+						}
+
+						// DEBUG: Show when we're processing known emittance coordinates  
+						if ((voxel->ix() == 12 && voxel->iy() == 2 && voxel->iz() == 12) || 
+						    (voxel->ix() == 12 && voxel->iy() == 4 && voxel->iz() == 11) ||
+						    (voxel->ix() == 12 && voxel->iy() == 3 && voxel->iz() == 12) ||
+						    (voxel->ix() == 11 && voxel->iy() == 4 && voxel->iz() == 12) ||
+						    (voxel->ix() == 12 && voxel->iy() == 2 && voxel->iz() == 13) ||
+						    (voxel->ix() == 12 && voxel->iy() == 3 && voxel->iz() == 13)) {
+							std::cout << "KNOWN EMITTANCE VOXEL: grid(" << ix << "," << iy << "," << iz 
+									  << ") voxel(" << voxel->ix() << "," << voxel->iy() << "," << voxel->iz()
+									  << ") emittance=" << emittance << " mode=" << static_cast<int>(settings.voxel_mode) << std::endl;
+						}
 
 						float total_energy;
 						if (settings.voxel_mode == VoxelMode::Absorption) {
@@ -639,55 +661,9 @@ void Renderer::draw_voxels(const Settings& settings) {
 						float fz = static_cast<float>(z);
 						glm::vec3 voxel_pos(fx, fy, fz);
 
-						// Energy-based coloring based on selected voxel mode (user request 4)
+						// Use real emittance data from simulation - do not add artificial surface scattering
 						float absorption = static_cast<float>(voxel->absorption);
 						float emittance = static_cast<float>(voxel->emittance);
-
-						// ADD SURFACE SCATTERING AS EMITTANCE at the surface entry voxel
-						// Always detect the surface entry voxel, but only add emittance in Emittance mode
-						if (!simulator_->sources.empty()) {
-							const auto& source = simulator_->sources[0];
-							glm::vec3 source_pos(static_cast<float>(source.origin.x),
-												 static_cast<float>(source.origin.y),
-												 static_cast<float>(source.origin.z));
-							glm::vec3 source_dir(static_cast<float>(source.direction.x),
-												 static_cast<float>(source.direction.y),
-												 static_cast<float>(source.direction.z));
-
-							// Calculate surface entry point
-							float surface_y = 0.1f;
-							const auto& layers = simulator_->get_all_layers();
-							if (!layers.empty()) {
-								surface_y = -1000.0f;
-								for (const auto& layer : layers) {
-									for (const auto& triangle : layer.mesh) {
-										surface_y = std::max({surface_y, static_cast<float>(triangle.v0().y),
-															  static_cast<float>(triangle.v1().y),
-															  static_cast<float>(triangle.v2().y)});
-									}
-								}
-							}
-
-							if (source_dir.y != 0.0f) {
-								float t = (surface_y - source_pos.y) / source_dir.y;
-								glm::vec3 surface_entry = source_pos + t * source_dir;
-
-								// Check if this voxel contains the surface entry point
-								float voxel_tolerance =
-									1.5f * static_cast<float>(voxsize); // Increase tolerance for better detection
-								float distance = glm::length(voxel_pos - surface_entry);
-
-								if (distance < voxel_tolerance) {
-									// Only add surface reflection as emittance in Emittance mode
-									if (settings.voxel_mode == VoxelMode::Emittance) {
-										auto record = simulator_->get_combined_record();
-										float surface_scattering =
-											static_cast<float>(record.specular_reflection);
-										emittance += surface_scattering;
-									}
-								}
-							}
-						}
 
 						float total_energy;
 						if (settings.voxel_mode == VoxelMode::Absorption) {
@@ -779,6 +755,14 @@ void Renderer::draw_voxels(const Settings& settings) {
 
 							// Add to render list (only if it has visible color)
 							voxels_to_render.push_back({voxel, voxel_pos, distance, color});
+							
+							// DEBUG: Print when voxels with emittance are added to render list
+							if (settings.voxel_mode == VoxelMode::Emittance && emittance > 1e-8f) {
+								std::cout << "RENDER EMITTANCE: grid(" << ix << "," << iy << "," << iz 
+										  << ") voxel(" << voxel->ix() << "," << voxel->iy() << "," << voxel->iz()
+										  << ") emittance=" << emittance << " pos=(" << fx << "," << fy << "," << fz << ")"
+										  << " color=(" << color.r << "," << color.g << "," << color.b << "," << color.a << ")" << std::endl;
+							}
 						}
 					}
 				}
@@ -786,10 +770,16 @@ void Renderer::draw_voxels(const Settings& settings) {
 		}
 	}
 
-	// Sort voxels back-to-front for proper transparency blending (user request 4) - Modern C++20
-	std::ranges::sort(voxels_to_render, [](const VoxelRenderData& a, const VoxelRenderData& b) noexcept {
-		return a.distance_to_camera > b.distance_to_camera; // Furthest first
-	});
+	// PERFORMANCE OPTIMIZATION: Skip expensive sorting for large datasets  
+	// Sorting 981k+ voxels every frame is prohibitively expensive (O(n log n) = ~19M operations)
+	// Only sort when voxel count is reasonable for perfect transparency
+	if (voxels_to_render.size() < 50000) {
+		// Sort voxels back-to-front for optimal transparency blending
+		std::ranges::sort(voxels_to_render, [](const VoxelRenderData& a, const VoxelRenderData& b) noexcept {
+			return a.distance_to_camera > b.distance_to_camera; // Furthest first
+		});
+	}
+	// For large datasets: rely on depth buffer + alpha blending without sorting
 
 	// Now render all voxels in batches with depth offsets to prevent Z-fighting
 	const size_t BATCH_SIZE = 300; // Render 300 voxels at a time (safe limit)
@@ -864,15 +854,33 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 		return;
 	}
 
+	// PERFORMANCE OPTIMIZATION: Check if we need to rebuild voxel instances
+	// Only rebuild when simulation data changes or voxel mode changes
+	static VoxelMode last_voxel_mode = VoxelMode::Layers;
+	
+	bool need_rebuild = voxel_instances_dirty_ || 
+	                    settings.voxel_mode != last_voxel_mode;
+						
+	if (!need_rebuild && voxel_buffer_uploaded_ && !voxel_instances_.empty()) {
+		// Use cached voxel instances
+		draw_voxel_instances();
+		return;
+	}
+	
+	// Mark instances as dirty if we're rebuilding due to mode change
+	if (settings.voxel_mode != last_voxel_mode) {
+		voxel_instances_dirty_ = true;
+		voxel_buffer_uploaded_ = false;
+	}
+	
+	last_voxel_mode = settings.voxel_mode;
+
 	// Setup OpenGL state for transparent voxel rendering (match original)
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glEnable(GL_DEPTH_TEST);
 	glDepthMask(GL_FALSE); // Disable depth writing for transparency
 	glDisable(GL_CULL_FACE);
-
-	// Use HIGH-PERFORMANCE instanced rendering instead of individual triangles
-	begin_voxel_instances();
 
 	// Get MCML grid parameters
 	const auto& config = Config::get();
@@ -888,6 +896,15 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 
 	// Set up instanced rendering for maximum performance
 	begin_voxel_instances();
+	
+	// PERFORMANCE: Pre-calculate camera data and bounds once for all voxels
+	glm::vec3 camera_pos = camera_.get_position();
+	glm::vec3 camera_target = camera_.get_target();
+	glm::vec3 camera_front = glm::normalize(camera_target - camera_pos);
+	float max_render_distance = 50.0f; // Don't render voxels too far away
+	
+	// PERFORMANCE: Cache bounds calculation - don't call it 981k times!
+	auto bounds = simulator_->get_combined_bounds();
 	
 	// Render voxels using cached energy scaling - PERFORMANCE OPTIMIZED
 	for (int iz = 0; iz < nz; iz++) {
@@ -905,6 +922,7 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 					// Calculate energy based on current mode
 					float absorption = static_cast<float>(voxel->absorption);
 					float emittance = static_cast<float>(voxel->emittance);
+					
 					float total_energy;
 					
 					if (settings.voxel_mode == VoxelMode::Absorption) {
@@ -923,9 +941,7 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 					// IMPORTANT: Don't skip voxels with no energy! 
 					// They should still render as very faint tissue-colored hints
 
-					// Calculate world position using the exact same bounds used for voxelization
-					// Use combined bounds to match camera positioning
-					auto bounds = simulator_->get_combined_bounds();
+					// Calculate world position using cached bounds (PERFORMANCE FIX)
 					double x = bounds.min_bounds.x + (voxsize * ix) + half_voxsize;
 					double y = bounds.min_bounds.y + (voxsize * iy) + half_voxsize;
 					double z = bounds.min_bounds.z + (voxsize * iz) + half_voxsize;
@@ -933,6 +949,12 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 
 
 					glm::vec3 voxel_pos(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
+
+					// PERFORMANCE: Distance-based culling to reduce rendered voxels
+					float distance_to_camera = glm::length(voxel_pos - camera_pos);
+					if (distance_to_camera > max_render_distance) {
+						continue; // Skip voxels too far from camera
+					}
 
 					// PERFORMANCE OPTIMIZATION: Skip expensive geometry tests
 					// The voxel already has tissue assigned, so it's already been determined to be in geometry
@@ -959,10 +981,16 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 						// Apply gamma correction for better contrast (gamma = 0.5 brightens mid-tones)
 						float gamma_corrected = std::pow(normalized_energy, 0.5f);
 
-						// Calculate distance from origin for depth-based alpha
-						float max_dist = glm::length(to_float(bounds.max_bounds));
+						// Calculate distance from origin for depth-based alpha (cached calculation)
+						static float cached_max_dist = 0.0f;
+						static bool max_dist_cached = false;
+						if (!max_dist_cached) {
+							cached_max_dist = glm::length(to_float(bounds.max_bounds));
+							max_dist_cached = true;
+						}
+						
 						float dist_from_origin = glm::length(voxel_pos);
-						float normalized_dist = glm::clamp(dist_from_origin / max_dist, 0.0f, 1.0f);
+						float normalized_dist = glm::clamp(dist_from_origin / cached_max_dist, 0.0f, 1.0f);
 
 						// More visible alpha scaling based on gamma-corrected energy
 						float min_alpha = 0.2f; // Higher minimum for emittance visibility
@@ -989,10 +1017,7 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 					}
 					// Only add voxels that should be visible
 					if (color.a > 0.0f) {
-						// Calculate depth for sorting (distance from camera)
-						glm::vec3 camera_pos = camera_.get_position();
-						glm::vec3 camera_target = camera_.get_target();
-						glm::vec3 camera_front = glm::normalize(camera_target - camera_pos);
+						// Calculate depth for sorting (distance from camera) - use pre-calculated camera data
 						glm::vec3 view_dir = voxel_pos - camera_pos;
 						float depth = glm::dot(view_dir, camera_front);
 						
@@ -1020,9 +1045,9 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 
 	// First pass: analyze energy distribution for adaptive logarithmic mapping
 	std::vector<float> all_energies;
-	for (const PhotonPath& path : simulator_->paths) {
-		if (path.head) {
-			auto current = path.head;
+	for (const Photon& photon : simulator_->get_paths()) {
+		if (photon.path_head) {
+			auto current = photon.path_head;
 			while (current) {
 				float energy = static_cast<float>(current->value);
 				if (energy > 0.0f) {
@@ -1049,10 +1074,10 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 	// Draw photon path histories with adaptive energy-based coloring
 	begin_lines();
 
-	for (const PhotonPath& path : simulator_->paths) {
-		if (path.head) {
+	for (const Photon& photon : simulator_->get_paths()) {
+		if (photon.path_head) {
 			// Draw connected line segments with energy gradient exactly like backup
-			auto current = path.head;
+			auto current = photon.path_head;
 			auto next = current ? current->next : nullptr;
 
 			// Draw physically correct incident ray from source to tissue surface
@@ -1144,7 +1169,7 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 			}
 
 			// Also draw emitted paths if they exist with adaptive energy-based coloring
-			current = path.head;
+			current = photon.path_head;
 			while (current) {
 				if (current->emit) {
 					// Use the ORIGINAL emittance direction as computed by the simulator
@@ -1173,9 +1198,9 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 	// Draw scatter/interaction markers with better visualization (user feedback)
 	begin_points();
 
-	for (const PhotonPath& path : simulator_->paths) {
-		if (path.head) {
-			auto current = path.head;
+	for (const Photon& photon : simulator_->get_paths()) {
+		if (photon.path_head) {
+			auto current = photon.path_head;
 			int vertex_count = 0;
 
 			// Count total vertices to identify key points properly
@@ -1186,7 +1211,7 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 			}
 
 			// Only add markers at specific key points: incident, scatter, exit (user request 2)
-			auto path_current = path.head;
+			auto path_current = photon.path_head;
 			std::shared_ptr<PhotonNode> prev = nullptr;
 			std::shared_ptr<PhotonNode> next = nullptr;
 			int current_index = 0;
@@ -1272,7 +1297,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 	};
 
 	// PERFORMANCE OPTIMIZATION: Use incremental caching instead of rebuilding every frame
-	size_t current_photon_count = simulator_->paths.size();
+	size_t current_photon_count = simulator_->get_paths().size();
 	
 	// Check if we need to rebuild cache completely or just add new photons
 	if (!path_instances_cached_ || current_photon_count < cached_photon_count_) {
@@ -1308,12 +1333,12 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 		}
 
 		// PERFORMANCE: Process only NEW photons (incremental caching)
-		const auto& paths = simulator_->paths;
+		const auto paths = simulator_->get_paths();
 		for (size_t i = cached_photon_count_; i < paths.size(); ++i) {
-			const PhotonPath& path = paths[i];
-		if (path.head) {
+			const Photon& photon = paths[i];
+		if (photon.path_head) {
 			// Generate connected line segments with energy gradient
-			auto current = path.head;
+			auto current = photon.path_head;
 			auto next = current ? current->next : nullptr;
 
 			// Generate incident ray from source to tissue surface (cached surface)
@@ -1365,7 +1390,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 				// Check for emitter connections at EVERY node during path traversal
 				// Check if current node has an emit connection (external vertex)
 				if (current->emit && current->emit->emitter) {
-					const auto& emitter = current->emit->emitter;
+					const auto emitter = current->emit->emitter;
 					
 					glm::vec3 scatter_pos(static_cast<float>(current->position.x),
 										 static_cast<float>(current->position.y),
@@ -1385,7 +1410,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 				
 				// Also check direct emitter connection (fallback)
 				if (current->emitter) {
-					const auto& emitter = current->emitter;
+					const auto emitter = current->emitter;
 					
 					glm::vec3 scatter_pos(static_cast<float>(current->position.x),
 										 static_cast<float>(current->position.y),
@@ -1412,7 +1437,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 			if (current) {
 				// Check for emitter connections at the final node
 				if (current->emit && current->emit->emitter) {
-					const auto& emitter = current->emit->emitter;
+					const auto emitter = current->emit->emitter;
 					
 					glm::vec3 last_scatter(static_cast<float>(current->position.x),
 										   static_cast<float>(current->position.y),
@@ -1432,7 +1457,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 				
 				// Also check direct emitter connection (fallback) for final node
 				if (current->emitter) {
-					const auto& emitter = current->emitter;
+					const auto emitter = current->emitter;
 					
 					glm::vec3 last_scatter(static_cast<float>(current->position.x),
 										   static_cast<float>(current->position.y),
@@ -1470,8 +1495,8 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 					);
 					
 					// Use percentage-based coloring consistent with emitter points
-					auto combined_record = simulator_->get_combined_record();
-					float energy_percentage = static_cast<float>(emitter->weight / combined_record.surface_refraction);
+					float surface_refraction = static_cast<float>(simulator_->get_combined_surface_refraction());
+					float energy_percentage = static_cast<float>(emitter->weight / surface_refraction);
 					glm::vec4 direction_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
 					direction_color.a = 0.8f; // Slightly transparent for distinction
 					
@@ -1482,9 +1507,9 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 
 		// PERFORMANCE: Collect scatter points INSIDE cache block to eliminate per-frame processing
 		// First, collect scatter points from photon paths
-		for (const PhotonPath& path : simulator_->paths) {
-			if (path.head) {
-				auto current = path.head;
+		for (const Photon& photon : simulator_->get_paths()) {
+			if (photon.path_head) {
+				auto current = photon.path_head;
 				int vertex_count = 0;
 
 				// Count total vertices to identify key points properly
@@ -1495,7 +1520,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 				}
 
 				// Only add markers at specific key points: incident, scatter, exit
-				auto path_current = path.head;
+				auto path_current = photon.path_head;
 				std::shared_ptr<PhotonNode> prev = nullptr;
 				std::shared_ptr<PhotonNode> next = nullptr;
 				int current_index = 0;
@@ -1582,8 +1607,8 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 				
 				// Use percentage-based coloring instead of absolute weights for consistency
 				// Convert absolute weight to percentage of total energy budget
-				auto combined_record = simulator_->get_combined_record();
-				float energy_percentage = static_cast<float>(emitter->weight / combined_record.surface_refraction);
+				float surface_refraction = static_cast<float>(simulator_->get_combined_surface_refraction());
+				float energy_percentage = static_cast<float>(emitter->weight / surface_refraction);
 				glm::vec4 exit_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
 				exit_color.a = 1.0f; // Full opacity for emitter points
 				
@@ -1596,8 +1621,8 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 			}
 			
 			// Add surface specular reflection as an emitter point
-			auto combined_record = simulator_->get_combined_record();
-			if (combined_record.specular_reflection > 0.0 && !simulator_->sources.empty()) {
+			double specular_reflection = simulator_->get_combined_specular_reflection();
+			if (specular_reflection > 0.0 && !simulator_->sources.empty()) {
 				const Source& source = simulator_->sources[0];
 				
 				// Use actual source intersection point
@@ -1606,7 +1631,8 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 										static_cast<float>(source.intersect.z));
 
 				// Use percentage-based coloring for surface reflection
-				float energy_percentage = static_cast<float>(combined_record.specular_reflection / combined_record.surface_refraction);
+				double surface_refraction = simulator_->get_combined_surface_refraction();
+				float energy_percentage = static_cast<float>(specular_reflection / surface_refraction);
 				glm::vec4 surface_point_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
 				surface_point_color.a = 1.0f; // Full opacity for surface reflection point
 
@@ -1630,7 +1656,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 		
 		// PERFORMANCE: Use cached uniform location, compute MVP directly
 		glm::mat4 mvp = camera_.get_projection_matrix() * camera_.get_view_matrix();
-		glUniformMatrix4fv(line_mvp_uniform_location_, 1, GL_FALSE, glm::value_ptr(mvp));
+		glUniformMatrix4fv(line_instanced_mvp_uniform_location_, 1, GL_FALSE, glm::value_ptr(mvp));
 		
 		// PERFORMANCE FIX: Only upload buffer when data has changed, not every frame!
 		if (!line_buffer_uploaded_) {
@@ -1660,7 +1686,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 		
 		// PERFORMANCE: Use cached uniform location, compute MVP directly
 		glm::mat4 mvp = camera_.get_projection_matrix() * camera_.get_view_matrix();
-		glUniformMatrix4fv(point_mvp_uniform_location_, 1, GL_FALSE, glm::value_ptr(mvp));
+		glUniformMatrix4fv(point_instanced_mvp_uniform_location_, 1, GL_FALSE, glm::value_ptr(mvp));
 
 		// PERFORMANCE FIX: Only upload buffer when data has changed, not every frame!
 		if (!point_buffer_uploaded_) {
@@ -1712,9 +1738,8 @@ void Renderer::draw_lines() {
 
 	glUseProgram(line_shader_program_);
 
-	GLint mvp_location = glGetUniformLocation(line_shader_program_, "uMVP");
 	glm::mat4 mvp = camera_.get_mvp_matrix();
-	glUniformMatrix4fv(mvp_location, 1, GL_FALSE, glm::value_ptr(mvp));
+	glUniformMatrix4fv(line_mvp_uniform_location_, 1, GL_FALSE, glm::value_ptr(mvp));
 
 	glBindVertexArray(line_vao_);
 	glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(line_vertices_.size()));
@@ -1744,12 +1769,9 @@ void Renderer::draw_points() {
 
 	glUseProgram(point_shader_program_);
 
-	GLint mvp_location = glGetUniformLocation(point_shader_program_, "uMVP");
-	GLint size_location = glGetUniformLocation(point_shader_program_, "uPointSize");
-
 	glm::mat4 mvp = camera_.get_mvp_matrix();
-	glUniformMatrix4fv(mvp_location, 1, GL_FALSE, glm::value_ptr(mvp));
-	glUniform1f(size_location, 8.0f); // Smaller spheres as requested
+	glUniformMatrix4fv(point_mvp_uniform_location_, 1, GL_FALSE, glm::value_ptr(mvp));
+	glUniform1f(point_size_uniform_location_, 8.0f); // Smaller spheres as requested
 
 	glBindVertexArray(point_vao_);
 	glDrawArrays(GL_POINTS, 0, static_cast<GLsizei>(point_vertices_.size()));
@@ -1787,24 +1809,20 @@ void Renderer::draw_triangles_with_clipping(const std::vector<glm::vec4>& clippi
 
 	glUseProgram(triangle_shader_program_);
 
-	GLint mvp_location = glGetUniformLocation(triangle_shader_program_, "uMVP");
 	glm::mat4 mvp = camera_.get_mvp_matrix();
-	glUniformMatrix4fv(mvp_location, 1, GL_FALSE, glm::value_ptr(mvp));
+	glUniformMatrix4fv(triangle_mvp_uniform_location_, 1, GL_FALSE, glm::value_ptr(mvp));
 
-	// Set clipping plane uniforms
-	GLint num_planes_location = glGetUniformLocation(triangle_shader_program_, "uNumClipPlanes");
-	GLint clip_planes_location = glGetUniformLocation(triangle_shader_program_, "uClipPlanes");
-	
+	// Set clipping plane uniforms using cached locations
 	int num_planes = std::min(static_cast<int>(clipping_planes.size()), 6);
-	glUniform1i(num_planes_location, num_planes);
+	glUniform1i(triangle_num_planes_uniform_location_, num_planes);
 	
 	// Enable OpenGL clipping planes
 	for (int i = 0; i < num_planes && i < 6; i++) {
 		glEnable(GL_CLIP_DISTANCE0 + i);
 	}
 	
-	if (num_planes > 0 && clip_planes_location != -1) {
-		glUniform4fv(clip_planes_location, num_planes, glm::value_ptr(clipping_planes[0]));
+	if (num_planes > 0 && triangle_clip_planes_uniform_location_ != -1) {
+		glUniform4fv(triangle_clip_planes_uniform_location_, num_planes, glm::value_ptr(clipping_planes[0]));
 	}
 
 	glBindVertexArray(triangle_vao_);
@@ -1831,6 +1849,9 @@ bool Renderer::setup_line_rendering() {
 	if (!line_shader_program_) {
 		return false;
 	}
+
+	// PERFORMANCE: Cache uniform location to avoid glGetUniformLocation every frame
+	line_mvp_uniform_location_ = glGetUniformLocation(line_shader_program_, "uMVP");
 
 	// Create VAO and VBO
 	glGenVertexArrays(1, &line_vao_);
@@ -1866,6 +1887,10 @@ bool Renderer::setup_point_rendering() {
 		return false;
 	}
 
+	// PERFORMANCE: Cache uniform locations to avoid glGetUniformLocation every frame
+	point_mvp_uniform_location_ = glGetUniformLocation(point_shader_program_, "uMVP");
+	point_size_uniform_location_ = glGetUniformLocation(point_shader_program_, "uPointSize");
+
 	// Create VAO and VBO
 	glGenVertexArrays(1, &point_vao_);
 	glGenBuffers(1, &point_vbo_);
@@ -1899,6 +1924,11 @@ bool Renderer::setup_triangle_rendering() {
 	if (!triangle_shader_program_) {
 		return false;
 	}
+
+	// PERFORMANCE: Cache uniform locations to avoid glGetUniformLocation every frame
+	triangle_mvp_uniform_location_ = glGetUniformLocation(triangle_shader_program_, "uMVP");
+	triangle_num_planes_uniform_location_ = glGetUniformLocation(triangle_shader_program_, "uNumClipPlanes");
+	triangle_clip_planes_uniform_location_ = glGetUniformLocation(triangle_shader_program_, "uClipPlanes");
 
 	// Create VAO and VBO
 	glGenVertexArrays(1, &triangle_vao_);
@@ -1987,7 +2017,7 @@ void Renderer::auto_manage_energy_labels(Settings& settings) {
 	if (!simulator_) return;
 	
 	static bool auto_disabled_labels = false;
-	bool many_photons = (simulator_->paths.size() > 10);
+	bool many_photons = (simulator_->get_paths().size() > 10);
 	
 	// Auto-disable when crossing the 10 photon threshold
 	if (many_photons && !auto_disabled_labels) {
@@ -2008,9 +2038,9 @@ void Renderer::cache_energy_labels() {
 		return;
 
 	// Collect energy labels from photon paths
-	for (const PhotonPath& path : simulator_->paths) {
-		if (path.head) {
-			auto current = path.head;
+	for (const Photon& photon : simulator_->get_paths()) {
+		if (photon.path_head) {
+			auto current = photon.path_head;
 			int vertex_count = 0;
 
 			// Count vertices
@@ -2263,8 +2293,8 @@ void Renderer::cache_energy_labels() {
 	}
 
 	// Add surface scattering label at incident point (unified with other energy labels)
-	const auto& record = simulator_->get_combined_record();
-	if (record.specular_reflection > 0.0) {
+	double specular_reflection = simulator_->get_combined_specular_reflection();
+	if (specular_reflection > 0.0) {
 		// Calculate incident surface position
 		glm::vec3 source_pos(0.05f, 0.0f, 0.05f); // From the incident ray calculations
 		glm::vec3 source_dir(0.0f, 1.0f, 0.0f);   // Upward direction
@@ -2295,8 +2325,8 @@ void Renderer::cache_energy_labels() {
 			glm::vec3 surface_entry = source_pos + t * source_dir;
 
 			// Add surface scattering label
-			float surface_scattering = static_cast<float>(record.specular_reflection);
-			float scatter_percent = (surface_scattering / static_cast<float>(record.surface_refraction)) * 100.0f;
+			float surface_scattering = static_cast<float>(simulator_->get_combined_specular_reflection());
+			float scatter_percent = (surface_scattering / static_cast<float>(simulator_->get_combined_surface_refraction())) * 100.0f;
 			
 			// Use percentage for consistent coloring with other energy labels
 			float energy_percentage = scatter_percent / 100.0f; // Convert back to 0-1 range
@@ -2389,12 +2419,12 @@ void Renderer::cache_energy_labels_from_emitters() {
 		
 		double total_energy = total_reflected_energy + total_transmitted_energy + total_unclassified_energy;
 		
-		// Get surface refraction for proper normalization (matches console output)
-		auto combined_record = simulator_->get_combined_record();
-		double surface_refraction = combined_record.surface_refraction;
+		// CRITICAL FIX: Normalize by total number of photons, not surface refraction
+		// Each photon starts with weight 1.0, so total initial energy = num_photons
+		double total_initial_energy = static_cast<double>(simulator_->photons.size());
 		
-		// Calculate normalized percentage like the console does
-		double energy_percent = (total_energy / surface_refraction) * 100.0;
+		// Calculate normalized percentage (matches console energy conservation calculation)
+		double energy_percent = (total_energy / total_initial_energy) * 100.0;
 		
 		// Format percentage, showing "<1%" instead of "0%" for very small values
 		int rounded_percent = static_cast<int>(energy_percent);
@@ -2425,8 +2455,8 @@ void Renderer::cache_energy_labels_from_emitters() {
 	}
 
 	// Add surface specular reflection label
-	auto combined_record = simulator_->get_combined_record();
-	if (combined_record.specular_reflection > 0.0 && !simulator_->sources.empty()) {
+	double specular_reflection = simulator_->get_combined_specular_reflection();
+	if (specular_reflection > 0.0 && !simulator_->sources.empty()) {
 		const Source& source = simulator_->sources[0];
 		
 		// Use actual source intersection point for label position
@@ -2435,7 +2465,8 @@ void Renderer::cache_energy_labels_from_emitters() {
 									static_cast<float>(source.intersect.z));
 		
 		// Calculate normalized percentage for surface reflection
-		double energy_percent = (combined_record.specular_reflection / combined_record.surface_refraction) * 100.0;
+		double surface_refraction = simulator_->get_combined_surface_refraction();
+		double energy_percent = (specular_reflection / surface_refraction) * 100.0;
 		
 		// Format percentage, showing "<1%" instead of "0%" for very small values
 		int rounded_percent = static_cast<int>(energy_percent);
@@ -2711,18 +2742,34 @@ void Renderer::add_voxel_instance(const glm::vec3& position, const glm::vec4& co
 void Renderer::end_voxel_instances() {
 	if (voxel_instances_.empty()) return;
 	
-	// Sort by depth (back to front) for proper transparency
-	std::sort(voxel_instances_.begin(), voxel_instances_.end(), 
-		[](const VoxelInstance& a, const VoxelInstance& b) {
-			return a.depth > b.depth; // Back to front
-		});
+	// PERFORMANCE FIX: Only upload when data has changed, skip expensive sorting
+	if (!voxel_instances_dirty_ && voxel_buffer_uploaded_) {
+		return; // Skip expensive operations if data hasn't changed
+	}
+	
+	// PERFORMANCE OPTIMIZATION: Skip sorting for large datasets
+	// For 981k+ voxels, sorting is prohibitively expensive (O(n log n) = ~19M operations)
+	// Modern depth buffer + alpha blending handles transparency adequately
+	// Only sort when voxel count is reasonable (< 50k voxels)
+	if (voxel_instances_.size() < 50000) {
+		// Sort by depth (back to front) for optimal transparency
+		std::sort(voxel_instances_.begin(), voxel_instances_.end(), 
+			[](const VoxelInstance& a, const VoxelInstance& b) {
+				return a.depth > b.depth; // Back to front
+			});
+	}
+	// For large datasets: rely on depth buffer + alpha blending without sorting
+	// This trades perfect transparency ordering for dramatic performance gains
 
 	// Upload instance data to GPU
 	glBindBuffer(GL_ARRAY_BUFFER, voxel_instance_vbo_);
 	glBufferData(GL_ARRAY_BUFFER,
 				 voxel_instances_.size() * sizeof(VoxelInstance), 
 				 voxel_instances_.data(), 
-				 GL_DYNAMIC_DRAW);
+				 GL_STATIC_DRAW); // Use STATIC_DRAW for better performance
+				 
+	voxel_buffer_uploaded_ = true;
+	voxel_instances_dirty_ = false;
 }void Renderer::draw_voxel_instances() {
 	if (voxel_instances_.empty() || !voxel_shader_program_) return;
 	
@@ -2736,10 +2783,9 @@ void Renderer::end_voxel_instances() {
 	
 	glUseProgram(voxel_shader_program_);
 	
-	// Set MVP matrix
-	GLint mvp_location = glGetUniformLocation(voxel_shader_program_, "uMVP");
+	// Set MVP matrix using cached location for performance
 	glm::mat4 mvp = camera_.get_mvp_matrix();
-	glUniformMatrix4fv(mvp_location, 1, GL_FALSE, glm::value_ptr(mvp));
+	glUniformMatrix4fv(voxel_mvp_uniform_location_, 1, GL_FALSE, glm::value_ptr(mvp));
 	
 	// Bind VAO and draw instanced
 	glBindVertexArray(voxel_cube_vao_);
@@ -2765,6 +2811,9 @@ bool Renderer::setup_voxel_instanced_rendering() {
 	if (!voxel_shader_program_) {
 		return false;
 	}
+
+	// PERFORMANCE: Cache uniform location to avoid glGetUniformLocation every frame
+	voxel_mvp_uniform_location_ = glGetUniformLocation(voxel_shader_program_, "uMVP");
 	
 	// Create unit cube geometry (centered at origin)
 	float vertices[] = {
@@ -2874,7 +2923,7 @@ bool Renderer::setup_point_instanced_rendering() {
 	}
 
 	// PERFORMANCE: Cache uniform location to avoid glGetUniformLocation every frame
-	point_mvp_uniform_location_ = glGetUniformLocation(point_instanced_shader_program_, "uMVP");
+	point_instanced_mvp_uniform_location_ = glGetUniformLocation(point_instanced_shader_program_, "uMVP");
 
 	// Create and bind VAO for instanced point rendering
 	glGenVertexArrays(1, &point_instanced_vao_);
@@ -2931,9 +2980,9 @@ void Renderer::update_cached_energy_range(const Settings& settings) const {
 	std::vector<float> all_energies;
 	
 	// Collect energies from photon paths
-	for (const PhotonPath& path : simulator_->paths) {
-		if (path.head) {
-			auto current = path.head;
+	for (const Photon& photon : simulator_->get_paths()) {
+		if (photon.path_head) {
+			auto current = photon.path_head;
 			while (current) {
 				float energy = static_cast<float>(current->value);
 				if (energy > 0.0f) {
@@ -3027,6 +3076,10 @@ void Renderer::invalidate_all_caches() {
 	// Invalidate path instance caches
 	invalidate_path_instances_cache();
 	
+	// Invalidate voxel instance caches
+	voxel_instances_dirty_ = true;
+	voxel_buffer_uploaded_ = false;
+	
 	// Invalidate surface geometry cache
 	surface_cached_ = false;
 }
@@ -3071,7 +3124,7 @@ bool Renderer::setup_line_instanced_rendering() {
 	}
 	
 	// PERFORMANCE: Cache uniform location to avoid glGetUniformLocation every frame
-	line_mvp_uniform_location_ = glGetUniformLocation(line_instanced_shader_program_, "uMVP");
+	line_instanced_mvp_uniform_location_ = glGetUniformLocation(line_instanced_shader_program_, "uMVP");
 	
 	// Create line geometry (just two endpoints: 0 and 1)
 	float line_vertices[] = {

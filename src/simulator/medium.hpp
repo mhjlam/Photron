@@ -6,7 +6,6 @@
 #include "simulator/layer.hpp"
 #include "simulator/volume.hpp"
 #include "simulator/metrics.hpp"
-#include "simulator/record.hpp"
 #include "simulator/config.hpp"
 #include "math/range.hpp"
 
@@ -34,6 +33,9 @@ public:
     // Voxelize the layers into the volume
     bool voxelize_layers();
     
+    // Phase 2: Disambiguate surface voxels (remove false positives)
+    void disambiguate_surface_voxels();
+    
     // Identify surface voxels
     void identify_surface_voxels();
     
@@ -55,8 +57,9 @@ public:
     Volume& get_volume() { return volume_; }
     const Metrics& get_metrics() const { return metrics_; }
     Metrics& get_metrics() { return metrics_; }
-    const Record& get_record() const { return record_; }
-    Record& get_record() { return record_; }
+    
+    // Reset methods for aggregation
+    void reset_record_absorption_and_diffuse() { metrics_.reset_raw_absorption_and_diffuse(); }
     const Range3& get_bounds() const { return bounds_; }
     Range3& get_bounds() { return bounds_; }
 
@@ -64,7 +67,7 @@ public:
     void set_layers(std::vector<Layer>&& layers) { layers_ = std::move(layers); }
     
     // Photon tracking
-    void increment_photons_entered() { record_.photons_entered++; }
+    void increment_photons_entered() { metrics_.increment_photons_entered(); }
 
     // voxel computation
 	Voxel* voxel_at(glm::dvec3& position);
@@ -80,11 +83,13 @@ private:
 
     Config& config_;
     Range3 bounds_;
-    Record record_;
     Metrics metrics_;
     Volume volume_;
 
     // Initialize the voxel grid based on layer bounds
     bool initialize_volume();
     bool initialize_layers();
+    
+    // Surface detection methods
+    void detect_external_surface_voxels();
 };

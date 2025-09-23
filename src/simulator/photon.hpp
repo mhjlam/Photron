@@ -1,12 +1,30 @@
 #pragma once
 
+#include <memory>
 #include <vector>
+#include <set>
+#include <string>
 
 #include <glm/glm.hpp>
 
 #include "math/concepts.hpp"
 #include "math/triangle.hpp"
 #include "simulator/voxel.hpp"
+
+// Source properties (moved from Photon class to avoid circular dependencies)
+struct SourceData
+{
+	uint64_t id {0};                     // identifier
+	glm::dvec3 origin {0.0};             // origin
+	glm::dvec3 direction {0.0};          // direction of incidence
+	glm::dvec3 specular_direction {0.0}; // direction of specular reflectance
+	glm::dvec3 intersect {0.0};          // intersection point
+	Triangle triangle;                   // triangle at intersection point
+
+	SourceData() = default;
+	explicit SourceData(uint64_t i, const glm::dvec3& p, const glm::dvec3& v) noexcept : 
+		id(i), origin(p), direction(v) {}
+};
 
 // Emitted photon
 struct Emitter
@@ -25,8 +43,35 @@ struct Emitter
 		id(i), position(static_cast<glm::dvec3>(p)), direction(static_cast<glm::dvec3>(d)), weight(w), exit_type(exit_classification) {}
 };
 
-struct Photon
+class Photon
 {
+public:
+	// Nested Node class for path tracking (replaces PhotonNode)
+	class Node
+	{
+	public:
+		glm::dvec3 position;
+		double value;
+
+		// Exit classification for energy labeling
+		enum class ExitType { NONE, REFLECTED, TRANSMITTED };
+		ExitType exit_type {ExitType::NONE};
+
+		std::shared_ptr<Node> prev = nullptr; // previous internal vertex
+		std::shared_ptr<Node> next = nullptr; // next internal vertex
+		std::shared_ptr<Node> emit = nullptr; // external vertex
+		
+		// Optional connection to associated emitter (when this node represents an exit point)
+		std::shared_ptr<Emitter> emitter = nullptr;
+
+		Node(double xx, double yy, double zz, double v) noexcept : position(xx, yy, zz), value(v) {}
+		Node(const glm::dvec3& pos, double v) noexcept : position(pos), value(v) {}
+		Node(const glm::dvec3& pos, double v, ExitType exit_classification) noexcept : 
+			position(pos), value(v), exit_type(exit_classification) {}
+	};
+
+public:
+	// Core photon properties
 	uint64_t id {0};               		// identifier
 	bool alive {true};             		// true if photon still propagates
 	bool cross {false};            		// true if photon crosses voxel boundary in substep
@@ -46,6 +91,7 @@ struct Photon
 	glm::dvec3 direction {0.0};    		// propagation direction
 	Voxel* voxel {nullptr};        		// resident voxel at start of substep (non-owning)
 	Voxel* prev_voxel {nullptr};   		// voxel before crossing an interface (non-owning)
+	Voxel* last_surface_voxel {nullptr}; // last surface voxel traversed (for emittance recording)
 
 	glm::dvec3 intersect {0.0};    		// voxel boundary intersection
 	glm::dvec3 voxel_normal {0.0}; 		// voxel boundary intersection normal
@@ -56,39 +102,52 @@ struct Photon
 	enum class ExitType { NONE, REFLECTED, TRANSMITTED };
 	ExitType exit_type {ExitType::NONE};	// how the photon exited the medium
 
-	// Source properties merged into photon
-	glm::dvec3 source_origin {0.0};             // origin of the source
-	glm::dvec3 source_direction {0.0};          // initial direction of incidence from source
-	glm::dvec3 specular_direction {0.0};        // direction of specular reflectance
-	glm::dvec3 source_intersect {0.0};          // intersection point with geometry
-	Triangle source_triangle;                   // triangle at intersection point
+	// Source properties (merged from Source class) - now using SourceData
+	SourceData source;
 
-	// Medium context is now queried dynamically via Simulator::find_medium_at()
+	// Path tracking (integrated from PhotonPath)
+	std::shared_ptr<Node> path_head = nullptr;
+	std::shared_ptr<Node> path_last = nullptr;
+	uint64_t num_seg_int {1}; // internal segments
+	uint64_t num_seg_ext {1}; // emittant segments
 
-
-	// Default constructor uses default member initialization
+	// Constructors
 	Photon() = default;
-
-	// Constructor with ID (other members use default initialization)
 	explicit Photon(uint64_t i) noexcept : id(i) {}
-
+	
 	// Constructor with source data merged in
-	explicit Photon(uint64_t i, const glm::dvec3& src_origin, const glm::dvec3& src_direction) noexcept :
-		id(i), source_origin(src_origin), source_direction(src_direction) {}
-
+	explicit Photon(uint64_t i, const glm::dvec3& src_origin, const glm::dvec3& src_direction) noexcept;
+	
 	// Constructor with full source data
 	explicit Photon(uint64_t i, const glm::dvec3& src_origin, const glm::dvec3& src_direction,
 					const glm::dvec3& spec_direction, const glm::dvec3& src_intersect, 
-					const Triangle& src_triangle) noexcept :
-		id(i), source_origin(src_origin), source_direction(src_direction),
-		specular_direction(spec_direction), source_intersect(src_intersect), source_triangle(src_triangle) {}
+					const Triangle& src_triangle) noexcept;
+
+	// Path management methods (from PhotonPath)
+	void add_internal_vertex(std::shared_ptr<Node> vert) noexcept;
+	void add_external_vertex(std::shared_ptr<Node> vert) noexcept;
+	void initialize_path(const glm::dvec3& start_pos, double path_weight);
+
+	// Source methods
+	void set_source_data(const SourceData& src_data);
+	void set_source_data(uint64_t src_id, const glm::dvec3& origin, const glm::dvec3& src_direction);
+	const SourceData& get_source_data() const noexcept { return source; }
 
 	// Tissue property accessors with null safety (for backward compatibility)
 	[[nodiscard]] double g() const noexcept { return (voxel && voxel->tissue) ? voxel->tissue->g : 0.0; }
-
 	[[nodiscard]] double eta() const noexcept { return (voxel && voxel->tissue) ? voxel->tissue->eta : 0.0; }
-
 	[[nodiscard]] double mu_a() const noexcept { return (voxel && voxel->tissue) ? voxel->tissue->mu_a : 0.0; }
-
 	[[nodiscard]] double mu_s() const noexcept { return (voxel && voxel->tissue) ? voxel->tissue->mu_s : 0.0; }
+
+	// Backward compatibility aliases for source access
+	[[nodiscard]] const glm::dvec3& source_origin() const noexcept { return source.origin; }
+	[[nodiscard]] const glm::dvec3& source_direction() const noexcept { return source.direction; }
+	[[nodiscard]] const glm::dvec3& specular_direction() const noexcept { return source.specular_direction; }
+	[[nodiscard]] const glm::dvec3& source_intersect() const noexcept { return source.intersect; }
+	[[nodiscard]] const Triangle& source_triangle() const noexcept { return source.triangle; }
 };
+
+// Type aliases for backward compatibility
+using PhotonNode = Photon::Node;
+using PhotonPath = Photon;  // PhotonPath functionality is now integrated into Photon
+using Source = SourceData;

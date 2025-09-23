@@ -18,8 +18,7 @@ class Simulator;
  */
 struct VoxelClassification {
 	bool is_inside_geometry = false;    // Whether voxel intersects any geometry
-	bool is_boundary_voxel = false;     // Whether voxel intersects geometry boundary (partial volume)
-	bool is_surface_voxel = false;      // Whether voxel is at external surface (to ambient)
+	bool is_surface_voxel = false;      // Whether voxel is near surface (boundary)
 	double volume_fraction = 0.0;       // Fraction of voxel inside geometry [0,1]
 	uint32_t dominant_tissue_id = 0;    // Tissue ID of dominant layer
 };
@@ -89,14 +88,13 @@ public:
 	// Volume calculation methods (integrated from VoxelVolumeCalculator)
 	/**
 	 * @brief Compute the volume fraction of a voxel that lies inside the mesh geometry.
-	 * @details Uses Monte Carlo sampling to estimate the fraction of the voxel volume
-	 *          that intersects with the provided mesh layers. Higher sample counts
-	 *          provide more accurate results at the cost of computation time.
-	 * @param voxel_min Lower corner of the voxel in world coordinates
-	 * @param voxel_max Upper corner of the voxel in world coordinates
-	 * @param layers Vector of mesh layers to test intersection against
-	 * @param samples Number of random samples to use (default: 1000)
-	 * @return Volume fraction [0.0, 1.0] where 0 = no intersection, 1 = fully inside
+	 * @note Uses Monte Carlo sampling for complex geometries with C++20 concepts
+	 *
+	 * @param voxel_min Minimum corner of the voxel
+	 * @param voxel_max Maximum corner of the voxel
+	 * @param medium Reference to medium for point-in-mesh testing
+	 * @param samples Number of Monte Carlo samples to use (higher = more accurate but slower)
+	 * @return Fraction of voxel volume inside geometry [0.0, 1.0]
 	 */
 	double fraction_inside(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max,
 		const std::vector<Layer>& layers, int samples = 1000) const;
@@ -155,4 +153,27 @@ private:
 	 */
 	double subdivide_test(const glm::dvec3& min_corner, const glm::dvec3& max_corner, 
 		const std::vector<Layer>& layers, int depth, int max_depth) const;
+	
+	/**
+	 * @brief Distance field based voxelization algorithm.
+	 * Most robust approach for complex mesh voxelization using signed distance fields.
+	 */
+	VoxelClassification distance_field_voxelization(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max,
+												   const std::vector<Layer>& layers) const;
+	
+	/**
+	 * @brief Compute accurate volume fraction for surface voxels using SDF sampling.
+	 */
+	double compute_volume_fraction_sdf(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max,
+									   const std::vector<Layer>& layers, int subdivisions) const;
+	
+	/**
+	 * @brief Compute signed distance from a point to the closest point on a triangle mesh.
+	 */
+	double compute_signed_distance_to_mesh(const glm::dvec3& point, const std::vector<Triangle>& mesh) const;
+	
+	/**
+	 * @brief Find closest point on a triangle to a given point.
+	 */
+	glm::dvec3 closest_point_on_triangle(const glm::dvec3& point, const Triangle& triangle) const;
 };

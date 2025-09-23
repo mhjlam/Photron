@@ -5,7 +5,7 @@
 
 general
 {
-	numphotons = 1000
+	numphotons = 20
 	ambienteta = 1.0
 	voxelsize = 0.1
 	
