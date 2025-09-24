@@ -8,6 +8,10 @@
 #include <vector>
 #include <concepts>
 #include <ranges>
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <future>
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -261,6 +265,19 @@ private:
 	mutable bool point_buffer_uploaded_ {false};
 	mutable bool voxel_buffer_uploaded_ {false};    // Track voxel instance buffer state
 	mutable bool voxel_instances_dirty_ {true};     // Flag to force voxel recalculation
+	
+	// Store current voxel mode for camera-independent transparency
+	mutable VoxelMode current_voxel_mode_ {VoxelMode::Absorption};
+	
+	// Camera change tracking for efficient depth updates
+	mutable glm::vec3 cached_camera_position_ {0.0f};
+	mutable glm::vec3 cached_camera_target_ {0.0f, 0.0f, -1.0f};
+	
+	// Background sorting for smooth camera movement
+	mutable std::vector<VoxelInstance> background_sorted_voxels_;
+	mutable std::future<void> sorting_future_;
+	mutable std::atomic<bool> background_sort_ready_ {false};
+	mutable std::atomic<bool> background_sort_in_progress_ {false};
 
 	// Uniform location caching for performance (avoid glGetUniformLocation every frame)
 	mutable GLint line_mvp_uniform_location_ {-1};          // Non-instanced lines

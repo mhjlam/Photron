@@ -791,16 +791,16 @@ void App::save_results_as_text(const std::string& filepath) {
 									energy.total_reflection + energy.total_transmission;
 			double total_percent = (total_accounted / baseline_energy) * 100.0;
 			
-			file << "  Specular reflection: " << std::fixed << std::setprecision(1) << surface_reflection_percent << "%\n";
+			file << "  Surface reflection:  " << std::fixed << std::setprecision(1) << surface_reflection_percent << "%\n";
 			file << "  Absorption:          " << std::fixed << std::setprecision(1) << absorption_percent << "%\n";
-			file << "  Reflection:          " << std::fixed << std::setprecision(1) << reflection_percent << "%\n";
+			file << "  Reflection:  		" << std::fixed << std::setprecision(1) << reflection_percent << "%\n";
 			file << "  Transmission:        " << std::fixed << std::setprecision(1) << transmission_percent << "%\n";
 			file << "  Total:               " << std::fixed << std::setprecision(1) << total_percent << "%\n";
 		}
 		else {
-			file << "  Specular reflection: 0.0%\n";
+			file << "  Surface reflection:  0.0%\n";
 			file << "  Absorption:          0.0%\n";
-			file << "  Reflection:          0.0%\n";
+			file << "  Reflection:  		0.0%\n";
 			file << "  Transmission:        0.0%\n";
 			file << "  Total:               0.0%\n";
 		}

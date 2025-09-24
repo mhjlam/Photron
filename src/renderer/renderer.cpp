@@ -23,6 +23,11 @@
 Renderer::Renderer() = default;
 
 Renderer::~Renderer() {
+	// Clean up background sorting thread if active
+	if (background_sort_in_progress_.load() && sorting_future_.valid()) {
+		sorting_future_.wait(); // Wait for background sort to complete
+	}
+	
 	// Cleanup OpenGL resources
 	if (line_vao_) glDeleteVertexArrays(1, &line_vao_);
 	if (line_vbo_) glDeleteBuffers(1, &line_vbo_);
@@ -780,6 +785,7 @@ void Renderer::draw_voxels(const Settings& settings) {
 		});
 	}
 	// For large datasets: rely on depth buffer + alpha blending without sorting
+	// For large datasets: rely on depth buffer + alpha blending without sorting
 
 	// Now render all voxels in batches with depth offsets to prevent Z-fighting
 	const size_t BATCH_SIZE = 300; // Render 300 voxels at a time (safe limit)
@@ -862,7 +868,8 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 	                    settings.voxel_mode != last_voxel_mode;
 						
 	if (!need_rebuild && voxel_buffer_uploaded_ && !voxel_instances_.empty()) {
-		// Use cached voxel instances
+		// Use cached voxel instances, but still need to update depth sorting for camera changes
+		end_voxel_instances(settings.voxel_mode);
 		draw_voxel_instances();
 		return;
 	}
@@ -996,10 +1003,12 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 						float min_alpha = 0.2f; // Higher minimum for emittance visibility
 						float max_alpha = 0.9f; // Higher maximum visibility
 
-						// Special case for emittance mode: boost visibility significantly
+						// EMITTANCE MODE FIX: Use more reasonable alpha values
+						// The issue was min_alpha = 0.6f made all emittance voxels too opaque
 						if (settings.voxel_mode == VoxelMode::Emittance) {
-							min_alpha = 0.6f; // Much more visible
-							max_alpha = 1.0f; // Full opacity for high emittance
+							// Use energy-proportional alpha for better emittance visualization
+							min_alpha = 0.1f;  // Lower minimum - let the energy determine visibility
+							max_alpha = 0.7f;  // Reasonable maximum for emittance
 						}
 
 						float alpha = min_alpha + (max_alpha - min_alpha) * gamma_corrected * (1.0f - 0.2f * normalized_dist);
@@ -2367,16 +2376,71 @@ void Renderer::cache_energy_labels_from_emitters() {
 		return;
 	}
 	
-	// Group emitters by approximate position to avoid overlapping labels
+	// ADAPTIVE DENSITY-BASED GROUPING
+	// Calculate total photon count for percentage-based thresholds
+	int total_photons = static_cast<int>(emitters.size());
+	if (total_photons == 0) {
+		energy_labels_cached_ = true;
+		return;
+	}
+	
+	// First pass: Calculate local density (photons per unit area) for each emitter
+	std::map<std::shared_ptr<Emitter>, double> emitter_density;
+	const double DENSITY_RADIUS = 0.1; // Radius for density calculation
+	const double DENSITY_AREA = std::numbers::pi * DENSITY_RADIUS * DENSITY_RADIUS; // Circle area
+	
+	for (const auto& emitter : emitters) {
+		if (emitter->weight < 0.001) continue; // Skip very low energy exits
+		
+		int nearby_count = 0;
+		for (const auto& other : emitters) {
+			if (other->weight < 0.001) continue;
+			
+			double distance = glm::length(emitter->position - other->position);
+			if (distance <= DENSITY_RADIUS) {
+				nearby_count++;
+			}
+		}
+		
+		// Calculate density as photons per unit area
+		emitter_density[emitter] = static_cast<double>(nearby_count) / DENSITY_AREA;
+	}
+	
+	// Calculate density percentiles for adaptive thresholds
+	std::vector<double> all_densities;
+	for (const auto& [emitter, density] : emitter_density) {
+		all_densities.push_back(density);
+	}
+	std::sort(all_densities.begin(), all_densities.end());
+	
+	double density_90th = all_densities[static_cast<size_t>(all_densities.size() * 0.9)];
+	double density_75th = all_densities[static_cast<size_t>(all_densities.size() * 0.75)];
+	double density_50th = all_densities[static_cast<size_t>(all_densities.size() * 0.5)];
+	
+	// Second pass: Group emitters by position using adaptive grouping radius
 	std::map<std::tuple<int, int, int>, std::vector<std::shared_ptr<Emitter>>> position_groups;
 	
 	for (const auto& emitter : emitters) {
 		if (emitter->weight < 0.001) continue; // Skip very low energy exits
 		
-		// Group by position rounded to nearest 0.01 units
-		int pos_x = static_cast<int>(std::round(emitter->position.x * 100));
-		int pos_y = static_cast<int>(std::round(emitter->position.y * 100));
-		int pos_z = static_cast<int>(std::round(emitter->position.z * 100));
+		// Determine grouping multiplier based on density percentile
+		double density = emitter_density[emitter];
+		double grouping_multiplier;
+		
+		if (density >= density_90th) {
+			grouping_multiplier = 5.0;   // Large groups for top 10% density (0.2 units)
+		} else if (density >= density_75th) {
+			grouping_multiplier = 10.0;  // Medium groups for top 25% density (0.1 units)  
+		} else if (density >= density_50th) {
+			grouping_multiplier = 20.0;  // Small groups for above median density (0.05 units)
+		} else {
+			grouping_multiplier = 50.0;  // Fine granularity for below median density (0.02 units)
+		}
+		
+		// Group by position using adaptive precision
+		int pos_x = static_cast<int>(std::round(emitter->position.x * grouping_multiplier));
+		int pos_y = static_cast<int>(std::round(emitter->position.y * grouping_multiplier));
+		int pos_z = static_cast<int>(std::round(emitter->position.z * grouping_multiplier));
 		auto pos_key = std::make_tuple(pos_x, pos_y, pos_z);
 		
 		position_groups[pos_key].push_back(emitter);
@@ -2732,7 +2796,11 @@ glm::vec2 Renderer::world_to_screen(const glm::vec3& world_pos, int screen_width
 // ========================================
 
 void Renderer::begin_voxel_instances() {
-	voxel_instances_.clear();
+	// DON'T clear instances every frame - this breaks camera change detection!
+	// Only clear when we actually need to rebuild (when voxel_instances_dirty_ is true)
+	if (voxel_instances_dirty_) {
+		voxel_instances_.clear();
+	}
 }
 
 void Renderer::add_voxel_instance(const glm::vec3& position, const glm::vec4& color, float scale, float depth) {
@@ -2742,21 +2810,78 @@ void Renderer::add_voxel_instance(const glm::vec3& position, const glm::vec4& co
 void Renderer::end_voxel_instances(VoxelMode mode) {
 	if (voxel_instances_.empty()) return;
 	
-	// PERFORMANCE FIX: Only upload when data has changed, skip expensive sorting
+	// PERFORMANCE FIX: Only skip processing if truly nothing changed
 	if (!voxel_instances_dirty_ && voxel_buffer_uploaded_) {
-		return; // Skip expensive operations if data hasn't changed
+		// Check if we have a completed background sort ready
+		if (background_sort_ready_.load() && !background_sort_in_progress_.load()) {
+			// Background sort is complete - upload to GPU
+			glBindBuffer(GL_ARRAY_BUFFER, voxel_instance_vbo_);
+			glBufferData(GL_ARRAY_BUFFER,
+						 background_sorted_voxels_.size() * sizeof(VoxelInstance), 
+						 background_sorted_voxels_.data(), 
+						 GL_STATIC_DRAW);
+			
+			// Swap the sorted data back to main instances
+			voxel_instances_ = std::move(background_sorted_voxels_);
+			background_sort_ready_.store(false);
+			
+			// Update cached camera position
+			cached_camera_position_ = camera_.get_position();
+			cached_camera_target_ = camera_.get_target();
+		}
+		
+		// Check if we need to start a new background sort
+		if (!background_sort_in_progress_.load()) {
+			glm::vec3 current_camera_pos = camera_.get_position();
+			glm::vec3 current_camera_target = camera_.get_target();
+			
+			// Only start background sort if camera moved significantly
+			const float SIGNIFICANT_MOVEMENT = 0.05f; // Threshold for starting background sort
+			bool significant_camera_movement = 
+				glm::length(current_camera_pos - cached_camera_position_) > SIGNIFICANT_MOVEMENT ||
+				glm::length(current_camera_target - cached_camera_target_) > SIGNIFICANT_MOVEMENT;
+			
+			if (significant_camera_movement && voxel_instances_.size() < 100000) { // Limit background sorting to reasonable sizes
+				// Start background sorting
+				background_sort_in_progress_.store(true);
+				background_sorted_voxels_ = voxel_instances_; // Copy current data
+				
+				// Launch async sorting task
+				sorting_future_ = std::async(std::launch::async, [this, current_camera_pos, current_camera_target]() {
+					// Calculate depths on background thread
+					glm::vec3 camera_front = glm::normalize(current_camera_target - current_camera_pos);
+					
+					for (auto& instance : background_sorted_voxels_) {
+						glm::vec3 view_dir = instance.position - current_camera_pos;
+						instance.depth = glm::dot(view_dir, camera_front);
+					}
+					
+					// Sort on background thread
+					std::sort(background_sorted_voxels_.begin(), background_sorted_voxels_.end(), 
+						[](const VoxelInstance& a, const VoxelInstance& b) {
+							return a.depth > b.depth; // Back to front
+						});
+					
+					// Mark as ready for GPU upload
+					background_sort_ready_.store(true);
+					background_sort_in_progress_.store(false);
+				});
+			}
+		}
+		
+		// Current frame continues with existing data - no performance impact
+		return;
 	}
 	
+	// Store mode for consistency
+	current_voxel_mode_ = mode;
+	
 	// PERFORMANCE vs QUALITY TRADE-OFF:
-	// - For Absorption and Layers modes: Skip sorting for large datasets (performance priority)
-	// - For Emittance mode: Always sort because proper transparency is critical (quality priority)
+	// Use consistent sorting behavior for all modes
 	bool should_sort_for_quality = false;
 	
 	if (voxel_instances_.size() < 50000) {
-		should_sort_for_quality = true; // Always sort small datasets
-	} else if (mode == VoxelMode::Emittance) {
-		should_sort_for_quality = true; // Always sort Emittance mode for quality
-		std::cout << "Sorting " << voxel_instances_.size() << " voxels for Emittance mode transparency..." << std::endl;
+		should_sort_for_quality = true; // Sort small datasets
 	}
 	
 	if (should_sort_for_quality) {
@@ -2766,8 +2891,6 @@ void Renderer::end_voxel_instances(VoxelMode mode) {
 				return a.depth > b.depth; // Back to front
 			});
 	}
-	// For large datasets: rely on depth buffer + alpha blending without sorting
-	// This trades perfect transparency ordering for dramatic performance gains
 
 	// Upload instance data to GPU
 	glBindBuffer(GL_ARRAY_BUFFER, voxel_instance_vbo_);
@@ -2778,10 +2901,14 @@ void Renderer::end_voxel_instances(VoxelMode mode) {
 				 
 	voxel_buffer_uploaded_ = true;
 	voxel_instances_dirty_ = false;
+	
+	// Cache current camera position for change detection
+	cached_camera_position_ = camera_.get_position();
+	cached_camera_target_ = camera_.get_target();
 }void Renderer::draw_voxel_instances() {
 	if (voxel_instances_.empty() || !voxel_shader_program_) return;
 	
-	// Enable transparency
+	// Enable transparency - KEEP ORIGINAL APPEARANCE
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	

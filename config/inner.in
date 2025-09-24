@@ -6,7 +6,7 @@
 
 general
 {
-	photons = 1
+	photons = 10
 	voxel_size  = 0.1
 }
 

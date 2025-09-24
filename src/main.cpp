@@ -1,7 +1,7 @@
 /*******************************************************************************
  * PHOTRON: MONTE CARLO PHOTON TRANSPORT RENDERER
  *
- * DATE: 	November 2012
+ * DATE: 	September 2025
  * AUTHOR:	Maurits H.J. Lam, BSc.
  *
  * DESCRIPTION:

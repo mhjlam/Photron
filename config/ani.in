@@ -1,6 +1,5 @@
 #################################################
-# Scatter - Huge medium with high scattering coefficient.
-# Test simulation performance.
+# Ani - High anisotropic coefficient.
 #################################################
 
 
@@ -14,7 +13,7 @@ source
 {
 	id = 0
 	
-	position = 6.0, 0.1, 6.0
+	position = 0.1, 0.1, 0.1
 	direction = 0, -1, 0
 }
 
@@ -23,8 +22,8 @@ material
 	id = 0
 	
 	eta = 1.37
-	mua = 0.1
-	mus = 100
+	mua = 1
+	mus = 10
 	ani = 0.9
 }
 
@@ -34,14 +33,14 @@ layer
 	material = 0
 	
 	# vertices
-	vert3 =  0.0,  0.0, 12.0	# left-top-front
-	vert3 = 12.0,  0.0, 12.0	# right-top-front
-	vert3 = 12.0, -6.0, 12.0	# right-bottom-front
-	vert3 =  0.0, -6.0, 12.0	# left-bottom-front
-	vert3 =  0.0,  0.0,  0.0	# left-top-rear
-	vert3 = 12.0,  0.0,  0.0	# right-top-rear
-	vert3 = 12.0, -6.0,  0.0	# right-bottom-rear
-	vert3 =  0.0, -6.0,  0.0	# left-bottom-rear
+	vert3 = -2.0,  0.0,  2.0	# left-top-front
+	vert3 =  2.0,  0.0,  2.0	# right-top-front
+	vert3 =  2.0, -2.0,  2.0	# right-bottom-front
+	vert3 = -2.0, -2.0,  2.0	# left-bottom-front
+	vert3 = -2.0,  0.0, -2.0	# left-top-rear
+	vert3 =  2.0,  0.0, -2.0	# right-top-rear
+	vert3 =  2.0, -2.0, -2.0	# right-bottom-rear
+	vert3 = -2.0, -2.0, -2.0	# left-bottom-rear
 	
 	# faces (counter-clockwise vertex indices for outward normals)
 	face3 = 0, 3, 2				# front face triangle 1

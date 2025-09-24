@@ -2086,7 +2086,8 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 	);
 	
 	// Use proper reflection/transmission determination based on exit position relative to entry
-	if (is_photon_reflecting(photon)) {
+	bool is_reflecting = is_photon_reflecting(photon);
+	if (is_reflecting) {
 		// Exit on same side as entry - classify as reflection
 		exit_voxel->emittance_reflected += weight;
 		photon.exit_type = Photon::ExitType::REFLECTED;
@@ -3196,46 +3197,42 @@ size_t Simulator::get_total_voxel_count() const {
 }
 
 /***********************************************************
- * Determine if photon is reflecting (exiting same side as entry)
- * or transmitting (exiting different side).
+ * Determine if photon is reflecting (exiting back toward light source)
+ * or transmitting (exiting away from light source).
  * 
- * ROBUST APPROACH: Uses actual exit position relative to geometry bounds
- * instead of relying on source triangle normal which can be unreliable
- * in multi-layer geometries.
+ * GENERAL MESH APPROACH: Use surface normal to determine if photon exits
+ * on the same side as the light source (reflection) or opposite side (transmission).
+ * This works for arbitrary mesh geometries, not just axis-aligned boxes.
  ***********************************************************/
 bool Simulator::is_photon_reflecting(const Photon& photon) const {
-	// Get combined geometry bounds to determine top/bottom surfaces
-	Range3 bounds = get_combined_bounds();
+	// Get the surface normal at exit point
+	glm::dvec3 surface_normal = photon.voxel_normal;
 	
-	// ROBUST CLASSIFICATION: Based on actual exit position and entry position
-	// For typical multi-layer material geometry:
-	// - Reflection: photon exits through top surface (high Y)
-	// - Transmission: photon exits through bottom surface (low Y)
-	
-	// Get the entry position and exit position
-	glm::dvec3 entry_pos = photon.source.origin;
-	// Use intersection point for accurate exit classification
+	// Get incident light direction (from source to exit point)
+	glm::dvec3 source_pos = photon.source.origin;
 	glm::dvec3 exit_pos = photon.intersect;
+	glm::dvec3 incident_direction = glm::normalize(exit_pos - source_pos);
 	
-	// Determine which surface the photon is closest to
-	double distance_to_top = std::abs(exit_pos.y - bounds.max_bounds.y);
-	double distance_to_bottom = std::abs(exit_pos.y - bounds.min_bounds.y);
+	// Determine which side of the surface the light is incident from
+	// If incident_direction dot surface_normal < 0, light hits from "outside" (normal side)
+	// If incident_direction dot surface_normal > 0, light hits from "inside" (opposite side)
+	double incident_dot_normal = glm::dot(incident_direction, surface_normal);
 	
-	// If photon is closer to top surface, it's likely reflection
-	// If photon is closer to bottom surface, it's likely transmission
-	bool exiting_through_top = (distance_to_top < distance_to_bottom);
+	// Get photon exit direction 
+	glm::dvec3 exit_direction = photon.direction;
 	
-	// ADDITIONAL CHECK: Consider source entry direction
-	// If source came from above (negative Y direction), then:
-	// - Exiting through top = reflection
-	// - Exiting through bottom = transmission
-	bool source_from_above = (photon.source.direction.y < 0.0);
+	// Determine which side of the surface the photon exits toward
+	double exit_dot_normal = glm::dot(exit_direction, surface_normal);
 	
-	if (source_from_above) {
-		return exiting_through_top; // Top exit = reflection, bottom exit = transmission
-	} else {
-		return !exiting_through_top; // Bottom exit = reflection, top exit = transmission
-	}
+	// Classification logic:
+	// - If incident and exit are on same side of surface normal → REFLECTION
+	// - If incident and exit are on opposite sides of surface normal → TRANSMISSION
+	
+	bool incident_from_normal_side = (incident_dot_normal < 0);
+	bool exit_toward_normal_side = (exit_dot_normal > 0);
+	
+	// Photon is reflecting if it exits back toward the same side light came from
+	return (incident_from_normal_side == exit_toward_normal_side);
 }
 
 Range3 Simulator::get_combined_bounds() const {
