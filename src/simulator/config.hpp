@@ -13,7 +13,7 @@
 #include "math/concepts.hpp"
 #include "simulator/layer.hpp"
 #include "simulator/photon.hpp"
-#include "simulator/tissue.hpp"
+#include "simulator/material.hpp"
 
 // Monte Carlo splitting methods for partial reflection/transmission
 enum class SplittingMethod {
@@ -37,17 +37,16 @@ private:
 	uint64_t num_sources_ {0}; // number of light sources
 
 	double vox_size_ {0.0};      // uniform size of each voxel (dx=dy=dz)
-	double ambient_eta_ {0.0};   // refractive index of ambient medium
+	// double ambient_eta_ {1.0};   // refractive index of ambient medium - always air (1.0)
 
-	bool partial_ {true};         // partial reflection
-	bool progress_ {false};        // display progress messages
-	bool verbose_ {false};         // display verbose initialization messages
+	// bool partial_ {true};         // partial reflection - now always enabled
+	bool verbose_ {false};         // display verbose debug and progress messages
 	bool deterministic_ {false};   // use deterministic random seed for reproducible results
 	SplittingMethod splitting_method_ {SplittingMethod::RUSSIAN_ROULETTE}; // Monte Carlo splitting method
 
 	// Parsing configuration data
 	std::vector<Source> sources_;
-	std::vector<Tissue> tissues_;
+	std::vector<Material> tissues_;
 	std::vector<Layer> layers_;
 
 	// Utility functions for parsing
@@ -189,9 +188,8 @@ public:
 	[[nodiscard]] constexpr uint64_t num_photons() const noexcept { return num_photons_; }
 	[[nodiscard]] constexpr uint64_t num_sources() const noexcept { return num_sources_; }
 	[[nodiscard]] constexpr double vox_size() const noexcept { return vox_size_; }
-	[[nodiscard]] constexpr double ambient_eta() const noexcept { return ambient_eta_; }
-	[[nodiscard]] constexpr bool partial() const noexcept { return partial_; }
-	[[nodiscard]] constexpr bool progress() const noexcept { return progress_; }
+	[[nodiscard]] constexpr double ambient_eta() const noexcept { return 1.0; } // Always air
+	[[nodiscard]] constexpr bool partial() const noexcept { return true; } // Always enabled
 	[[nodiscard]] constexpr bool verbose() const noexcept { return verbose_; }
 	[[nodiscard]] constexpr bool deterministic() const noexcept { return deterministic_; }
 	[[nodiscard]] constexpr SplittingMethod splitting_method() const noexcept { return splitting_method_; }
@@ -200,8 +198,8 @@ public:
 	[[nodiscard]] std::span<const Source> sources() const noexcept { 
 		return std::span<const Source>(sources_); 
 	}
-	[[nodiscard]] std::span<const Tissue> tissues() const noexcept { 
-		return std::span<const Tissue>(tissues_); 
+	[[nodiscard]] std::span<const Material> tissues() const noexcept { 
+		return std::span<const Material>(tissues_); 
 	}
 	[[nodiscard]] std::span<const Layer> layers() const noexcept { 
 		return std::span<const Layer>(layers_); 
@@ -209,12 +207,12 @@ public:
 	
 	// Compatibility accessors returning references
 	[[nodiscard]] const std::vector<Source>& sources_vector() const noexcept { return sources_; }
-	[[nodiscard]] const std::vector<Tissue>& tissues_vector() const noexcept { return tissues_; }
+	[[nodiscard]] const std::vector<Material>& tissues_vector() const noexcept { return tissues_; }
 	[[nodiscard]] const std::vector<Layer>& layers_vector() const noexcept { return layers_; }
 	
 	// Move versions for when transferring ownership
 	[[nodiscard]] std::vector<Layer>&& move_layers() { return std::move(layers_); }
-	[[nodiscard]] std::vector<Tissue>&& move_tissues() { return std::move(tissues_); }
+	[[nodiscard]] std::vector<Material>&& move_tissues() { return std::move(tissues_); }
 
 	// Setters
 	void set_nx(uint32_t nx) noexcept { nx_ = nx; }
@@ -225,9 +223,8 @@ public:
 	void set_num_photons(uint64_t num_photons) noexcept { num_photons_ = num_photons; }
 	void set_num_sources(uint64_t num_sources) noexcept { num_sources_ = num_sources; }
 	void set_vox_size(double vox_size) noexcept { vox_size_ = vox_size; }
-	void set_ambient_eta(double ambient_eta) noexcept { ambient_eta_ = ambient_eta; }
-	void set_partial(bool partial) noexcept { partial_ = partial; }
-	void set_progress(bool progress) noexcept { progress_ = progress; }
+	// void set_ambient_eta(double ambient_eta) noexcept { /* always 1.0 */ } // No longer configurable
+	// void set_partial(bool partial) noexcept { partial_ = partial; } // No longer configurable
 	void set_verbose(bool verbose) noexcept { verbose_ = verbose; }
 	void set_deterministic(bool deterministic) noexcept { deterministic_ = deterministic; }
 	void set_splitting_method(SplittingMethod method) noexcept { splitting_method_ = method; }

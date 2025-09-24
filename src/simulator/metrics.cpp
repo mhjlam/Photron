@@ -13,6 +13,7 @@
 #include "simulator.hpp"
 #include "config.hpp"
 #include <chrono>
+#include "../app.hpp" // For output path utilities
 
 void Metrics::increment_scatters() {
 	scatter_events_++;
@@ -27,12 +28,17 @@ void Metrics::add_step_size(double s) {
 }
 
 void Metrics::collect_data(double at, double rs, double rd, double sr, double ts, double td) {
+	(void)sr; // Suppress unused parameter warning
+	(void)ts; // Suppress unused parameter warning
+	
 	total_absorption_ = at;
 	total_reflection_ = rd;      // Diffuse reflection (energy that entered medium and exited back)
 	total_transmission_ = td;    // Diffuse transmission (energy that entered medium and exited forward)
 	total_diffusion_ = rd + td;  // Total diffuse emittance (reflection + transmission)
 
 	surface_reflection_ = rs;    // Specular reflection (energy reflected at surface, never entered)
+	(void)sr; // Unused parameter - suppress warning
+	(void)ts; // Unused parameter - suppress warning
 	surface_refraction_ = sr;    // Energy entering medium at surface
 
 	path_length_ = compute_path_length();
@@ -101,7 +107,7 @@ void Metrics::stop_clock() {
 }
 
 void Metrics::write_to_file() {
-	std::ofstream out("experiment.out", std::ios_base::app);
+	std::ofstream out(App::get_output_path("experiment.out").c_str(), std::ios_base::app);
 	if (!out.good()) {
 		return;
 	}

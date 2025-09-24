@@ -390,7 +390,7 @@ void Renderer::update_camera_target(const Simulator& simulator) {
 	glm::vec3 center = to_float(bounds.center());
 	camera_.set_target(center);
 
-	// Set tissue elevation bounds for scroll wheel constraint (Y-axis)
+	// Set material elevation bounds for scroll wheel constraint (Y-axis)
 	camera_.set_elevation_bounds(static_cast<float>(bounds.min_bounds.y), static_cast<float>(bounds.max_bounds.y));
 }
 
@@ -562,8 +562,8 @@ void Renderer::draw_voxels(const Settings& settings) {
 							total_energy = emittance;
 						}
 						else if (settings.voxel_mode == VoxelMode::Layers) {
-							// For Layers mode, use a constant value for all voxels with tissue
-							total_energy = (voxel->tissue != nullptr) ? 1.0f : 0.0f;
+							// For Layers mode, use a constant value for all voxels with material
+							total_energy = (voxel->material != nullptr) ? 1.0f : 0.0f;
 						}
 						else {
 							total_energy = absorption + emittance;
@@ -615,9 +615,9 @@ void Renderer::draw_voxels(const Settings& settings) {
 						double y = bounds.min_bounds.y + (voxsize * iy) + half_voxsize;
 						double z = bounds.min_bounds.z + (voxsize * iz) + half_voxsize;
 
-						// Check if this voxel is actually inside the mesh geometry AND has tissue
+						// Check if this voxel is actually inside the mesh geometry AND has material
 						bool is_in_geometry = simulator_->is_point_inside_geometry({x,y,z});
-						bool has_tissue = (voxel->tissue != nullptr);
+						bool has_tissue = (voxel->material != nullptr);
 						
 						// For complex geometries like pyramids, we need to check if any part of the voxel
 						// intersects with the geometry, not just the center point
@@ -651,7 +651,7 @@ void Renderer::draw_voxels(const Settings& settings) {
 							}
 						}
 						
-						// Only render voxels that have tissue AND intersect with the geometry
+						// Only render voxels that have material AND intersect with the geometry
 						if (!has_tissue || !voxel_intersects_geometry) {
 							continue;
 						}
@@ -673,8 +673,8 @@ void Renderer::draw_voxels(const Settings& settings) {
 							total_energy = emittance;
 						}
 						else if (settings.voxel_mode == VoxelMode::Layers) {
-							// For Layers mode, we ignore energy and just show tissue types
-							total_energy = 1.0f;                   // Constant energy for all voxels with tissue
+							// For Layers mode, we ignore energy and just show material types
+							total_energy = 1.0f;                   // Constant energy for all voxels with material
 						}
 						else {
 							total_energy = absorption + emittance; // Fallback to combined
@@ -687,23 +687,23 @@ void Renderer::draw_voxels(const Settings& settings) {
 						glm::dvec3 voxel_center = glm::dvec3(x, y, z);
 						bool is_inside_geometry = simulator_->is_point_inside_geometry(voxel_center);
 
-						// In Layers mode, show all voxels with tissue regardless of energy
+						// In Layers mode, show all voxels with material regardless of energy
 						bool should_render_voxel = false;
 						if (settings.voxel_mode == VoxelMode::Layers) {
-							should_render_voxel = (voxel->tissue != nullptr) && is_inside_geometry;
+							should_render_voxel = (voxel->material != nullptr) && is_inside_geometry;
 						}
 						else {
-							should_render_voxel = (total_energy > 1e-8f || voxel->tissue != nullptr) && is_inside_geometry;
+							should_render_voxel = (total_energy > 1e-8f || voxel->material != nullptr) && is_inside_geometry;
 						}
 
 						if (should_render_voxel) {
 							// For Layers mode, use simplified rendering logic
 							if (settings.voxel_mode == VoxelMode::Layers) {
-								if (voxel->tissue != nullptr) {
+								if (voxel->material != nullptr) {
 									// Match the appearance of Absorption mode when there's no absorption
 									// Use the same energy and alpha values as "no energy" voxels in absorption mode
 									color = get_layer_specific_energy_color(1e-8f, min_energy, max_energy,
-																			voxel->tissue->id);
+																			voxel->material->id());
 									color.a = 0.05f; // Same very faint alpha as no-absorption voxels
 								}
 							}
@@ -739,13 +739,13 @@ void Renderer::draw_voxels(const Settings& settings) {
 								// Use layer-specific energy color mapping with dynamic range
 								if (total_energy > 1e-8f) { // Lower threshold
 									color = get_layer_specific_energy_color(total_energy, min_energy, max_energy,
-																			voxel->tissue->id);
+																			voxel->material->id());
 									color.a = alpha;
 								}
-								else if (voxel->tissue != nullptr) {
-									// Voxel in medium but no recorded energy: very faint tissue-colored hint
+								else if (voxel->material != nullptr) {
+									// Voxel in medium but no recorded energy: very faint material-colored hint
 									color = get_layer_specific_energy_color(1e-8f, min_energy, max_energy,
-																			voxel->tissue->id);
+																			voxel->material->id());
 									color.a = 0.05f; // Slightly more visible
 								}
 							}
@@ -917,7 +917,7 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 					static_cast<uint32_t>(iz) < static_cast<uint32_t>(nz)) {
 					
 					Voxel* voxel = simulator_->voxel_grid(static_cast<uint32_t>(ix), static_cast<uint32_t>(iy), static_cast<uint32_t>(iz));
-					if (!voxel || !voxel->tissue) continue; // Skip voxels with no tissue
+					if (!voxel || !voxel->material) continue; // Skip voxels with no material
 
 					// Calculate energy based on current mode
 					float absorption = static_cast<float>(voxel->absorption);
@@ -932,14 +932,14 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 						total_energy = emittance;
 					}
 					else if (settings.voxel_mode == VoxelMode::Layers) {
-						total_energy = 1.0f; // We already know voxel->tissue != nullptr
+						total_energy = 1.0f; // We already know voxel->material != nullptr
 					}
 					else {
 						total_energy = absorption + emittance;
 					}
 
 					// IMPORTANT: Don't skip voxels with no energy! 
-					// They should still render as very faint tissue-colored hints
+					// They should still render as very faint material-colored hints
 
 					// Calculate world position using cached bounds (PERFORMANCE FIX)
 					double x = bounds.min_bounds.x + (voxsize * ix) + half_voxsize;
@@ -957,18 +957,18 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 					}
 
 					// PERFORMANCE OPTIMIZATION: Skip expensive geometry tests
-					// The voxel already has tissue assigned, so it's already been determined to be in geometry
+					// The voxel already has material assigned, so it's already been determined to be in geometry
 					// during the voxelization process. No need to re-test every frame.
 
 					// EXACT ORIGINAL COLOR CALCULATION - DO NOT CHANGE!
 					glm::vec4 color(0.0f);
 
 					if (settings.voxel_mode == VoxelMode::Layers) {
-						// Layers mode: show all tissue voxels regardless of energy
-						if (voxel->tissue != nullptr) {
+						// Layers mode: show all material voxels regardless of energy
+						if (voxel->material != nullptr) {
 							// Match the appearance of Absorption mode when there's no absorption
 							// Use the same energy and alpha values as "no energy" voxels in absorption mode
-							color = get_layer_specific_energy_color(1e-8f, cached_min_energy_, cached_max_energy_, voxel->tissue->id);
+							color = get_layer_specific_energy_color(1e-8f, cached_min_energy_, cached_max_energy_, voxel->material->id());
 							color.a = 0.05f; // Same very faint alpha as no-absorption voxels
 						}
 					} else {
@@ -1006,12 +1006,12 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 
 						// Use layer-specific energy color mapping with dynamic range
 						if (total_energy > 1e-8f) { // Lower threshold
-							color = get_layer_specific_energy_color(total_energy, cached_min_energy_, cached_max_energy_, voxel->tissue->id);
+							color = get_layer_specific_energy_color(total_energy, cached_min_energy_, cached_max_energy_, voxel->material->id());
 							color.a = alpha;
 						}
-						else if (voxel->tissue != nullptr) {
-							// Voxel in medium but no recorded energy: very faint tissue-colored hint
-							color = get_layer_specific_energy_color(1e-8f, cached_min_energy_, cached_max_energy_, voxel->tissue->id);
+						else if (voxel->material != nullptr) {
+							// Voxel in medium but no recorded energy: very faint material-colored hint
+							color = get_layer_specific_energy_color(1e-8f, cached_min_energy_, cached_max_energy_, voxel->material->id());
 							color.a = 0.05f; // Slightly more visible
 						}
 					}
@@ -1030,7 +1030,7 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 	}
 
 	// Render ALL voxels in a single high-performance instanced draw call
-	end_voxel_instances();
+	end_voxel_instances(settings.voxel_mode);
 	draw_voxel_instances();
 
 	// Restore OpenGL state
@@ -1080,7 +1080,7 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 			auto current = photon.path_head;
 			auto next = current ? current->next : nullptr;
 
-			// Draw physically correct incident ray from source to tissue surface
+			// Draw physically correct incident ray from source to material surface
 			if (current && !simulator_->sources.empty()) {
 				glm::vec3 first_interaction(static_cast<float>(current->position.x),
 											static_cast<float>(current->position.y),
@@ -1123,7 +1123,7 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 					glm::vec4 incident_color(1.0f, 1.0f, 1.0f, 1.0f); // Bright white
 					add_line(source_pos, surface_entry, incident_color);
 
-					// If photon actually enters tissue, draw refracted ray from surface to first interaction
+					// If photon actually enters material, draw refracted ray from surface to first interaction
 					if (first_interaction.y < surface_y - 0.001f) {
 						glm::vec4 refracted_color(0.9f, 0.9f, 1.0f, 0.8f); // Light blue
 						add_line(surface_entry, first_interaction, refracted_color);
@@ -1246,7 +1246,7 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 										   static_cast<float>(next->position.z));
 
 						// Check if this point represents a medium boundary crossing
-						// by checking if we're at the surface (z ≈ 0) or at tissue boundaries
+						// by checking if we're at the surface (z ≈ 0) or at material boundaries
 						bool is_medium_boundary = false;
 
 						// Surface entry/exit detection (z-coordinate near 0)
@@ -1341,7 +1341,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 			auto current = photon.path_head;
 			auto next = current ? current->next : nullptr;
 
-			// Generate incident ray from source to tissue surface (cached surface)
+			// Generate incident ray from source to material surface (cached surface)
 			if (current && !simulator_->sources.empty()) {
 				glm::vec3 first_interaction(static_cast<float>(current->position.x),
 											static_cast<float>(current->position.y),
@@ -2058,7 +2058,7 @@ void Renderer::cache_energy_labels() {
 				glm::vec4 label_color(1.0f, 1.0f, 1.0f, 1.0f);
 
 				if (current_index == 0) {
-					// Incidence point - check if at surface (reflected) or inside (transmitted into tissue)
+					// Incidence point - check if at surface (reflected) or inside (transmitted into material)
 					should_label = true;
 					float energy_percent = static_cast<float>(current->value * 100.0);
 
@@ -2078,7 +2078,7 @@ void Renderer::cache_energy_labels() {
 						}
 					}
 					else {
-						// Inside tissue - this is just the incident energy
+						// Inside material - this is just the incident energy
 						if (energy_percent < 1.0f) {
 							label_text = "<1%";
 						}
@@ -2096,7 +2096,7 @@ void Renderer::cache_energy_labels() {
 					glm::vec3 pos(static_cast<float>(current->position.x), static_cast<float>(current->position.y),
 								  static_cast<float>(current->position.z));
 
-					// Calculate tissue bottom boundary
+					// Calculate material bottom boundary
 					float bottom_y = -0.1f; // Default bottom
 					const auto& layers = simulator_->get_all_layers();
 					if (!layers.empty()) {
@@ -2116,7 +2116,7 @@ void Renderer::cache_energy_labels() {
 						}
 					}
 
-					// Calculate tissue top boundary as well
+					// Calculate material top boundary as well
 					float top_y = 0.1f;   // Default top
 					if (!layers.empty()) {
 						top_y = -1000.0f; // Start very low
@@ -2158,7 +2158,7 @@ void Renderer::cache_energy_labels() {
 						}
 					}
 					else {
-						// Inside tissue - just show percentage
+						// Inside material - just show percentage
 						if (energy_percent < 1.0f) {
 							label_text = "<1%";
 						}
@@ -2199,7 +2199,7 @@ void Renderer::cache_energy_labels() {
 							float energy_percent = static_cast<float>(current->value * 100.0);
 
 							// Determine label type based on position
-							// Calculate tissue boundaries
+							// Calculate material boundaries
 							float top_y = 0.1f, bottom_y = -0.1f;
 							const auto& layers = simulator_->get_all_layers();
 							if (!layers.empty()) {
@@ -2653,19 +2653,19 @@ glm::vec4 Renderer::get_layer_specific_energy_color(float energy, float min_ener
 	float normalized = std::pow(linear_normalized, 0.3f);
 	normalized = std::clamp(normalized, 0.0f, 1.0f);
 
-	// Define base colors for different tissue types
+	// Define base colors for different material types
 	glm::vec3 base_colors[6] = {
-		glm::vec3(1.0f, 0.4f, 0.4f), // Red theme for tissue 0
-		glm::vec3(0.4f, 0.4f, 1.0f), // Blue theme for tissue 1
-		glm::vec3(0.4f, 1.0f, 0.4f), // Green theme for tissue 2
-		glm::vec3(1.0f, 0.4f, 1.0f), // Magenta theme for tissue 3
-		glm::vec3(1.0f, 1.0f, 0.4f), // Yellow theme for tissue 4
-		glm::vec3(0.4f, 1.0f, 1.0f), // Cyan theme for tissue 5
+		glm::vec3(1.0f, 0.4f, 0.4f), // Red theme for material 0
+		glm::vec3(0.4f, 0.4f, 1.0f), // Blue theme for material 1
+		glm::vec3(0.4f, 1.0f, 0.4f), // Green theme for material 2
+		glm::vec3(1.0f, 0.4f, 1.0f), // Magenta theme for material 3
+		glm::vec3(1.0f, 1.0f, 0.4f), // Yellow theme for material 4
+		glm::vec3(0.4f, 1.0f, 1.0f), // Cyan theme for material 5
 	};
 
 	glm::vec3 base_color = base_colors[tissue_id % 6];
 
-	// Create energy gradient within the tissue's color theme
+	// Create energy gradient within the material's color theme
 	if (normalized > 0.85f) {
 		// Very high energy: brighten to near white
 		return glm::vec4(glm::mix(base_color, glm::vec3(1.0f), 0.6f), 1.0f);
@@ -2739,7 +2739,7 @@ void Renderer::add_voxel_instance(const glm::vec3& position, const glm::vec4& co
 	voxel_instances_.push_back({position, color, scale, depth});
 }
 
-void Renderer::end_voxel_instances() {
+void Renderer::end_voxel_instances(VoxelMode mode) {
 	if (voxel_instances_.empty()) return;
 	
 	// PERFORMANCE FIX: Only upload when data has changed, skip expensive sorting
@@ -2747,11 +2747,19 @@ void Renderer::end_voxel_instances() {
 		return; // Skip expensive operations if data hasn't changed
 	}
 	
-	// PERFORMANCE OPTIMIZATION: Skip sorting for large datasets
-	// For 981k+ voxels, sorting is prohibitively expensive (O(n log n) = ~19M operations)
-	// Modern depth buffer + alpha blending handles transparency adequately
-	// Only sort when voxel count is reasonable (< 50k voxels)
+	// PERFORMANCE vs QUALITY TRADE-OFF:
+	// - For Absorption and Layers modes: Skip sorting for large datasets (performance priority)
+	// - For Emittance mode: Always sort because proper transparency is critical (quality priority)
+	bool should_sort_for_quality = false;
+	
 	if (voxel_instances_.size() < 50000) {
+		should_sort_for_quality = true; // Always sort small datasets
+	} else if (mode == VoxelMode::Emittance) {
+		should_sort_for_quality = true; // Always sort Emittance mode for quality
+		std::cout << "Sorting " << voxel_instances_.size() << " voxels for Emittance mode transparency..." << std::endl;
+	}
+	
+	if (should_sort_for_quality) {
 		// Sort by depth (back to front) for optimal transparency
 		std::sort(voxel_instances_.begin(), voxel_instances_.end(), 
 			[](const VoxelInstance& a, const VoxelInstance& b) {
@@ -3025,7 +3033,7 @@ void Renderer::update_cached_energy_range(const Settings& settings) const {
 								total_energy = emittance;
 							}
 							else if (settings.voxel_mode == VoxelMode::Layers) {
-								total_energy = (voxel->tissue != nullptr) ? 1.0f : 0.0f;
+								total_energy = (voxel->material != nullptr) ? 1.0f : 0.0f;
 							}
 							else {
 								total_energy = absorption + emittance;

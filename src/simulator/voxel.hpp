@@ -1,8 +1,7 @@
 #pragma once
 
 #include <glm/glm.hpp>
-
-#include "simulator/tissue.hpp"
+#include "simulator/material.hpp"
 
 struct Voxel
 {
@@ -18,7 +17,7 @@ public:
 	glm::uvec3 coords; // (ix, iy, iz) coordinates
 	double absorption;
 	double emittance;
-	Tissue* tissue;
+	Material* material;
 
 	// Exit direction tracking for energy conservation
 	double emittance_transmitted;  // Energy exiting via transmission (no angle change)
@@ -32,13 +31,13 @@ public:
 	bool is_surface_voxel;          // True if voxel is at the outer surface of the voxel cluster
 
 	Voxel() :
-		coords(0), absorption(0), emittance(0), tissue(nullptr), 
+		coords(0), absorption(0), emittance(0), material(nullptr), 
 		emittance_transmitted(0), emittance_reflected(0), emittance_diffuse(0),
 		volume_fraction_inside(0.0), volume_fraction_outside(0.0), 
 		is_boundary_voxel(false), is_surface_voxel(false) {}
 
 	Voxel(uint32_t x, uint32_t y, uint32_t z) :
-		coords(x, y, z), absorption(0), emittance(0), tissue(nullptr), 
+		coords(x, y, z), absorption(0), emittance(0), material(nullptr), 
 		emittance_transmitted(0), emittance_reflected(0), emittance_diffuse(0),
 		volume_fraction_inside(0.0), volume_fraction_outside(0.0), 
 		is_boundary_voxel(false), is_surface_voxel(false) {}
@@ -70,5 +69,5 @@ public:
 	}
 
 		// Special comparison overloads
-	constexpr bool operator==(const Voxel& other) const { return (other.coords == coords && other.tissue == tissue); }
+	constexpr bool operator==(const Voxel& other) const { return (other.coords == coords && other.material == material); }
 };

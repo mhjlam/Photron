@@ -9,13 +9,14 @@
 
 #include "math/ray.hpp"
 #include "voxel.hpp"
+#include "../app.hpp" // For output path utilities
 
 Medium::Medium(Config& config) : config_(config) {
 	// Reserve space for common use cases
 	layers_.reserve(10);
 	tissues_.reserve(5);
 
-	// Transfer layer and tissue data from config to medium
+	// Transfer layer and material data from config to medium
 	layers_ = config_.move_layers();
 	tissues_ = config_.move_tissues();
 
@@ -174,7 +175,7 @@ bool Medium::initialize_layers() {
 		}
 	}
 
-	// check if layer's tissue id is out of range
+	// check if layer's material id is out of range
 	for (const auto& layer : layers_) {
 		if (layer.tissue_id >= tissues_.size()) {
 			return false;
@@ -194,9 +195,9 @@ bool Medium::voxelize_layers() {
 		std::cout << "Voxelizing geometry..." << std::endl;
 		std::cout << "Grid dimensions: " 
 		          << nx << "x" << ny << "x" << nz 
-				  << " (total: " << (nx * ny * nz) 
-				  << " voxels, size: )" << vox_size 
-				  << std::endl;
+				  << " (total " << (nx * ny * nz) 
+				  << " voxels, size: " << vox_size 
+				  << ")" << std::endl;
 		std::cout << "Grid bounds: min(" 
 		          << bounds_.min_bounds.x << "," 
 		          << bounds_.min_bounds.y << "," 
@@ -226,8 +227,8 @@ bool Medium::voxelize_layers() {
 				if (classification.is_inside_geometry) {
 					Voxel* voxel = volume_(ix, iy, iz);
 					
-					// Assign tissue from dominant layer
-					voxel->tissue = &tissues_[classification.dominant_tissue_id];
+					// Assign material from dominant layer
+					voxel->material = &tissues_[classification.dominant_tissue_id];
 					voxel->volume_fraction_inside = classification.volume_fraction;
 					voxel->volume_fraction_outside = 1.0 - classification.volume_fraction;
 					voxel->is_boundary_voxel = classification.is_boundary_voxel;
@@ -243,7 +244,7 @@ bool Medium::voxelize_layers() {
 	}
 
 	if (config_.verbose()) {
-		std::cout << "Point-containment voxelization completed. Assigned tissue to " << total_voxels_assigned << " voxels ("
+		std::cout << "Point-containment voxelization completed. Assigned material to " << total_voxels_assigned << " voxels ("
 				  << partial_voxels << " partial)." << std::endl;
 	}
 
@@ -266,21 +267,21 @@ void Medium::disambiguate_surface_voxels() {
 		if (x < (int)dimensions.x && y < (int)dimensions.y && z < (int)dimensions.z) {
 			Voxel* voxel = volume_.at(x, y, z);
 			std::cout << "DEBUG: Problematic voxel (" << x << "," << y << "," << z 
-					  << ") - tissue=" << (voxel->tissue ? "YES" : "NO")
+					  << ") - material=" << (voxel->material ? "YES" : "NO")
 					  << " boundary=" << (voxel->is_boundary_voxel ? "YES" : "NO")
 					  << " surface=" << (voxel->is_surface_voxel ? "YES" : "NO")
 					  << " volume_fraction=" << voxel->volume_fraction_inside << std::endl;
 		}
 	}
 	
-	// Check all voxels with tissue for potential false positives (not just boundary voxels)
+	// Check all voxels with material for potential false positives (not just boundary voxels)
 	for (uint32_t z = 0; z < dimensions.z; z++) {
 		for (uint32_t y = 0; y < dimensions.y; y++) {
 			for (uint32_t x = 0; x < dimensions.x; x++) {
 				Voxel* voxel = volume_.at(x, y, z);
 				
-				// Only process voxels that have tissue
-				if (!voxel->tissue) {
+				// Only process voxels that have material
+				if (!voxel->material) {
 					continue;
 				}
 				
@@ -318,9 +319,9 @@ void Medium::disambiguate_surface_voxels() {
 					
 					Voxel* neighbor = volume_.at(nx, ny, nz);
 					
-					// If neighbor is also a boundary voxel with tissue,
+					// If neighbor is also a boundary voxel with material,
 					// check if it has significantly more volume inside
-					if (neighbor->tissue && neighbor->is_boundary_voxel) {
+					if (neighbor->material && neighbor->is_boundary_voxel) {
 						// Surface disambiguation: if neighbor has much more volume inside,
 						// then current voxel is likely a false positive
 						double volume_difference = neighbor->volume_fraction_inside - voxel->volume_fraction_inside;
@@ -332,10 +333,10 @@ void Medium::disambiguate_surface_voxels() {
 					}
 				}
 				
-				// Remove tissue from false positive voxels
+				// Remove material from false positive voxels
 				if (should_remove_tissue) {
-					voxel->tissue = nullptr;
-					voxel->is_boundary_voxel = false; // No longer a boundary since no tissue
+					voxel->material = nullptr;
+					voxel->is_boundary_voxel = false; // No longer a boundary since no material
 					false_positives_removed++;
 				}
 			}
@@ -357,13 +358,13 @@ void Medium::identify_surface_voxels() {
 				Voxel* voxel = volume_.at(x, y, z);
 				
 				// SIMPLE SURFACE DETECTION: A voxel is surface if:
-				// 1. It has tissue (part of medium)
+				// 1. It has material (part of medium)
 				// 2. It's a boundary voxel (intersects geometry boundary)
 				// 3. OR it has an empty neighbor (adjacent to outside)
 				
 				bool is_surface = false;
 				
-				if (voxel->tissue) {
+				if (voxel->material) {
 					// Method 1: Boundary voxel (intersects geometry surface)
 					if (voxel->is_boundary_voxel) {
 						is_surface = true;
@@ -389,9 +390,9 @@ void Medium::identify_surface_voxels() {
 										break;
 									}
 									
-									// Check if neighbor has tissue
+									// Check if neighbor has material
 									Voxel* neighbor = volume_.at(nx, ny, nz);
-									if (!neighbor->tissue) {
+									if (!neighbor->material) {
 										is_surface = true;
 										break;
 									}
@@ -429,12 +430,12 @@ void Medium::reset_simulation_data() {
 
 void Medium::normalize() {
 	// Normalize raw accumulator parameters
-	double divisor = config_.num_photons() * config_.num_sources();
+	double divisor = static_cast<double>(config_.num_photons()) * static_cast<double>(config_.num_sources());
 	metrics_.normalize_raw_values(divisor);
 
 	// Normalize voxel data
 	for (const auto& voxel_ptr : volume_) {
-		if (voxel_ptr && voxel_ptr->tissue) {
+		if (voxel_ptr && voxel_ptr->material) {
 			voxel_ptr->absorption /= config_.num_photons() * config_.num_sources();
 			voxel_ptr->emittance /= config_.num_photons() * config_.num_sources();
 		}
@@ -442,8 +443,8 @@ void Medium::normalize() {
 }
 
 void Medium::write_results() const {
-	std::string str_abs = "absorption.out";
-	std::string str_emi = "emittance.out";
+	std::string str_abs = App::get_output_path("absorption.out");
+	std::string str_emi = App::get_output_path("emittance.out");
 
 	std::ofstream ofs_abs(str_abs.c_str(), std::ios_base::out);
 	std::ofstream ofs_emi(str_emi.c_str(), std::ios_base::out);
@@ -460,7 +461,7 @@ void Medium::write_results() const {
 		for (uint32_t y = 0; y < dimensions.y; y++) {
 			for (uint32_t x = 0; x < dimensions.x; x++) {
 				const Voxel* voxel = volume_(x, y, z);
-				if (voxel && voxel->tissue) {
+				if (voxel && voxel->material) {
 					ofs_abs << voxel->absorption << " ";
 					ofs_emi << voxel->emittance << " ";
 				}
@@ -556,8 +557,8 @@ Voxel* Medium::voxel_at(glm::dvec3& position) {
 
 	Voxel* voxel = volume_(ix, iy, iz);
 
-	// if voxel does not have a tissue, it is outside the medium
-	return voxel->tissue ? voxel : nullptr;
+	// if voxel does not have a material, it is outside the medium
+	return voxel->material ? voxel : nullptr;
 }
 
 Cuboid Medium::voxel_corners(Voxel* voxel) const {
@@ -649,14 +650,14 @@ void Medium::detect_external_surface_voxels() {
 		std::cout << "Detecting external surface voxels..." << std::endl;
 	}
 	
-	// For each voxel with tissue, check if it has neighbors without tissue
+	// For each voxel with material, check if it has neighbors without material
 	for (uint32_t z = 0; z < dimensions.z; z++) {
 		for (uint32_t y = 0; y < dimensions.y; y++) {
 			for (uint32_t x = 0; x < dimensions.x; x++) {
 				Voxel* voxel = volume_.at(x, y, z);
 				
-				// Only check voxels that have tissue
-				if (!voxel->tissue) {
+				// Only check voxels that have material
+				if (!voxel->material) {
 					continue;
 				}
 				
@@ -681,9 +682,9 @@ void Medium::detect_external_surface_voxels() {
 								break;
 							}
 							
-							// Check if neighbor has tissue - if not, this is external surface
+							// Check if neighbor has material - if not, this is external surface
 							Voxel* neighbor = volume_.at(nx, ny, nz);
-							if (!neighbor->tissue) {
+							if (!neighbor->material) {
 								is_external_surface = true;
 								break;
 							}

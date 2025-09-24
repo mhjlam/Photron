@@ -55,15 +55,9 @@ public:
 
 	// Accumulator methods for energy tracking
 	void add_total_absorption(double weight) { 
-		if (Config::get().verbose()) {
-			std::cout << "ENERGY DEBUG: add_total_absorption(" << weight << ") to " << total_absorption_ << " = " << (total_absorption_ + weight) << std::endl;
-		}
 		total_absorption_ += weight; 
 	}
 	void add_diffuse_reflection(double weight) { 
-		if (Config::get().verbose()) {
-			std::cout << "ENERGY DEBUG: add_diffuse_reflection(" << weight << ") to " << diffuse_reflection_ << " = " << (diffuse_reflection_ + weight) << std::endl;
-		}
 		diffuse_reflection_ += weight; 
 		total_reflection_ = diffuse_reflection_ + surface_reflection_; // keep total in sync
 		total_diffusion_ = diffuse_reflection_ + total_transmission_; // keep total in sync
@@ -74,9 +68,6 @@ public:
 	}
 	void add_surface_refraction(double weight) { surface_refraction_ += weight; }
 	void add_diffuse_transmission(double weight) { 
-		if (Config::get().verbose()) {
-			std::cout << "ENERGY DEBUG: add_diffuse_transmission(" << weight << ") to " << diffuse_transmission_ << " = " << (diffuse_transmission_ + weight) << std::endl;
-		}
 		diffuse_transmission_ += weight; 
 		total_transmission_ = diffuse_transmission_ + specular_transmission_; // keep total in sync
 		total_diffusion_ = diffuse_reflection_ + total_transmission_; // keep total in sync

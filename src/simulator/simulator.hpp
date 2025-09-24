@@ -15,7 +15,7 @@
 #include "simulator/layer.hpp"
 #include "simulator/metrics.hpp"
 #include "simulator/photon.hpp"
-#include "simulator/tissue.hpp"
+#include "simulator/material.hpp"
 #include "simulator/voxel.hpp"
 #include "simulator/volume.hpp"
 #include "simulator/medium.hpp"
@@ -61,7 +61,7 @@ public:
 	void increment_simulation_version() const { ++simulation_version_; }
 
 	// Accessor methods for aggregating data across all mediums
-	std::vector<Tissue> get_all_tissues() const;
+	std::vector<Material> get_all_tissues() const;
 	const std::vector<Layer>& get_all_layers() const;
 	std::vector<std::shared_ptr<Voxel>>& get_all_voxels();
 	const std::vector<std::shared_ptr<Voxel>>& get_all_voxels() const;
@@ -93,7 +93,7 @@ public:
 	
 	// Compatibility properties for existing code
 	[[deprecated("Use get_all_tissues() instead")]] 
-	std::vector<Tissue> tissues() const { return get_all_tissues(); }
+	std::vector<Material> tissues() const { return get_all_tissues(); }
 	
 	[[deprecated("Use get_all_layers() instead")]]
 	const std::vector<Layer>& layers() const { return get_all_layers(); }
@@ -137,11 +137,10 @@ private:
 	glm::dvec3 move(glm::dvec3& position, glm::dvec3& direction, double d);
 	glm::dvec3 move_delta(glm::dvec3& position, glm::dvec3& direction);
 
-	// MCML 3.0.0 algorithms
+	// MCML algorithms
 	void generate_step_size(Photon& photon);
-	void scatter_photon(Photon& photon, const Tissue& tissue);
+	void scatter_photon(Photon& photon, const Material& tissue);
 	void roulette_photon(Photon& photon);
-	void set_rng_seed(int seed);
 
 	// file parsing
 	bool parse(const std::string& fconfig);

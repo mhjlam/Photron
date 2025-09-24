@@ -459,14 +459,14 @@ void Overlay::render_file_dialog() {
 		}
 		else { // Save Results
 			ImGui::Text("Save as:");
-			if (ImGui::Button("results.json")) {
-				file_path_ = "results.json";
+			if (ImGui::Button("simulation.json")) {
+				file_path_ = "simulation.json";
 				std::strncpy(file_path_buffer_, file_path_.c_str(), sizeof(file_path_buffer_) - 1);
 				file_path_buffer_[sizeof(file_path_buffer_) - 1] = '\0';
 			}
 			ImGui::SameLine();
-			if (ImGui::Button("simulation_data.txt")) {
-				file_path_ = "simulation_data.txt";
+			if (ImGui::Button("simulation.txt")) {
+				file_path_ = "simulation.txt";
 				std::strncpy(file_path_buffer_, file_path_.c_str(), sizeof(file_path_buffer_) - 1);
 				file_path_buffer_[sizeof(file_path_buffer_) - 1] = '\0';
 			}

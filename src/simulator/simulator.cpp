@@ -9,9 +9,6 @@
 #include <limits>
 #include <memory>
 
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
 #include <numbers>
 #include <set>
 #include <sstream>
@@ -21,6 +18,7 @@
 #include "math/random.hpp"
 #include "math/ray.hpp"
 #include "math/voxel_dda3d.hpp"
+#include "../app.hpp" // For output path utilities
 
 /***********************************************************
  * Simulator constructor.
@@ -82,7 +80,7 @@ bool Simulator::initialize(std::string file) {
 	// Configure random number generator based on deterministic setting
 	if (Config::get().deterministic()) {
 		// Use fixed seed for reproducible results
-		const int deterministic_seed = 12345; // Changed from 42 for more interesting photon paths
+		const int deterministic_seed = 12345;
 		rng->seed(deterministic_seed);
 		if (Config::get().verbose()) {
 			std::cout << "Deterministic mode enabled: Using fixed seed " << deterministic_seed << std::endl;
@@ -227,7 +225,7 @@ void Simulator::simulate() {
 		// for each photon
 		for (uint32_t p = 0; p < photons.size(); ++p) {
 			// progress report
-			if (Config::get().progress() && ((p + 1) % 1000) == 0) {
+			if (Config::get().verbose() && ((p + 1) % 1000) == 0) {
 				std::cout << "Photon " << p + 1 << "/" << Config::get().num_photons() << std::endl;
 			}
 
@@ -308,7 +306,7 @@ void Simulator::simulate() {
 		// Calculate voxel totals for this medium using Volume iterators
 		const auto& volume = medium.get_volume();
 		for (const auto& voxel : volume) {
-			if (voxel && voxel->tissue != nullptr) {
+			if (voxel && voxel->material != nullptr) {
 				total_voxel_absorption += voxel->absorption;
 				total_voxel_emittance += voxel->emittance;
 			}
@@ -380,7 +378,7 @@ void Simulator::simulate_single_photon() {
 			std::cerr << "Warning: Single photon exceeded maximum iterations, terminating." << std::endl;
 			
 			// Deposit remaining energy as absorption for energy conservation
-			if (new_photon.weight > 0.0 && new_photon.voxel && new_photon.voxel->tissue) {
+			if (new_photon.weight > 0.0 && new_photon.voxel && new_photon.voxel->material) {
 				// EXPERIMENTAL: Use energy conservation enforcement
 				terminate_photon_and_record_energy(new_photon, "max_iterations");
 			} else {
@@ -471,7 +469,7 @@ void Simulator::launch(Photon& photon, const Source& source) {
 	glm::ivec3 voxel_coords = photon.voxel ? 
 		glm::ivec3(photon.voxel->ix(), photon.voxel->iy(), photon.voxel->iz()) : glm::ivec3(-1);
 	DebugLogger::instance().log_photon_event(
-		photon.id, "LAUNCH", photon.position, photon.direction, 
+		static_cast<int>(photon.id), "LAUNCH", photon.position, photon.direction, 
 		photon.weight, voxel_coords, 0, 0.0,
 		"Photon launched into medium"
 	);
@@ -572,7 +570,7 @@ void Simulator::step_size(Photon& photon) {
  * and update photon weight accordingly.
  ***********************************************************/
 void Simulator::track_voxel_path_and_deposit(Photon& photon) {
-	if (!photon.voxel || !photon.voxel->tissue) {
+	if (!photon.voxel || !photon.voxel->material) {
 		return;
 	}
 
@@ -642,7 +640,7 @@ void Simulator::track_voxel_path_and_deposit(Photon& photon) {
 	double total_absorption = 0.0;
 	
 	for (const auto& [voxel, distance] : voxel_distances) {
-		if (voxel && voxel->tissue && distance > 1e-12) {
+		if (voxel && voxel->material && distance > 1e-12) {
 			// Calculate effective volume fraction for boundary voxels
 			double effective_volume_fraction = 1.0;
 			if (voxel->is_boundary_voxel) {
@@ -650,7 +648,7 @@ void Simulator::track_voxel_path_and_deposit(Photon& photon) {
 			}
 			
 			// Apply Beer-Lambert law for this segment
-			double mu_a = voxel->tissue->mu_a * effective_volume_fraction;
+			double mu_a = voxel->material->mu_a() * effective_volume_fraction;
 			double segment_transmission = std::exp(-mu_a * distance);
 			double segment_absorption = remaining_weight * (1.0 - segment_transmission);
 			
@@ -705,8 +703,8 @@ void Simulator::transfer(Photon& photon) {
 	while (photon.step >= 1E-10 && photon.alive) {
 		substep_counter++;
 		
-		// DEBUG: Track photon state at each step
-		if (substep_counter <= 50) { // Limit debug output
+		// DEBUG: Track photon state at each step (verbose only)
+		if (Config::get().verbose() && substep_counter <= 50) { // Limit debug output
 			std::cout << "Step " << substep_counter << ": Photon " << photon.id 
 			          << " weight=" << photon.weight 
 			          << " step=" << photon.step 
@@ -718,7 +716,7 @@ void Simulator::transfer(Photon& photon) {
 			std::cerr << "Warning: Photon exceeded maximum substeps, terminating." << std::endl;
 			
 			// Deposit remaining energy as absorption for energy conservation
-			if (photon.weight > 0.0 && photon.voxel && photon.voxel->tissue) {
+			if (photon.weight > 0.0 && photon.voxel && photon.voxel->material) {
 				// EXPERIMENTAL: Use energy conservation enforcement
 				terminate_photon_and_record_energy(photon, "max_iterations");
 			} else {
@@ -754,7 +752,7 @@ void Simulator::transfer(Photon& photon) {
 			glm::ivec3(photon.voxel->ix(), photon.voxel->iy(), photon.voxel->iz()) : glm::ivec3(-1);
 		
 		DebugLogger::instance().log_photon_event(
-			photon.id, "EXIT", photon.position, photon.direction, 
+			static_cast<int>(photon.id), "EXIT", photon.position, photon.direction, 
 			photon.weight, last_voxel_coords, -1, photon.weight,
 			"Photon exiting medium - calling radiate"
 		);
@@ -765,26 +763,26 @@ void Simulator::transfer(Photon& photon) {
 	}
 	
 	// ROBUST BOUNDARY HANDLING: Update photon's voxel to match new position
-	// BUT preserve tissue voxel assignment when photon is at exit boundaries
+	// BUT preserve material voxel assignment when photon is at exit boundaries
 	Voxel* new_voxel = current_medium->voxel_at(photon.position);
 	
 	if (new_voxel) {
-		// Normal case: photon is in a valid tissue voxel
+		// Normal case: photon is in a valid material voxel
 		photon.voxel = new_voxel;
 	} else {
 		// CRITICAL EXIT BOUNDARY FIX: Photon position maps to null voxel (air)
-		// Keep photon assigned to its last tissue voxel until actual medium exit
+		// Keep photon assigned to its last material voxel until actual medium exit
 		// This prevents premature assignment to air voxels during exit process
 		
-		if (photon.voxel && photon.voxel->tissue) {
-			// Photon still has a valid tissue voxel from previous step
+		if (photon.voxel && photon.voxel->material) {
+			// Photon still has a valid material voxel from previous step
 			// Check if photon is actually exiting the medium geometry
 			if (!current_medium->contains_point(photon.position)) {
 				// Photon has truly exited the medium - proceed with exit logic
 				
 				glm::ivec3 last_voxel_coords(-1);
 				DebugLogger::instance().log_photon_event(
-					photon.id, "EXIT", photon.position, photon.direction, 
+					static_cast<int>(photon.id), "EXIT", photon.position, photon.direction, 
 					photon.weight, last_voxel_coords, -1, photon.weight,
 					"Photon moved to invalid voxel - calling radiate"
 				);
@@ -794,17 +792,17 @@ void Simulator::transfer(Photon& photon) {
 				return;
 			} else {
 				// Photon is still within medium bounds but in transition zone
-				// Keep using last tissue voxel - this prevents air voxel assignment
+				// Keep using last material voxel - this prevents air voxel assignment
 				// The photon will properly exit on the next iteration
 			}
 		} else {
-			// Photon has no previous tissue voxel - this is an error state
+			// Photon has no previous material voxel - this is an error state
 			
 			glm::ivec3 last_voxel_coords(-1);
 			DebugLogger::instance().log_photon_event(
-				photon.id, "EXIT", photon.position, photon.direction, 
+				static_cast<int>(photon.id), "EXIT", photon.position, photon.direction, 
 				photon.weight, last_voxel_coords, -1, photon.weight,
-				"Photon has no tissue voxel - calling radiate"
+				"Photon has no material voxel - calling radiate"
 			);
 			
 			photon.alive = false;
@@ -813,7 +811,7 @@ void Simulator::transfer(Photon& photon) {
 		}
 	}
 
-	// update step size using current medium's tissue properties
+	// update step size using current medium's material properties
 	if (current_medium && photon.voxel) {
 		photon.step -= (photon.sub_step * photon.mu_s());
 	}
@@ -847,9 +845,9 @@ void Simulator::sub_step(Photon& photon) {
 	// Update photon's voxel reference to the correct current voxel
 	photon.voxel = current_voxel;
 	
-	// Validate voxel has tissue properties
-	if (!photon.voxel->tissue) {
-		std::cerr << "Error: Photon voxel has no tissue properties in sub_step()" << std::endl;
+	// Validate voxel has material properties
+	if (!photon.voxel->material) {
+		std::cerr << "Error: Photon voxel has no material properties in sub_step()" << std::endl;
 		photon.alive = false;
 		return;
 	}
@@ -943,8 +941,8 @@ void Simulator::sub_step(Photon& photon) {
 			
 			// Find which boundary the ray will hit first
 			double t_min = std::numeric_limits<double>::max();
-			glm::dvec3 hit_point;
-			glm::dvec3 hit_normal;
+			glm::dvec3 hit_point{0.0, 0.0, 0.0};
+			glm::dvec3 hit_normal{0.0, 0.0, 0.0};
 			
 			// Check each face of the voxel cuboid
 			std::vector<std::pair<glm::dvec3, glm::dvec3>> faces = {
@@ -1124,8 +1122,8 @@ void Simulator::sub_step(Photon& photon) {
  * Deposit some of the photon's weight into the geometry.
  ***********************************************************/
 void Simulator::deposit(Photon& photon) {
-	// Cancel if photon is outside of medium or doesn't have tissue
-	if (!photon.voxel || !photon.voxel->tissue) {
+	// Cancel if photon is outside of medium or doesn't have material
+	if (!photon.voxel || !photon.voxel->material) {
 		return;
 	}
 
@@ -1133,7 +1131,7 @@ void Simulator::deposit(Photon& photon) {
 	double effective_volume_fraction = 1.0;
 	if (photon.voxel->is_boundary_voxel) {
 		// Scale absorption by the volume fraction inside for boundary voxels
-		// Don't exit early - the photon is still in a tissue voxel and energy should be conserved
+		// Don't exit early - the photon is still in a material voxel and energy should be conserved
 		effective_volume_fraction = photon.voxel->volume_fraction_inside;
 		
 		// If photon is in the outside portion of boundary voxel, still deposit but scale appropriately
@@ -1154,13 +1152,17 @@ void Simulator::deposit(Photon& photon) {
 	// deposited weight (scaled by effective volume fraction)
 	double deltaw = photon.weight * (1 - std::exp(-photon.mu_a() * photon.sub_step)) * effective_volume_fraction;
 
-	// DEBUG: Track absorption details for single photon debug
-	std::cout << "  DEPOSIT: Photon " << photon.id 
-	          << " weight=" << photon.weight 
-	          << " mu_a=" << photon.mu_a() 
-	          << " sub_step=" << photon.sub_step 
-	          << " deltaw=" << deltaw 
-	          << " effective_volume=" << effective_volume_fraction << std::endl;
+	// DEBUG: Track absorption details for single photon debug (verbose only, limited output)
+	static int deposit_debug_count = 0;
+	if (Config::get().verbose() && deposit_debug_count < 10 && deltaw > 0.001) { // Limit to first 10 steps with significant absorption
+		std::cout << "  DEPOSIT: Photon " << photon.id 
+		          << " weight=" << photon.weight 
+		          << " mu_a=" << photon.mu_a() 
+		          << " sub_step=" << photon.sub_step 
+		          << " deltaw=" << deltaw 
+		          << " effective_volume=" << effective_volume_fraction << std::endl;
+		deposit_debug_count++;
+	}
 
 	// ENERGY CONSERVATION ENFORCEMENT
 	// Calculate how much energy this photon has left to absorb
@@ -1232,15 +1234,21 @@ void Simulator::deposit(Photon& photon) {
  * voxel are computed.
  ***********************************************************/
 void Simulator::cross(Photon& photon) {
-	// DEBUG: Track all boundary crossings
-	std::cout << "=== BOUNDARY CROSSING ===" << std::endl;
-	std::cout << "Photon " << photon.id << " at pos=(" << photon.position.x 
-	          << "," << photon.position.y << "," << photon.position.z 
-	          << ") weight=" << photon.weight << std::endl;
+	// DEBUG: Track boundary crossings (verbose only, limited output)
+	static int crossing_count = 0;
+	if (Config::get().verbose() && crossing_count < 20) { // Limit to first 20 crossings
+		std::cout << "=== BOUNDARY CROSSING ===" << std::endl;
+		std::cout << "Photon " << photon.id << " at pos=(" << photon.position.x 
+		          << "," << photon.position.y << "," << photon.position.z 
+		          << ") weight=" << photon.weight << std::endl;
+		crossing_count++;
+	}
 	
-	// Safety check - ensure photon has valid voxel and tissue
-	if (!photon.voxel || !photon.voxel->tissue) {
-		std::cout << "  -> Outside medium, recording transmission" << std::endl;
+	// Safety check - ensure photon has valid voxel and material
+	if (!photon.voxel || !photon.voxel->material) {
+		if (Config::get().verbose()) {
+			std::cout << "  -> Outside medium, recording transmission" << std::endl;
+		}
 		// Photon is outside medium - record as transmission
 		photon.alive = false;
 		radiate(photon, photon.direction, photon.weight);
@@ -1319,37 +1327,21 @@ void Simulator::cross(Photon& photon) {
 			photon.voxel = voxel_at(photon.position);
 		}
 		else {
-			// Partial reflection/transmission
-			if (Config::get().partial()) {
-				// True Splitting: Always account for both portions
-				// Radiate the transmitted portion (exits medium)
-				if ((1.0 - reflection) > 1e-12) {
-					radiate(photon, transmittance, photon.weight * (1.0 - reflection));
-				}
-				
-				// Continue photon as reflected portion with weighted energy
-				if (reflection > 1e-12) {
-					photon.weight *= reflection;
-					photon.direction = reflectance;
-					photon.position = move_delta(photon.intersect, photon.direction);
-					photon.voxel = voxel_at(photon.position);
-				} else {
-					// No reflection, terminate photon
-					photon.alive = false;
-				}
+			// True Splitting: Always account for both portions
+			// Radiate the transmitted portion (exits medium)
+			if ((1.0 - reflection) > 1e-12) {
+				radiate(photon, transmittance, photon.weight * (1.0 - reflection));
 			}
-			else {
-				// All-or-none
-				if (rng->next() > reflection) {
-					photon.direction = transmittance;
-					photon.alive = false;
-					radiate(photon, transmittance, photon.weight);
-				}
-				else {
-					photon.direction = reflectance;
-					photon.position = move_delta(photon.intersect, photon.direction);
-					photon.voxel = voxel_at(photon.position);
-				}
+			
+			// Continue photon as reflected portion with weighted energy
+			if (reflection > 1e-12) {
+				photon.weight *= reflection;
+				photon.direction = reflectance;
+				photon.position = move_delta(photon.intersect, photon.direction);
+				photon.voxel = voxel_at(photon.position);
+			} else {
+				// No reflection, terminate photon
+				photon.alive = false;
 			}
 		}
 		return;
@@ -1389,7 +1381,7 @@ void Simulator::cross(Photon& photon) {
 	photon.prev_voxel = photon.voxel;
 
 	// determine refractive index of the medium being entered
-	double eta = (newvox == nullptr) ? Config::get().ambient_eta() : newvox->tissue->eta;
+	double eta = (newvox == nullptr) ? Config::get().ambient_eta() : newvox->material->eta();
 
 	// Recalculate with correct refractive index
 	temp_reflection = internal_reflection(photon, eta, transmittance, reflectance);
@@ -1418,42 +1410,121 @@ void Simulator::cross(Photon& photon) {
 	}
 	
 	// Check for LAYER BOUNDARY within same medium (Fresnel reflection)
-	std::cout << "DEBUG: Checking layer boundary - current_medium=" << (current_medium ? "yes" : "no") 
-	          << " new_medium=" << (new_medium ? "yes" : "no") 
-	          << " same=" << (current_medium == new_medium ? "yes" : "no") << std::endl;
+	if (Config::get().verbose()) {
+		std::cout << "DEBUG: Checking layer boundary - current_medium=" << (current_medium ? "yes" : "no") 
+		          << " new_medium=" << (new_medium ? "yes" : "no") 
+		          << " same=" << (current_medium == new_medium ? "yes" : "no") << std::endl;
+	}
 	
 	if (current_medium && new_medium && current_medium == new_medium) {
 		Voxel* current_voxel = photon.voxel;
 		
-		std::cout << "DEBUG: Same medium detected - checking voxels" << std::endl;
-		std::cout << "  current_voxel=" << (current_voxel ? "yes" : "no")
-		          << " newvox=" << (newvox ? "yes" : "no") << std::endl;
-		
-		if (current_voxel && newvox) {
-			std::cout << "  current_tissue=" << (current_voxel->tissue ? "yes" : "no")
-			          << " new_tissue=" << (newvox->tissue ? "yes" : "no") << std::endl;
+		if (Config::get().verbose()) {
+			std::cout << "DEBUG: Same medium detected - checking voxels" << std::endl;
+			std::cout << "  current_voxel=" << (current_voxel ? "yes" : "no")
+			          << " newvox=" << (newvox ? "yes" : "no") << std::endl;
 			
-			if (current_voxel->tissue && newvox->tissue) {
-				std::cout << "  current_eta=" << current_voxel->tissue->eta
-				          << " new_eta=" << newvox->tissue->eta 
-				          << " different=" << (current_voxel->tissue->eta != newvox->tissue->eta ? "yes" : "no") << std::endl;
+			if (current_voxel && newvox) {
+				std::cout << "  current_tissue=" << (current_voxel->material ? "yes" : "no")
+				          << " new_tissue=" << (newvox->material ? "yes" : "no") << std::endl;
+				
+				if (current_voxel->material && newvox->material) {
+					bool same_optical = current_voxel->material->has_same_optical_properties(*newvox->material);
+					std::cout << "  current_tissue_id=" << static_cast<int>(current_voxel->material->id())
+					          << " new_tissue_id=" << static_cast<int>(newvox->material->id()) << std::endl;
+					std::cout << "  current_properties: eta=" << current_voxel->material->eta()
+					          << " mua=" << current_voxel->material->mu_a()
+					          << " mus=" << current_voxel->material->mu_s()  
+					          << " g=" << current_voxel->material->g() 
+					          << " hash=" << current_voxel->material->get_optical_properties_hash() << std::endl;
+					std::cout << "  new_properties: eta=" << newvox->material->eta()
+					          << " mua=" << newvox->material->mu_a()
+					          << " mus=" << newvox->material->mu_s()
+					          << " g=" << newvox->material->g()
+					          << " hash=" << newvox->material->get_optical_properties_hash() << std::endl;
+					std::cout << "  optical_properties_same=" << (same_optical ? "yes" : "no") << std::endl;
+				}
 			}
 		}
 		
 		if (current_voxel && newvox && 
-			current_voxel->tissue && newvox->tissue && 
-			current_voxel->tissue->eta != newvox->tissue->eta) {
+			current_voxel->material && newvox->material && 
+			!current_voxel->material->has_same_optical_properties(*newvox->material)) {
 			
-			std::cout << "  -> INTERFACE DETECTED: eta " << current_voxel->tissue->eta 
-			          << " -> " << newvox->tissue->eta << " (ENERGY SPLITTING DISABLED FOR DEBUG)" << std::endl;
+			// INTERFACE ENERGY SPLITTING - Simple implementation
+			double n1 = current_voxel->material->eta();  // From medium
+			double n2 = newvox->material->eta();          // To medium
 			
-			// TEMPORARILY DISABLE ENERGY SPLITTING FOR DEBUG
-			/* TODO: Re-enable proper interface energy splitting
-			// FRESNEL REFLECTION: Different refractive indices between layers
-			double eta_from = current_voxel->tissue->eta;
-			double eta_to = newvox->tissue->eta;
-			// ... rest of interface logic
-			*/
+			// Calculate angle of incidence
+			double cos_theta_i = -glm::dot(photon.direction, photon.voxel_normal);
+			cos_theta_i = glm::clamp(cos_theta_i, 0.0, 1.0); // Ensure valid range
+			
+			// Check for total internal reflection
+			double n_ratio = n1 / n2;
+			double sin_theta_t_sq = n_ratio * n_ratio * (1.0 - cos_theta_i * cos_theta_i);
+			
+			if (sin_theta_t_sq > 1.0) {
+				// TOTAL INTERNAL REFLECTION - all energy stays in current medium
+				// Reflect photon direction
+				photon.direction = photon.direction - 2.0 * glm::dot(photon.direction, photon.voxel_normal) * photon.voxel_normal;
+				photon.direction = glm::normalize(photon.direction);
+				
+				if (Config::get().verbose()) {
+					std::cout << "  -> TOTAL INTERNAL REFLECTION: n1=" << n1 << ", n2=" << n2 << std::endl;
+				}
+				return; // Photon reflects back, no interface crossing
+			}
+			
+			// Calculate Fresnel reflection coefficient
+			double cos_theta_t = std::sqrt(1.0 - sin_theta_t_sq);
+			double R_fresnel;
+			
+			if (cos_theta_i < 1e-6) {
+				// Normal incidence (simplified)
+				R_fresnel = std::pow((n1 - n2) / (n1 + n2), 2.0);
+			} else {
+				// General case - Fresnel equations for s and p polarizations
+				double Rs = std::pow((n1 * cos_theta_i - n2 * cos_theta_t) / (n1 * cos_theta_i + n2 * cos_theta_t), 2.0);
+				double Rp = std::pow((n2 * cos_theta_i - n1 * cos_theta_t) / (n2 * cos_theta_i + n1 * cos_theta_t), 2.0);
+				R_fresnel = 0.5 * (Rs + Rp); // Average for unpolarized light
+			}
+			
+			// Ensure valid reflection coefficient (critical safety check)
+			R_fresnel = glm::clamp(R_fresnel, 0.0, 1.0);
+			double T_fresnel = 1.0 - R_fresnel;
+			
+			// ENERGY SPLITTING
+			double initial_weight = photon.weight;
+			double reflected_energy = initial_weight * R_fresnel;   // Deposited as absorption
+			double transmitted_energy = initial_weight * T_fresnel; // Photon continues
+			
+			// Deposit reflected energy as absorption in current voxel (last voxel before interface)
+			if (current_voxel && reflected_energy > 0.0) {
+				current_voxel->absorption += reflected_energy;
+			}
+			
+			// Continue photon with transmitted energy
+			photon.weight = transmitted_energy;
+			
+			// Calculate refracted direction using Snell's law
+			glm::dvec3 incident = photon.direction;
+			glm::dvec3 normal = photon.voxel_normal;
+			
+			if (cos_theta_i > 0.9999) {
+				// Near-normal incidence - no significant refraction
+				photon.direction = incident;
+			} else {
+				// Apply Snell's law for refraction
+				glm::dvec3 refracted_tangent = n_ratio * (incident - cos_theta_i * normal);
+				glm::dvec3 refracted_direction = refracted_tangent + cos_theta_t * normal;
+				photon.direction = glm::normalize(refracted_direction);
+			}
+			
+			if (Config::get().verbose()) {
+				std::cout << "  -> INTERFACE ENERGY SPLITTING: n1=" << n1 << ", n2=" << n2 
+				          << ", R=" << R_fresnel << ", T=" << T_fresnel
+				          << ", reflected=" << reflected_energy << ", transmitted=" << transmitted_energy << std::endl;
+			}
 		}
 	}
 
@@ -1527,7 +1598,7 @@ void Simulator::cross(Photon& photon) {
 					photon.processed_tissue_interfaces.insert(interface_key);
 					
 					if (Config::get().verbose()) {
-						std::cout << "First-time tissue boundary energy split (eta " << eta_from 
+						std::cout << "First-time material boundary energy split (eta " << eta_from 
 						          << " -> " << eta_to << "): R=" << R << " (absorbed=" 
 						          << absorbed_energy << "), T=" << (1.0 - R) << " (transmitted=" 
 						          << transmitted_energy << ")" << std::endl;
@@ -1535,8 +1606,8 @@ void Simulator::cross(Photon& photon) {
 				}
 			} else {
 				// Interface already processed, just calculate refracted direction without energy deposition
-				double eta_from = current_voxel->tissue->eta;
-				double eta_to = newvox->tissue->eta;
+				double eta_from = current_voxel->material->eta();
+				double eta_to = newvox->material->eta();
 				double eta_ratio = eta_from / eta_to;
 				
 				double cos_incident = -glm::dot(photon.direction, photon.voxel_normal);
@@ -1565,7 +1636,7 @@ void Simulator::cross(Photon& photon) {
 					photon.direction = glm::normalize(transmitted_dir);
 					
 					if (Config::get().verbose()) {
-						std::cout << "Tissue boundary (eta " << eta_from << " -> " << eta_to 
+						std::cout << "material boundary (eta " << eta_from << " -> " << eta_to 
 						          << ") already processed, just refracting" << std::endl;
 					}
 				}
@@ -1605,10 +1676,10 @@ void Simulator::cross(Photon& photon) {
 		if (photon.voxel && !photon.voxel->is_surface_voxel) {
 			// Photon was assigned to wrong voxel during transport - need to find correct exit voxel
 			// Use the intersection point to find the surface voxel we're actually exiting from
-			Medium* current_medium = find_medium_at_with_dda(photon.position);
-			if (current_medium) {
+			Medium* exit_medium = find_medium_at_with_dda(photon.position);
+			if (exit_medium) {
 				// Look for a surface voxel near the intersection point
-				Voxel* intersection_voxel = current_medium->voxel_at(photon.intersect);
+				Voxel* intersection_voxel = exit_medium->voxel_at(photon.intersect);
 				if (intersection_voxel && intersection_voxel->is_surface_voxel) {
 					photon.voxel = intersection_voxel;  // Correct the assignment
 				} else {
@@ -1698,46 +1769,24 @@ void Simulator::cross(Photon& photon) {
 			}
 		}
 		else {
-			// partial reflection
-			if (Config::get().partial()) {
-				// True Splitting: Always account for both portions
-				// Radiate the transmitted portion (exits medium)
-				if (transmission > 1e-12) {
-					radiate(photon, transmittance, photon.weight * transmission);
-				}
-				
-				// Continue photon as reflected portion with weighted energy
-				if (reflection > 1e-12) {
-					photon.weight *= reflection;
-					photon.direction = corrected_reflectance;
-					photon.position = move_delta(photon.intersect, photon.direction);
-					if (current_medium) {
-						// For reflection, photon stays in same medium - safe to update voxel
-						photon.voxel = current_medium->voxel_at(photon.position);
-					}
-				} else {
-					// No reflection, terminate photon
-					photon.alive = false;
-				}
+			// True Splitting: Always account for both portions
+			// Radiate the transmitted portion (exits medium)
+			if (transmission > 1e-12) {
+				radiate(photon, transmittance, photon.weight * transmission);
 			}
-			else { // all-or-none transmission/reflection
-				// total transmission
-				if (rng->next() > reflection) {
-					photon.direction = transmittance;
-					photon.alive = false;
-
-					// radiate() now handles both voxel emittance AND medium record updates
-					radiate(photon, transmittance, photon.weight);
+			
+			// Continue photon as reflected portion with weighted energy
+			if (reflection > 1e-12) {
+				photon.weight *= reflection;
+				photon.direction = corrected_reflectance;
+				photon.position = move_delta(photon.intersect, photon.direction);
+				if (current_medium) {
+					// For reflection, photon stays in same medium - safe to update voxel
+					photon.voxel = current_medium->voxel_at(photon.position);
 				}
-				// total reflection
-				else {
-					photon.direction = corrected_reflectance;
-					photon.position = move_delta(photon.intersect, photon.direction);
-					if (current_medium) {
-						// For reflection, photon stays in same medium - safe to update voxel
-						photon.voxel = current_medium->voxel_at(photon.position);
-					}
-				}
+			} else {
+				// No reflection, terminate photon
+				photon.alive = false;
 			}
 		}
 
@@ -1746,8 +1795,8 @@ void Simulator::cross(Photon& photon) {
 		}
 	}
 	// 2. crossing to another medium
-	else if (newvox != nullptr && newvox->tissue != nullptr && photon.voxel->tissue != nullptr
-			 && photon.voxel->tissue->eta != newvox->tissue->eta) {
+	else if (newvox != nullptr && newvox->material != nullptr && photon.voxel->material != nullptr
+			 && photon.voxel->material->eta() != newvox->material->eta()) {
 		// Use already computed reflection/transmission
 		double reflection = temp_reflection;
 
@@ -1800,8 +1849,8 @@ void Simulator::cross(Photon& photon) {
 			
 			// Only update voxel assignment if we're sure it's correct
 			// If current voxel is a surface voxel and new voxel is null/air, preserve current
-			if (new_voxel && new_voxel->tissue) {
-				photon.voxel = new_voxel;  // Safe to assign - it's a tissue voxel
+			if (new_voxel && new_voxel->material) {
+				photon.voxel = new_voxel;  // Safe to assign - it's a material voxel
 			} else if (!photon.voxel || !photon.voxel->is_surface_voxel) {
 				// Only assign null/air voxels if current voxel isn't a surface voxel
 				photon.voxel = new_voxel;
@@ -1864,7 +1913,7 @@ Voxel* Simulator::find_last_surface_voxel_with_dda(const Photon& photon, const g
 	Voxel* last_surface_voxel = nullptr;
 	
 	DebugLogger::instance().log_photon_event(
-		photon.id, "DDA_SEARCH", photon.position, direction, 
+		static_cast<int>(photon.id), "DDA_SEARCH", photon.position, direction, 
 		0.0, glm::ivec3(-1), -1, total_distance,
 		"Starting DDA traversal for last surface voxel, found " + std::to_string(result.voxels.size()) + " voxels"
 	);
@@ -1875,13 +1924,13 @@ Voxel* Simulator::find_last_surface_voxel_with_dda(const Photon& photon, const g
 		glm::dvec3 mutable_pos = step.world_position; // Create mutable copy for voxel_at
 		Voxel* voxel = current_medium->voxel_at(mutable_pos);
 		
-		if (voxel && voxel->tissue) {
+		if (voxel && voxel->material) {
 			glm::ivec3 voxel_coords = glm::ivec3(voxel->ix(), voxel->iy(), voxel->iz());
 			bool is_surface = voxel->is_surface_voxel; // ONLY true external surface voxels
 			
 			DebugLogger::instance().log_photon_event(
-				photon.id, "DDA_VOXEL", step.world_position, direction, 
-				0.0, voxel_coords, i, step.distance_traveled,
+				static_cast<int>(photon.id), "DDA_VOXEL", step.world_position, direction, 
+				0.0, voxel_coords, static_cast<int>(i), step.distance_traveled,
 				"Voxel " + std::to_string(i) + "/" + std::to_string(result.voxels.size()) + 
 				(is_surface ? std::string(" SURFACE") : std::string(" INTERIOR"))
 			);
@@ -1898,13 +1947,13 @@ Voxel* Simulator::find_last_surface_voxel_with_dda(const Photon& photon, const g
 	if (selected_voxel) {
 		glm::ivec3 selected_coords = glm::ivec3(selected_voxel->ix(), selected_voxel->iy(), selected_voxel->iz());
 		DebugLogger::instance().log_photon_event(
-			photon.id, "DDA_RESULT", photon.position, direction, 
+			static_cast<int>(photon.id), "DDA_RESULT", photon.position, direction, 
 			0.0, selected_coords, -1, 0.0,
 			"Selected voxel: " + (last_surface_voxel ? std::string("DDA_FOUND") : std::string("FALLBACK_TO_CURRENT"))
 		);
 	} else {
 		DebugLogger::instance().log_photon_event(
-			photon.id, "DDA_ERROR", photon.position, direction, 
+			static_cast<int>(photon.id), "DDA_ERROR", photon.position, direction, 
 			0.0, glm::ivec3(-1), -1, 0.0,
 			"No voxel selected - both DDA and fallback failed"
 		);
@@ -1918,9 +1967,9 @@ Voxel* Simulator::find_last_surface_voxel_with_dda(const Photon& photon, const g
  * the material.
  ***********************************************************/
 void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
-	// CRITICAL FIX: Find the LAST TISSUE VOXEL before exit using robust boundary handling
+	// CRITICAL FIX: Find the LAST material VOXEL before exit using robust boundary handling
 	// The intersection point tells us exactly where the photon crossed the boundary
-	// We need to find the tissue voxel that is most inside the medium near this intersection
+	// We need to find the material voxel that is most inside the medium near this intersection
 	
 	Medium* exit_medium = find_medium_at_with_dda(photon.position);
 	if (!exit_medium) {
@@ -1933,7 +1982,7 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 	Voxel* exit_voxel = nullptr;
 	double voxel_size = exit_medium->get_volume().voxel_size();
 	
-	// Strategy 1: Sample multiple points around the intersection to find best tissue voxel
+	// Strategy 1: Sample multiple points around the intersection to find best material voxel
 	std::vector<std::pair<Voxel*, double>> candidate_voxels;
 	
 	// Sample points slightly inside the medium from intersection
@@ -1943,7 +1992,7 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 		glm::dvec3 sample_pos = photon.intersect + reverse_direction * epsilon;
 		
 		Voxel* candidate = exit_medium->voxel_at(sample_pos);
-		if (candidate && candidate->tissue) {
+		if (candidate && candidate->material) {
 			// Calculate how "deep" this voxel is inside the medium
 			// Voxels closer to intersection but still inside get higher priority
 			double depth_score = 1.0 / (epsilon + 1e-9); // Higher score for smaller epsilon
@@ -1968,12 +2017,12 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 					glm::ivec3 neighbor_coords = intersection_coords + glm::ivec3(dx, dy, dz);
 					
 					// Check bounds
-					if (neighbor_coords.x >= 0 && neighbor_coords.x < exit_medium->get_volume().width() &&
-						neighbor_coords.y >= 0 && neighbor_coords.y < exit_medium->get_volume().height() &&
-						neighbor_coords.z >= 0 && neighbor_coords.z < exit_medium->get_volume().depth()) {
+					if (neighbor_coords.x >= 0 && static_cast<uint32_t>(neighbor_coords.x) < exit_medium->get_volume().width() &&
+						neighbor_coords.y >= 0 && static_cast<uint32_t>(neighbor_coords.y) < exit_medium->get_volume().height() &&
+						neighbor_coords.z >= 0 && static_cast<uint32_t>(neighbor_coords.z) < exit_medium->get_volume().depth()) {
 						
 						Voxel* neighbor = exit_medium->get_volume().at(neighbor_coords.x, neighbor_coords.y, neighbor_coords.z);
-						if (neighbor && neighbor->tissue) {
+						if (neighbor && neighbor->material) {
 							// Calculate distance from intersection to voxel center
 							glm::dvec3 voxel_center = grid_origin + glm::dvec3(
 								(neighbor_coords.x + 0.5) * voxel_size,
@@ -1993,7 +2042,7 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 	// Strategy 3: Fallback to photon's last known position
 	if (candidate_voxels.empty()) {
 		exit_voxel = exit_medium->voxel_at(photon.position);
-		if (!exit_voxel || !exit_voxel->tissue) {
+		if (!exit_voxel || !exit_voxel->material) {
 			exit_voxel = photon.voxel;
 		}
 	} else {
@@ -2003,8 +2052,8 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 		exit_voxel = candidate_voxels[0].first;
 	}
 	
-	if (!exit_voxel || !exit_voxel->tissue) {
-		std::cerr << "ERROR: Cannot determine last tissue voxel for emittance recording" << std::endl;
+	if (!exit_voxel || !exit_voxel->material) {
+		std::cerr << "ERROR: Cannot determine last material voxel for emittance recording" << std::endl;
 		return;
 	}
 	
@@ -2012,43 +2061,28 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 	
 	// Log the radiate event with the determined exit voxel
 	DebugLogger::instance().log_photon_event(
-		photon.id, "RADIATE", photon.position, direction, 
+		static_cast<int>(photon.id), "RADIATE", photon.position, direction, 
 		weight, surface_coords, -1, weight,
-		"Using robust last tissue voxel selection"
+		"Using robust last material voxel selection"
 	);
 	
 	// REMOVED: Old validation that blocked emittance recording
-	// We now trust that exit_voxel is the correct last tissue voxel
+	// We now trust that exit_voxel is the correct last material voxel
 	
 	// Record photon's radiate() call origin
-	// ENERGY CONSERVATION ENFORCEMENT (disabled for True Splitting)
-	// True Splitting handles energy conservation differently - through statistical splitting
-	if (!Config::get().partial()) {
-		photon.radiate_call_count++;
-		
-		// Calculate how much energy this photon has left to radiate
-		double energy_already_used = photon.total_energy_radiated + photon.total_energy_absorbed;
-		double energy_available = photon.total_energy_budget - energy_already_used;
-		
-		// Enforce energy conservation: cannot radiate more than available
-		double actual_radiated_weight = std::min(weight, energy_available);
-		
-		// Update photon energy tracking
-		photon.total_energy_radiated += actual_radiated_weight;
-		weight = actual_radiated_weight;
-	} else {
-		// True Splitting mode: no per-photon enforcement, just track
-		photon.radiate_call_count++;
-		photon.total_energy_radiated += weight;
-	}
+	// ENERGY CONSERVATION ENFORCEMENT (always True Splitting mode now)
+	// True Splitting handles energy conservation through statistical splitting
+	photon.radiate_call_count++;
+	photon.total_energy_radiated += weight;
 
-	// Record emittance at the LAST TISSUE VOXEL (before exit)
+	// Record emittance at the LAST material VOXEL (before exit)
 	double old_emittance = exit_voxel->emittance;
+	(void)old_emittance; // Suppress unused variable warning - kept for debugging
 	exit_voxel->emittance += weight;
 	
 	// Log voxel emittance recording
 	DebugLogger::instance().log_voxel_emittance(
-		photon.id, photon.position, direction, weight, surface_coords, weight, "Surface voxel emittance"
+		static_cast<int>(photon.id), photon.position, direction, weight, surface_coords, weight, "Surface voxel emittance"
 	);
 	
 	// Use proper reflection/transmission determination based on exit position relative to entry
@@ -2057,7 +2091,7 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 		exit_voxel->emittance_reflected += weight;
 		photon.exit_type = Photon::ExitType::REFLECTED;
 		DebugLogger::instance().log_photon_event(
-			photon.id, "REFLECT", photon.position, direction, 
+			static_cast<int>(photon.id), "REFLECT", photon.position, direction, 
 			weight, surface_coords, -1, weight,
 			"Photon classified as reflection"
 		);
@@ -2066,7 +2100,7 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 		exit_voxel->emittance_transmitted += weight;
 		photon.exit_type = Photon::ExitType::TRANSMITTED;
 		DebugLogger::instance().log_photon_event(
-			photon.id, "TRANSMIT", photon.position, direction, 
+			static_cast<int>(photon.id), "TRANSMIT", photon.position, direction, 
 			weight, surface_coords, -1, weight,
 			"Photon classified as transmission"
 		);
@@ -2132,7 +2166,7 @@ void Simulator::scatter(Photon& photon) {
 		return;
 	}
 
-	// Get current medium and tissue properties for scattering
+	// Get current medium and material properties for scattering
 	Medium* current_medium = find_medium_at(photon.position);
 	if (!current_medium) {
 		// Record as transmission - photon has exited medium
@@ -2141,16 +2175,16 @@ void Simulator::scatter(Photon& photon) {
 		return;
 	}
 	
-	Tissue* tissue = photon.voxel->tissue;
-	if (!tissue) {
-		// Record as transmission - photon cannot scatter without tissue
+	Material* material_ptr = photon.voxel->material;
+	if (!material_ptr) {
+		// Record as transmission - photon cannot scatter without material
 		photon.alive = false;
 		radiate(photon, photon.direction, photon.weight);
 		return;
 	}
 
 	// Use MCML 3.0.0 scattering algorithm
-	scatter_photon(photon, *tissue);
+	scatter_photon(photon, *material_ptr);
 
 	// normalize direction vector (safety check)
 	photon.direction = glm::normalize(photon.direction);
@@ -2175,7 +2209,7 @@ void Simulator::scatter(Photon& photon) {
  ***********************************************************/
 void Simulator::normalize() {
 	// Normalize records for all mediums
-	double normalization_factor = Config::get().num_photons() * Config::get().num_sources();
+	double normalization_factor = static_cast<double>(Config::get().num_photons()) * static_cast<double>(Config::get().num_sources());
 	for (auto& medium : mediums) {
 		medium.get_metrics().normalize_raw_values(normalization_factor);
 	}
@@ -2186,7 +2220,7 @@ void Simulator::normalize() {
 		for (const auto& voxel_ptr : voxel_grid) {
 			auto* voxel = voxel_ptr.get();
 			// skip computation for voxels outside the medium
-			if (!voxel->tissue) {
+			if (!voxel->material) {
 				continue;
 			}
 
@@ -2232,7 +2266,7 @@ void Simulator::specular_reflection(Photon& photon) {
 
 	// refractive indices of ambient medium and medium that is hit
 	double n1 = Config::get().ambient_eta();
-	double n2 = voxel->tissue->eta;
+	double n2 = voxel->material->eta();
 
 	// Calculate specular reflection coefficient from Fresnel equations
 	double temp_ratio = (n1 - n2) / (n1 + n2);
@@ -2278,7 +2312,7 @@ void Simulator::specular_reflection(Photon& photon) {
 double Simulator::internal_reflection(Photon& photon, double& eta_t, glm::dvec3& transmittance,
 									  glm::dvec3& reflectance) {
 	// Modern Fresnel equations with improved numerical stability
-	double eta_i = photon.voxel->tissue->eta;
+	double eta_i = photon.voxel->material->eta();
 	double eta_ratio = eta_t / eta_i;
 	double eta_ratio_sq = eta_ratio * eta_ratio;
 
@@ -2389,10 +2423,10 @@ void Simulator::aggregate_voxel_data() {
 			for (uint32_t y = 0; y < volume.height(); ++y) {
 				for (uint32_t x = 0; x < volume.width(); ++x) {
 					Voxel* voxel = volume.at(x, y, z);
-					if (voxel && voxel->tissue) {
+					if (voxel && voxel->material) {
 						// Only aggregate voxels that belong to this medium
-						// Check if voxel's tissue ID matches this medium's ID
-						if (voxel->tissue->id - '0' == (&medium - &mediums[0])) {
+						// Check if voxel's material ID matches this medium's ID
+						if (voxel->material->id() - '0' == (&medium - &mediums[0])) {
 							// Aggregate absorption
 							medium.get_metrics().add_total_absorption(voxel->absorption);
 							
@@ -2414,10 +2448,10 @@ void Simulator::aggregate_voxel_data() {
  *	Write the resulting physical quantities to a file.
  ***********************************************************/
 void Simulator::report() {
-	std::string str_sim = "simulation.out";
-	std::string str_abs = "absorption.out";
-	std::string str_emi = "emittance.out";
-	std::string str_ptd = "photons.out";
+	std::string str_sim = App::get_output_path("simulation.out");
+	std::string str_abs = App::get_output_path("absorption.out");
+	std::string str_emi = App::get_output_path("emittance.out");
+	std::string str_ptd = App::get_output_path("photons.out");
 
 	std::ofstream ofs_rep(str_sim.c_str(), std::ios_base::out); // simulation report
 	std::ofstream ofs_abs(str_abs.c_str(), std::ios_base::out); // absorption report
@@ -2620,10 +2654,10 @@ void Simulator::generate_step_size(Photon& photon) {
 	}
 }
 
-void Simulator::scatter_photon(Photon& photon, const Tissue& tissue) {
+void Simulator::scatter_photon(Photon& photon, const Material& material) {
 	// Modern numerically stable Henyey-Greenstein phase function implementation
 	double cos_theta, sin_theta, cos_phi, sin_phi;
-	double g = tissue.g; // anisotropy factor
+	double g = material.g(); // anisotropy factor
 	double rnd = rng->next();
 
 	// More numerically stable Henyey-Greenstein sampling
@@ -2760,29 +2794,29 @@ void Simulator::handle_medium_transition(Photon& photon, Medium* from, Medium* t
 		// COMPREHENSIVE MULTI-LAYER INTERFACE PHYSICS
 		// Transitioning between different mediums with proper Fresnel calculations
 		
-		// Get tissue properties for both media
-		Tissue* from_tissue = nullptr;
-		Tissue* to_tissue = nullptr;
+		// Get material properties for both media
+		Material* from_material = nullptr;
+		Material* to_material = nullptr;
 		
-		// Find representative voxels to get tissue properties
+		// Find representative voxels to get material properties
 		glm::dvec3 from_pos = photon.position - photon.direction * 1e-6; // Slightly behind
 		glm::dvec3 to_pos = photon.position + photon.direction * 1e-6;   // Slightly ahead
 		
 		Voxel* from_voxel = from->voxel_at(from_pos);
 		Voxel* to_voxel = to->voxel_at(to_pos);
 		
-		if (from_voxel && from_voxel->tissue) from_tissue = from_voxel->tissue;
-		if (to_voxel && to_voxel->tissue) to_tissue = to_voxel->tissue;
+		if (from_voxel && from_voxel->material) from_material = from_voxel->material;
+		if (to_voxel && to_voxel->material) to_material = to_voxel->material;
 		
-		if (!from_tissue || !to_tissue) {
-			std::cerr << "Warning: Interface transition without proper tissue properties" << std::endl;
+		if (!from_material || !to_material) {
+			std::cerr << "Warning: Interface transition without proper material properties" << std::endl;
 			// Fallback to simple transmission
 			return;
 		}
 		
 		// Get refractive indices
-		double n1 = from_tissue->eta;  // Incident medium
-		double n2 = to_tissue->eta;    // Transmitted medium
+		double n1 = from_material->eta();  // Incident medium
+		double n2 = to_material->eta();    // Transmitted medium
 		
 		// Get interface normal (use voxel normal or calculate from geometry)
 		glm::dvec3 interface_normal = photon.voxel_normal;
@@ -2804,6 +2838,7 @@ void Simulator::handle_medium_transition(Photon& photon, Medium* from, Medium* t
 		double cos_theta_i = glm::dot(incident_dir, interface_normal);
 		cos_theta_i = glm::clamp(cos_theta_i, -1.0, 1.0);
 		double sin_theta_i = std::sqrt(1.0 - cos_theta_i * cos_theta_i);
+		(void)sin_theta_i; // Suppress unused variable warning - kept for debugging
 		
 		// Check for total internal reflection
 		double n_ratio = n1 / n2;
@@ -2878,8 +2913,8 @@ void Simulator::handle_medium_transition(Photon& photon, Medium* from, Medium* t
 			
 			if (Config::get().verbose()) {
 				std::cout << "Fresnel transmission at medium interface (T=" << T_fresnel 
-						  << ", angle_i=" << std::acos(cos_theta_i) * 180.0 / M_PI 
-						  << "°, angle_t=" << std::acos(cos_theta_t) * 180.0 / M_PI << "°)" << std::endl;
+						  << ", angle_i=" << std::acos(cos_theta_i) * 180.0 / std::numbers::pi
+						  << "°, angle_t=" << std::acos(cos_theta_t) * 180.0 / std::numbers::pi << "°)" << std::endl;
 			}
 		}
 		
@@ -2927,10 +2962,11 @@ void Simulator::validate_photon_state_after_interface_transition(Photon& photon,
 	if (!current_medium) {
 		std::cerr << "Error: No medium found at photon position after interface transition" << std::endl;
 		position_valid = false;
-	} else {
+	}
+	else {
 		Voxel* current_voxel = current_medium->voxel_at(photon.position);
-		if (!current_voxel || !current_voxel->tissue) {
-			std::cerr << "Error: No valid voxel/tissue at photon position after interface transition" << std::endl;
+		if (!current_voxel || !current_voxel->material) {
+			std::cerr << "Error: No valid voxel/material at photon position after interface transition" << std::endl;
 			position_valid = false;
 		}
 	}
@@ -2971,7 +3007,7 @@ void Simulator::validate_photon_state_after_interface_transition(Photon& photon,
 			Medium* test_medium = find_medium_at(test_pos);
 			if (test_medium) {
 				Voxel* test_voxel = test_medium->voxel_at(test_pos);
-				if (test_voxel && test_voxel->tissue) {
+				if (test_voxel && test_voxel->material) {
 					photon.position = test_pos;
 					photon.voxel = test_voxel;
 					recovery_successful = true;
@@ -3003,13 +3039,13 @@ void Simulator::validate_photon_state_after_interface_transition(Photon& photon,
 	// VALIDATION 4: Ensure photon has correct voxel reference
 	if (current_medium) {
 		Voxel* correct_voxel = current_medium->voxel_at(photon.position);
-		if (correct_voxel && correct_voxel->tissue) {
+		if (correct_voxel && correct_voxel->material) {
 			photon.voxel = correct_voxel;
 		}
 	}
 	
 	// VALIDATION 5: Final state check
-	if (photon.alive && (!photon.voxel || !photon.voxel->tissue)) {
+	if (photon.alive && (!photon.voxel || !photon.voxel->material)) {
 		std::cerr << "Final validation failed: photon has invalid voxel reference" << std::endl;
 		photon.alive = false;
 	}
@@ -3088,21 +3124,21 @@ std::vector<Photon> Simulator::get_paths() const {
  * Accessor methods for aggregating data across all mediums
  ***********************************************************/
 
-std::vector<Tissue> Simulator::get_all_tissues() const {
-	std::vector<Tissue> all_tissues;
+std::vector<Material> Simulator::get_all_tissues() const {
+	std::vector<Material> all_tissues;
 	for (const auto& medium : mediums) {
 		const auto& medium_tissues = medium.get_tissues();
-		for (const auto& tissue : medium_tissues) {
+		for (const auto& material : medium_tissues) {
 			// Add unique tissues from each medium
 			bool found = false;
 			for (const auto& existing : all_tissues) {
-				if (existing.id == tissue.id) {
+				if (existing.id() == material.id()) {
 					found = true;
 					break;
 				}
 			}
 			if (!found) {
-				all_tissues.push_back(tissue);
+				all_tissues.push_back(material);
 			}
 		}
 	}
@@ -3172,7 +3208,7 @@ bool Simulator::is_photon_reflecting(const Photon& photon) const {
 	Range3 bounds = get_combined_bounds();
 	
 	// ROBUST CLASSIFICATION: Based on actual exit position and entry position
-	// For typical multi-layer tissue geometry:
+	// For typical multi-layer material geometry:
 	// - Reflection: photon exits through top surface (high Y)
 	// - Transmission: photon exits through bottom surface (low Y)
 	
@@ -3310,7 +3346,7 @@ Simulator::EnergyConservation Simulator::calculate_energy_conservation() const {
 	for (const auto& medium : mediums) {
 		const auto& volume = medium.get_volume();
 		for (const auto& voxel : volume) {
-			if (voxel && voxel->tissue != nullptr) {
+			if (voxel && voxel->material != nullptr) {
 				total_voxel_absorption += voxel->absorption;
 				
 				// Classify emittance into reflection vs transmission based on medium records
@@ -3380,7 +3416,7 @@ void Simulator::terminate_photon_and_record_energy(Photon& photon, const std::st
 		record_medium->get_metrics().add_total_absorption(photon.weight);
 		
 		// ENERGY CONSERVATION FIX: Track energy in photon accounting system
-		if (photon.voxel && photon.voxel->tissue) {
+		if (photon.voxel && photon.voxel->material) {
 			// Update photon energy tracking for conservation
 			photon.total_energy_absorbed += photon.weight;
 			
@@ -3396,7 +3432,7 @@ void Simulator::terminate_photon_and_record_energy(Photon& photon, const std::st
 		record_medium->get_metrics().add_total_absorption(photon.weight);
 		
 		// ENERGY CONSERVATION FIX: Track energy in photon accounting system
-		if (photon.voxel && photon.voxel->tissue) {
+		if (photon.voxel && photon.voxel->material) {
 			// Update photon energy tracking for conservation
 			photon.total_energy_absorbed += photon.weight;
 			
@@ -3441,7 +3477,7 @@ void Simulator::initialize_dda_instances() {
  * Track absorption along actual photon path segments for maximum accuracy
  ***********************************************************/
 void Simulator::track_photon_path_segments_for_absorption(Photon& photon) {
-	if (!photon.voxel || !photon.voxel->tissue) {
+	if (!photon.voxel || !photon.voxel->material) {
 		return;
 	}
 
@@ -3512,7 +3548,7 @@ void Simulator::track_photon_path_segments_for_absorption(Photon& photon) {
 			}
 		}
 		
-		if (voxel && voxel->tissue) {
+		if (voxel && voxel->material) {
 			// Calculate distance for this voxel segment
 			double segment_distance = 0.0;
 			if (!result.voxels.empty()) {
@@ -3538,7 +3574,7 @@ void Simulator::track_photon_path_segments_for_absorption(Photon& photon) {
 				}
 				
 				// Apply Beer-Lambert law for this segment
-				double mu_a = voxel->tissue->mu_a * effective_volume_fraction;
+				double mu_a = voxel->material->mu_a() * effective_volume_fraction;
 				double segment_transmission = std::exp(-mu_a * segment_distance);
 				double segment_absorption = remaining_weight * (1.0 - segment_transmission);
 				
@@ -3580,7 +3616,7 @@ void Simulator::track_photon_path_segments_for_absorption(Photon& photon) {
  * Robust voxel traversal using 3D DDA algorithm
  ***********************************************************/
 void Simulator::track_voxel_path_with_dda(Photon& photon) {
-	if (!photon.voxel || !photon.voxel->tissue) {
+	if (!photon.voxel || !photon.voxel->material) {
 		return;
 	}
 
@@ -3637,7 +3673,7 @@ void Simulator::track_voxel_path_with_dda(Photon& photon) {
 		glm::dvec3 mutable_pos = step.world_position; // Create mutable copy for voxel_at
 		Voxel* voxel = current_medium->voxel_at(mutable_pos);
 		
-		if (voxel && voxel->tissue) {
+		if (voxel && voxel->material) {
 			// Calculate distance for this voxel segment
 			double segment_distance = 0.0;
 			if (!result.voxels.empty()) {
@@ -3663,7 +3699,7 @@ void Simulator::track_voxel_path_with_dda(Photon& photon) {
 				}
 				
 				// Apply Beer-Lambert law for this segment
-				double mu_a = voxel->tissue->mu_a * effective_volume_fraction;
+				double mu_a = voxel->material->mu_a() * effective_volume_fraction;
 				double segment_transmission = std::exp(-mu_a * segment_distance);
 				double segment_absorption = remaining_weight * (1.0 - segment_transmission);
 				
@@ -3717,7 +3753,7 @@ Medium* Simulator::find_medium_at_with_dda(const glm::dvec3& position) const {
 		if (dda->is_valid_voxel(voxel_coords)) {
 			glm::dvec3 mutable_pos = position;
 			Voxel* voxel = mutable_medium->voxel_at(mutable_pos);
-			if (voxel && voxel->tissue) {
+			if (voxel && voxel->material) {
 				return mutable_medium;
 			}
 		}
@@ -3746,7 +3782,7 @@ Medium* Simulator::find_medium_at_with_dda(const glm::dvec3& position) const {
 				if (dda->is_valid_voxel(nudged_coords)) {
 					glm::dvec3 test_pos = nudged_pos;
 					Voxel* voxel = mutable_medium->voxel_at(test_pos);
-					if (voxel && voxel->tissue) {
+					if (voxel && voxel->material) {
 						return mutable_medium;
 					}
 				}
@@ -3756,7 +3792,7 @@ Medium* Simulator::find_medium_at_with_dda(const glm::dvec3& position) const {
 		// STAGE 3: BYPASS DDA - Direct voxel_at() check (most robust)
 		glm::dvec3 bypass_pos = position;
 		Voxel* direct_voxel = mutable_medium->voxel_at(bypass_pos);
-		if (direct_voxel && direct_voxel->tissue) {
+		if (direct_voxel && direct_voxel->material) {
 			// Direct voxel check succeeded - DDA validation was the problem
 			return mutable_medium;
 		}
@@ -3772,7 +3808,7 @@ Medium* Simulator::find_medium_at_with_dda(const glm::dvec3& position) const {
 							glm::dvec3 search_pos = position + glm::dvec3(dx * search_radius, dy * search_radius, dz * search_radius);
 							glm::dvec3 test_pos = search_pos;
 							Voxel* search_voxel = mutable_medium->voxel_at(test_pos);
-							if (search_voxel && search_voxel->tissue) {
+							if (search_voxel && search_voxel->material) {
 								return mutable_medium;
 							}
 						}
@@ -3789,7 +3825,7 @@ Medium* Simulator::find_medium_at_with_dda(const glm::dvec3& position) const {
  * Output comprehensive voxel emittance summary for debugging
  ***********************************************************/
 void Simulator::output_voxel_emittance_summary() {
-	std::ofstream file("voxel_summary.csv");
+	std::ofstream file(App::get_output_path("voxel_summary.csv"));
 	if (!file.is_open()) {
 		std::cerr << "Warning: Could not create voxel summary file" << std::endl;
 		return;
@@ -3810,10 +3846,10 @@ void Simulator::output_voxel_emittance_summary() {
 		double voxel_size = volume.voxel_size();
 		
 		for (const auto& voxel : volume) {
-			if (voxel && voxel->tissue != nullptr) {
+			if (voxel && voxel->material != nullptr) {
 				total_voxels++;
 				
-				// Proper surface detection: check if voxel has any neighbor without tissue
+				// Proper surface detection: check if voxel has any neighbor without material
 				bool is_surface = false;
 				uint32_t vx = voxel->ix();
 				uint32_t vy = voxel->iy(); 
@@ -3840,11 +3876,11 @@ void Simulator::output_voxel_emittance_summary() {
 						break;
 					}
 					
-					// Check if neighbor has no tissue
+					// Check if neighbor has no material
 					const Voxel* neighbor = volume(static_cast<uint32_t>(nx), 
 												  static_cast<uint32_t>(ny), 
 												  static_cast<uint32_t>(nz));
-					if (!neighbor || neighbor->tissue == nullptr) {
+					if (!neighbor || neighbor->material == nullptr) {
 						is_surface = true;
 						break;
 					}
@@ -3891,7 +3927,7 @@ void Simulator::output_voxel_emittance_summary() {
 		", With emittance: " + std::to_string(voxels_with_emittance)
 	);
 	
-	std::cout << "Voxel summary written to voxel_summary.csv" << std::endl;
+	std::cout << "Voxel summary written to " << App::get_output_path("voxel_summary.csv") << std::endl;
 }
 
 

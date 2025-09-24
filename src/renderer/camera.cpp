@@ -87,8 +87,8 @@ void Camera::adjust_camera_elevation(float delta) {
 void Camera::set_elevation_bounds(float min_y, float max_y) {
 	// Set bounds for camera Y movement
 	float range = max_y - min_y;
-	min_elevation_ = -range; // Allow moving down by tissue height
-	max_elevation_ = range;  // Allow moving up by tissue height
+	min_elevation_ = -range; // Allow moving down by material height
+	max_elevation_ = range;  // Allow moving up by material height
 	elevation_bounds_set_ = true;
 
 	// Clamp current offset to bounds

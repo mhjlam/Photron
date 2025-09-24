@@ -1,18 +1,15 @@
 #################################################
-# Template configuration file.
-# Empty lines and comment lines are ignored.
+# Box - Simple one-layer box shape.
 # Lengths are in cm; mua and mus are in 1/cm.
 #################################################
 
 
 general
 {
-	numphotons = 100
-	ambienteta = 1.0
-	voxelsize = 0.1
+	photons = 100
+	voxel_size = 0.1
 	
-	partial = 1
-	progress = 0
+	verbose = 0
 	deterministic = 1
 }
 
@@ -24,7 +21,7 @@ source
 	direction = 0, -1, -0.5
 }
 
-tissue
+material
 {
 	id = 0
 	
@@ -37,7 +34,7 @@ tissue
 layer
 {
 	id = 0
-	tissue = 0
+	material = 0
 	
 	# vertices
 	vert3 = -1.0,  0.0,  1.0	# left-top-front

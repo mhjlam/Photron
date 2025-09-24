@@ -1,15 +1,13 @@
 #################################################
-# Template configuration file.
-# Empty lines and comment lines are ignored.
+# Nabla - Inverted Pyramid
 # Lengths are in cm; mua and mus are in 1/cm.
 #################################################
 
 
 general
 {
-	numphotons = 1
-	ambienteta = 1.0
-	voxelsize  = 0.05
+	photons = 1
+	voxel_size  = 0.05
 }
 
 source
@@ -20,7 +18,7 @@ source
 	direction = 0.0, -1.0, 0.0
 }
 
-tissue
+material
 {
 	id = 0
 	
@@ -33,7 +31,7 @@ tissue
 layer
 {
 	id = 0
-	tissue = 0
+	material = 0
 	
 	# vertices - base at y=0, better XZ symmetry
 	vert3 = 0.346410,  0.0,  0.200000

@@ -75,7 +75,7 @@ public:
 	// Instanced voxel rendering (high performance)
 	void begin_voxel_instances();
 	void add_voxel_instance(const glm::vec3& position, const glm::vec4& color, float scale = 1.0f, float depth = 0.0f);
-	void end_voxel_instances();
+	void end_voxel_instances(VoxelMode mode = VoxelMode::Absorption);
 	void draw_voxel_instances();
 
 	// Text billboard rendering for energy labels

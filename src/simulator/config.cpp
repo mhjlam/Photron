@@ -75,9 +75,9 @@ bool Config::parse_config_file(const std::string& filename) {
 				return false;
 			}
 		}
-		else if (equals(section_name, "tissue")) {
+		else if (equals(section_name, "material") || equals(section_name, "tissue")) {
 			if (!parse_tissue_config(data)) {
-				std::cerr << "Failed to parse tissue section." << std::endl;
+				std::cerr << "Failed to parse " << section_name << " section." << std::endl;
 				return false;
 			}
 		}
@@ -102,20 +102,27 @@ bool Config::parse_general_config(std::list<std::string>& data) {
 
 	// Parse each parameter
 	for (const auto& [param, value] : param_values) {
-		if (equals(param, "numphotons")) {
+		if (equals(param, "numphotons") || equals(param, "photons")) {
 			num_photons_ = str2num<uint64_t>(value);
 		}
 		else if (equals(param, "ambienteta")) {
-			ambient_eta_ = str2num<double>(value);
+			// ambient eta is now always 1.0 (air) - ignore but keep for backward compatibility
+			if (str2num<double>(value) != 1.0) {
+				std::cerr << "Warning: ambienteta is deprecated and forced to 1.0 (air)" << std::endl;
+			}
 		}
-		else if (equals(param, "voxelsize")) {
+		else if (equals(param, "voxelsize") || equals(param, "voxel_size")) {
 			vox_size_ = str2num<double>(value);
 		}
-		else if (equals(param, "partial")) {
-			partial_ = str2num<bool>(value);
+		else if (equals(param, "ignore-partial")) {
+			// partial is now always enabled - ignore this parameter for compatibility
 		}
 		else if (equals(param, "progress")) {
-			progress_ = str2num<bool>(value);
+			// progress is renamed to verbose - keep for backward compatibility
+			verbose_ = str2num<bool>(value);
+		}
+		else if (equals(param, "verbose")) {
+			verbose_ = str2num<bool>(value);
 		}
 		else if (equals(param, "deterministic")) {
 			deterministic_ = str2num<bool>(value);
@@ -123,10 +130,7 @@ bool Config::parse_general_config(std::list<std::string>& data) {
 	}
 
 	// Validation
-	if (ambient_eta_ < 1.0 || ambient_eta_ > 3.0) {
-		std::cerr << "Error: Ambient eta must be [1.0, 3.0], not " << ambient_eta_ << std::endl;
-		return false;
-	}
+	// Ambient eta is now always 1.0 (air) - no validation needed
 
 	return true;
 }
@@ -145,6 +149,8 @@ bool Config::parse_source_config(std::list<std::string>& data) {
 		else if (equals(param, "position")) {
 			std::vector<double> p = split(value, ',');
 			if (p.size() < 3) {
+				std::cerr << "Error: Source position '" << value 
+				          << "' must have 3 components (x,y,z)" << std::endl;
 				return false;
 			}
 			source.origin = glm::dvec3(p[0], p[1], p[2]);
@@ -152,6 +158,8 @@ bool Config::parse_source_config(std::list<std::string>& data) {
 		else if (equals(param, "direction")) {
 			std::vector<double> v = split(value, ',');
 			if (v.size() < 3) {
+				std::cerr << "Error: Source direction '" << value 
+				          << "' must have 3 components (x,y,z)" << std::endl;
 				return false;
 			}
 			source.direction = glm::dvec3(v[0], v[1], v[2]);
@@ -160,6 +168,8 @@ bool Config::parse_source_config(std::list<std::string>& data) {
 
 	// check faulty input
 	if (source.direction == glm::dvec3(0)) {
+		std::cerr << "Error: Source " << source.id 
+		          << " has zero direction vector. Direction cannot be (0,0,0)" << std::endl;
 		return false;
 	}
 
@@ -173,46 +183,58 @@ bool Config::parse_source_config(std::list<std::string>& data) {
 }
 
 bool Config::parse_tissue_config(std::list<std::string>& data) {
-	Tissue tissue;
+	Material material;
 
-	// set tissue type properties
+	// set material type properties
 	for (const auto& it : parameter_values(data)) {
 		std::string param = it.first;
 		std::string value = it.second;
 
 		if (equals(param, "id")) {
-			tissue.id = str2num<uint8_t>(value);
+			material.set_id(str2num<uint8_t>(value));
 		}
 		else if (equals(param, "ani")) {
-			tissue.g = str2num<double>(value);
+			material.set_g(str2num<double>(value));
 		}
 		else if (equals(param, "eta")) {
-			tissue.eta = str2num<double>(value);
+			material.set_eta(str2num<double>(value));
 		}
 		else if (equals(param, "mua")) {
-			tissue.mu_a = str2num<double>(value);
+			material.set_mu_a(str2num<double>(value));
 		}
 		else if (equals(param, "mus")) {
-			tissue.mu_s = str2num<double>(value);
+			material.set_mu_s(str2num<double>(value));
 		}
 	}
 
 	// check faulty input
-	if (tissue.g < -1.0 || tissue.g > 1.0) {
+	if (material.g() < -1.0 || material.g() > 1.0) {
+		std::cerr << "Error: Invalid anisotropy factor g=" << material.g() 
+		          << " for material ID " << (int)material.id()
+		          << ". Must be between -1.0 and 1.0" << std::endl;
 		return false;
 	}
-	if (tissue.eta < 1.0 || tissue.eta > 3.0) {
+	if (material.eta() < 1.0 || material.eta() > 3.0) {
+		std::cerr << "Error: Invalid refractive index eta=" << material.eta() 
+		          << " for material ID " << (int)material.id()
+		          << ". Must be between 1.0 and 3.0" << std::endl;
 		return false;
 	}
-	if (tissue.mu_a < 0) {
+	if (material.mu_a() < 0) {
+		std::cerr << "Error: Invalid absorption coefficient mu_a=" << material.mu_a() 
+		          << " for material ID " << (int)material.id()
+		          << ". Must be >= 0" << std::endl;
 		return false;
 	}
-	if (tissue.mu_s < 0) {
+	if (material.mu_s() < 0) {
+		std::cerr << "Error: Invalid scattering coefficient mu_s=" << material.mu_s() 
+		          << " for material ID " << (int)material.id()
+		          << ". Must be >= 0" << std::endl;
 		return false;
 	}
 
 	// add to collection
-	tissues_.push_back(tissue);
+	tissues_.push_back(material);
 
 	return true;
 }
@@ -234,7 +256,7 @@ bool Config::parse_layer_config(std::list<std::string>& data) {
 		if (equals(param, "id")) {
 			layer.id = static_cast<uint8_t>(str2num<int>(value));
 		}
-		else if (equals(param, "tissue")) {
+		else if (equals(param, "material") || equals(param, "tissue")) {
 			layer.tissue_id = static_cast<uint8_t>(str2num<int>(value));
 		}
 
@@ -255,6 +277,9 @@ bool Config::parse_layer_config(std::list<std::string>& data) {
 
 			// invalid face3 detected
 			if (v.size() < 3) {
+				std::cerr << "Error: Layer " << (int)layer.id 
+				          << " face definition '" << value 
+				          << "' must have 3 vertex indices" << std::endl;
 				return false;
 			}
 
@@ -281,24 +306,37 @@ bool Config::parse_layer_config(std::list<std::string>& data) {
 
 	// need at least 4 triangular faces to have a polyhedron
 	if (num_faces < 4) {
+		std::cerr << "Error: Layer " << (int)layer.id << " has only " << num_faces 
+		          << " faces. Need at least 4 faces to form a polyhedron." << std::endl;
 		return false;
 	}
 	// so, also 4 normals
 	if (normals.size() < 4) {
+		std::cerr << "Error: Layer " << (int)layer.id << " has only " << normals.size() 
+		          << " normals. Need at least 4 normals (one per face)." << std::endl;
 		return false;
 	}
 	// and at least 4 vertices (tetrahedron)
 	if (num_verts < 4) {
+		std::cerr << "Error: Layer " << (int)layer.id << " has only " << num_verts 
+		          << " vertices. Need at least 4 vertices to form a polyhedron." << std::endl;
 		return false;
 	}
 
 	// polehedron must be convex (Euler characteristic must be 2)
 	if ((num_verts - num_edges + num_faces) != 2) {
+		std::cerr << "Error: Layer " << (int)layer.id << " geometry fails Euler characteristic test. "
+		          << "V=" << num_verts << ", E=" << num_edges << ", F=" << num_faces 
+		          << " (V-E+F=" << (num_verts - num_edges + num_faces) << ", should be 2). "
+		          << "Polyhedron must be convex." << std::endl;
 		return false;
 	}
 
 	// each triangle/face must have a normal vector
 	if (faces.size() != normals.size()) {
+		std::cerr << "Error: Layer " << (int)layer.id << " has " << faces.size() 
+		          << " faces but " << normals.size() << " normals. "
+		          << "Each face must have exactly one normal vector." << std::endl;
 		return false;
 	}
 
@@ -312,6 +350,11 @@ bool Config::parse_layer_config(std::list<std::string>& data) {
 		
 		// check vertex index pointer correctness
 		if (face_indices.x > index_max || face_indices.y > index_max || face_indices.z > index_max) {
+			std::cerr << "Error: Layer " << (int)layer.id << " face " << i 
+			          << " has invalid vertex indices (" << face_indices.x << ", " 
+			          << face_indices.y << ", " << face_indices.z << "). "
+			          << "Valid range is 0-" << index_max << " (total vertices: " 
+			          << num_verts << ")" << std::endl;
 			return false;
 		}
 
@@ -376,6 +419,9 @@ bool Config::extract_config_data(const std::string& filename,
 		}
 		else if (equals(line, "source")) {
 			extract_config_block(in_config, "source", datamap);
+		}
+		else if (equals(line, "material")) {
+			extract_config_block(in_config, "material", datamap);
 		}
 		else if (equals(line, "tissue")) {
 			extract_config_block(in_config, "tissue", datamap);

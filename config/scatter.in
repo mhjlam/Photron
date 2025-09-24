@@ -1,50 +1,47 @@
 #################################################
-# Multi-photon configuration file for testing
-# aggregate statistics display - 100 photons
+# Scatter - Huge medium with high scattering coefficient.
+# Test simulation performance.
 #################################################
+
 
 general
 {
-	numphotons = 100
-	ambienteta = 1.0
-	voxelsize = 0.1
-	
-	partial = 1
-	progress = 0
+	photons = 10
+	voxel_size = 0.1
 }
 
 source
 {
 	id = 0
 	
-	position = 0.0, 0.2, 0.0
-	direction = 0, -1, -0.5
+	position = 6.0, 0.1, 6.0
+	direction = 0, -1, 0
 }
 
-tissue
+material
 {
 	id = 0
 	
 	eta = 1.37
-	mua = 1
-	mus = 10
-	ani = 0.0
+	mua = 0.1
+	mus = 100
+	ani = 0.9
 }
 
 layer
 {
 	id = 0
-	tissue = 0
+	material = 0
 	
 	# vertices
-	vert3 = -1.0,  0.0,  1.0	# left-top-front
-	vert3 =  1.0,  0.0,  1.0	# right-top-front
-	vert3 =  1.0, -1.0,  1.0	# right-bottom-front
-	vert3 = -1.0, -1.0,  1.0	# left-bottom-front
-	vert3 = -1.0,  0.0, -1.0	# left-top-rear
-	vert3 =  1.0,  0.0, -1.0	# right-top-rear
-	vert3 =  1.0, -1.0, -1.0	# right-bottom-rear
-	vert3 = -1.0, -1.0, -1.0	# left-bottom-rear
+	vert3 =  0.0,  0.0, 12.0	# left-top-front
+	vert3 = 12.0,  0.0, 12.0	# right-top-front
+	vert3 = 12.0, -6.0, 12.0	# right-bottom-front
+	vert3 =  0.0, -6.0, 12.0	# left-bottom-front
+	vert3 =  0.0,  0.0,  0.0	# left-top-rear
+	vert3 = 12.0,  0.0,  0.0	# right-top-rear
+	vert3 = 12.0, -6.0,  0.0	# right-bottom-rear
+	vert3 =  0.0, -6.0,  0.0	# left-bottom-rear
 	
 	# faces (counter-clockwise vertex indices for outward normals)
 	face3 = 0, 3, 2				# front face triangle 1
@@ -58,7 +55,7 @@ layer
 	face3 = 0, 1, 5				# top face triangle 1
 	face3 = 0, 5, 4				# top face triangle 2
 	face3 = 2, 3, 7				# bottom face triangle 1
-	face3 = 2, 7, 6				# bottom face triangle 2				
+	face3 = 2, 7, 6				# bottom face triangle 2
 	
 	# normals (same order as faces)
 	norm3 =  0,  0,  1			# front

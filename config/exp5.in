@@ -1,7 +1,6 @@
 #################################################
-# Template configuration file.
-# Empty lines and comment lines are ignored.
-# Lengths are in cm; mua and mus are in 1/cm.
+# Scatter - Huge medium with high scattering coefficient.
+# Test simulation performance.
 #################################################
 
 
@@ -10,7 +9,6 @@ general
 	numphotons = 10
 	ambienteta = 1.0
 	voxelsize = 0.1
-	partial = 0
 }
 
 source

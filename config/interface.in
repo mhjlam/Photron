@@ -1,59 +1,53 @@
 #################################################
-# Template configuration file.
-# Empty lines and comment lines are ignored.
-# Lengths are in cm; mua and mus are in 1/cm.
+# Interface - Two thick layers stacked on top of each other.
+# Demonstrates interface energy splitting.
 #################################################
-
 
 general
 {
-	numphotons = 1
-	ambienteta = 1.0
-	voxelsize  = 0.1
+	photons = 1
+	voxel_size  = 0.1
 }
 
 source
 {
 	id = 0
-	
-	position = 0.05, 0.2, 0.05
+	position = 0.0, 0.2, 0.0
 	direction = 0.0, -1.0, 0.0
 }
 
-tissue
+material
 {
 	id = 0
-	
-	eta = 1.37
-	mua = 0.5
+	eta = 1.33  # Water-like material
+	mua = 0.1
 	mus = 10
-	ani = 0.75
+	ani = 0.9
 }
 
-tissue
+material
 {
 	id = 1
-	
-	eta = 1.37
-	mua = 1
-	mus = 100
-	ani = 0.0
+	eta = 1.50  # Different refractive index - will cause interface splitting
+	mua = 0.2
+	mus = 20
+	ani = 0.8
 }
 
 layer
 {
 	id = 0
-	tissue = 0
+	material = 0
 	
-	# vertices
-	vert3 = -1.0,  0.0,  1.0	# left-top-front
-	vert3 =  1.0,  0.0,  1.0	# right-top-front
-	vert3 =  1.0, -1.0,  1.0	# right-bottom-front
-	vert3 = -1.0, -1.0,  1.0	# left-bottom-front
-	vert3 = -1.0,  0.0, -1.0	# left-top-rear
-	vert3 =  1.0,  0.0, -1.0	# right-top-rear
-	vert3 =  1.0, -1.0, -1.0	# right-bottom-rear
-	vert3 = -1.0, -1.0, -1.0	# left-bottom-rear
+	# Top layer (water-like)
+	vert3 = -0.3,  0.0,  0.3	# left-top-front
+	vert3 =  0.3,  0.0,  0.3	# right-top-front
+	vert3 =  0.3, -0.2,  0.3	# right-bottom-front
+	vert3 = -0.3, -0.2,  0.3	# left-bottom-front
+	vert3 = -0.3,  0.0, -0.3	# left-top-rear
+	vert3 =  0.3,  0.0, -0.3	# right-top-rear
+	vert3 =  0.3, -0.2, -0.3	# right-bottom-rear
+	vert3 = -0.3, -0.2, -0.3	# left-bottom-rear
 	
 	# faces (counter-clockwise vertex indices for outward normals)
 	face3 = 0, 3, 2				# front face triangle 1
@@ -87,17 +81,17 @@ layer
 layer
 {
 	id = 1
-	tissue = 1
+	material = 1
 	
-	# vertices
-	vert3 = -0.2, -0.2,  0.2	# left-top-front
-	vert3 =  0.2, -0.2,  0.2	# right-top-front
-	vert3 =  0.2, -0.8,  0.2	# right-bottom-front
-	vert3 = -0.2, -0.8,  0.2	# left-bottom-front
-	vert3 = -0.2, -0.2, -0.2	# left-top-rear
-	vert3 =  0.2, -0.2, -0.2	# right-top-rear
-	vert3 =  0.2, -0.8, -0.2	# right-bottom-rear
-	vert3 = -0.2, -0.8, -0.2	# left-bottom-rear
+	# Bottom layer (higher refractive index)
+	vert3 = -0.3, -0.2,  0.3	# left-top-front
+	vert3 =  0.3, -0.2,  0.3	# right-top-front
+	vert3 =  0.3, -0.6,  0.3	# right-bottom-front
+	vert3 = -0.3, -0.6,  0.3	# left-bottom-front
+	vert3 = -0.3, -0.2, -0.3	# left-top-rear
+	vert3 =  0.3, -0.2, -0.3	# right-top-rear
+	vert3 =  0.3, -0.6, -0.3	# right-bottom-rear
+	vert3 = -0.3, -0.6, -0.3	# left-bottom-rear
 	
 	# faces (counter-clockwise vertex indices for outward normals)
 	face3 = 0, 3, 2				# front face triangle 1

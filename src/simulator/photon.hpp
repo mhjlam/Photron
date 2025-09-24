@@ -133,11 +133,11 @@ public:
 	void set_source_data(uint64_t src_id, const glm::dvec3& origin, const glm::dvec3& src_direction);
 	const SourceData& get_source_data() const noexcept { return source; }
 
-	// Tissue property accessors with null safety (for backward compatibility)
-	[[nodiscard]] double g() const noexcept { return (voxel && voxel->tissue) ? voxel->tissue->g : 0.0; }
-	[[nodiscard]] double eta() const noexcept { return (voxel && voxel->tissue) ? voxel->tissue->eta : 0.0; }
-	[[nodiscard]] double mu_a() const noexcept { return (voxel && voxel->tissue) ? voxel->tissue->mu_a : 0.0; }
-	[[nodiscard]] double mu_s() const noexcept { return (voxel && voxel->tissue) ? voxel->tissue->mu_s : 0.0; }
+	// Material property accessors with null safety (for backward compatibility)
+	[[nodiscard]] double g() const noexcept { return (voxel && voxel->material) ? voxel->material->g() : 0.0; }
+	[[nodiscard]] double eta() const noexcept { return (voxel && voxel->material) ? voxel->material->eta() : 0.0; }
+	[[nodiscard]] double mu_a() const noexcept { return (voxel && voxel->material) ? voxel->material->mu_a() : 0.0; }
+	[[nodiscard]] double mu_s() const noexcept { return (voxel && voxel->material) ? voxel->material->mu_s() : 0.0; }
 
 	// Backward compatibility aliases for source access
 	[[nodiscard]] const glm::dvec3& source_origin() const noexcept { return source.origin; }

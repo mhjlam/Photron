@@ -26,6 +26,11 @@ public:
 	int get_window_height() const { return window_height_; }
 	Simulator* get_simulator() const { return simulator_.get(); }
 
+	// Static method to get executable directory for output files
+	static std::string get_executable_directory();
+	static void set_executable_path(const char* argv0);
+	static std::string get_output_path(const std::string& filename);
+
 private:
 	void setup_callbacks();
 	void setup_overlay_callbacks();
@@ -67,4 +72,7 @@ private:
 
 	bool should_close_;
 	std::string config_file_;
+	
+private:
+	static std::string executable_directory_;
 };

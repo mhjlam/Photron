@@ -1,13 +1,15 @@
 #################################################
-# stacked side-by-side (x-coordinate)
+# Stack - Three thin layers on top of each other.
+# Lengths are in cm; mua and mus are in 1/cm.
 #################################################
 
 
 general
 {
-	numphotons = 100
-	ambienteta = 1.0
-	voxelsize = 0.1
+	photons = 20
+	voxel_size = 0.1
+	
+	verbose = 0
 	deterministic = 1
 }
 
@@ -15,54 +17,54 @@ source
 {
 	id = 0
 	
-	position = 0.0, 0.2, 0.0
+	position = 0.05, 0.2, 0.05
 	direction = 0, -1, 0
 }
 
-tissue
+material
 {
 	id = 0
 	
-	eta = 1.2
-	mua = 0.5
+	eta = 1.37
+	mua = 0.1
 	mus = 20
 	ani = 0.5
 }
 
-tissue
+material
 {
 	id = 1
 	
-	eta = 1.4
-	mua = 0.5
+	eta = 1.37
+	mua = 1
+	mus = 100
+	ani = 0
+}
+
+material
+{
+	id = 2
+	
+	eta = 1.37
+	mua = 1
 	mus = 10
-	ani = 0.9
-}
-
-tissue
-{
-	id = 2
-	
-	eta = 1.2
-	mua = 0.5
-	mus = 20
-	ani = 0.5
+	ani = -0.9
 }
 
 layer
 {
 	id = 0
-	tissue = 0
+	material = 0
 	
-	# vertices
-	vert3 = -0.15,  0.0,  1.0	# left-top-front
-	vert3 = -0.05,  0.0,  1.0	# right-top-front
-	vert3 = -0.05, -2.0,  1.0	# right-bottom-front
-	vert3 = -0.15, -2.0,  1.0	# left-bottom-front
-	vert3 = -0.15,  0.0, -1.0	# left-top-rear
-	vert3 = -0.05,  0.0, -1.0	# right-top-rear
-	vert3 = -0.05, -2.0, -1.0	# right-bottom-rear
-	vert3 = -0.15, -2.0, -1.0	# left-bottom-rear
+	# vertices - Layer 0: Y from 0.0 to -0.1
+	vert3 = -1.0,  0.0,  1.0	# left-top-front
+	vert3 =  1.0,  0.0,  1.0	# right-top-front
+	vert3 =  1.0, -0.1,  1.0	# right-bottom-front
+	vert3 = -1.0, -0.1,  1.0	# left-bottom-front
+	vert3 = -1.0,  0.0, -1.0	# left-top-rear
+	vert3 =  1.0,  0.0, -1.0	# right-top-rear
+	vert3 =  1.0, -0.1, -1.0	# right-bottom-rear
+	vert3 = -1.0, -0.1, -1.0	# left-bottom-rear
 	
 	# faces (counter-clockwise vertex indices for outward normals)
 	face3 = 0, 3, 2				# front face triangle 1
@@ -93,20 +95,21 @@ layer
 	norm3 =  0, -1,  0			
 }
 
+
 layer
 {
 	id = 1
-	tissue = 1
+	material = 1
 	
-	# vertices
-	vert3 = -0.05,  0.0,  1.0	# left-top-front
-	vert3 =  0.05,  0.0,  1.0	# right-top-front
-	vert3 =  0.05, -2.0,  1.0	# right-bottom-front
-	vert3 = -0.05, -2.0,  1.0	# left-bottom-front
-	vert3 = -0.05,  0.0, -1.0	# left-top-rear
-	vert3 =  0.05,  0.0, -1.0	# right-top-rear
-	vert3 =  0.05, -2.0, -1.0	# right-bottom-rear
-	vert3 = -0.05, -2.0, -1.0	# left-bottom-rear
+	# vertices - Layer 1: Y from -0.1 to -0.2
+	vert3 = -1.0, -0.1,  1.0	# left-top-front
+	vert3 =  1.0, -0.1,  1.0	# right-top-front
+	vert3 =  1.0, -0.2,  1.0	# right-bottom-front
+	vert3 = -1.0, -0.2,  1.0	# left-bottom-front
+	vert3 = -1.0, -0.1, -1.0	# left-top-rear
+	vert3 =  1.0, -0.1, -1.0	# right-top-rear
+	vert3 =  1.0, -0.2, -1.0	# right-bottom-rear
+	vert3 = -1.0, -0.2, -1.0	# left-bottom-rear
 	
 	# faces (counter-clockwise vertex indices for outward normals)
 	face3 = 0, 3, 2				# front face triangle 1
@@ -140,31 +143,31 @@ layer
 layer
 {
 	id = 2
-	tissue = 2
+	material = 2
 	
-	# vertices
-	vert3 = 0.15,  0.0,  1.0	# left-top-front
-	vert3 = 0.05,  0.0,  1.0	# right-top-front
-	vert3 = 0.05, -2.0,  1.0	# right-bottom-front
-	vert3 = 0.15, -2.0,  1.0	# left-bottom-front
-	vert3 = 0.15,  0.0, -1.0	# left-top-rear
-	vert3 = 0.05,  0.0, -1.0	# right-top-rear
-	vert3 = 0.05, -2.0, -1.0	# right-bottom-rear
-	vert3 = 0.15, -2.0, -1.0	# left-bottom-rear
+	# vertices - Layer 2: Y from -0.2 to -0.3
+	vert3 = -1.0, -0.2,  1.0	# left-top-front
+	vert3 =  1.0, -0.2,  1.0	# right-top-front
+	vert3 =  1.0, -0.3,  1.0	# right-bottom-front
+	vert3 = -1.0, -0.3,  1.0	# left-bottom-front
+	vert3 = -1.0, -0.2, -1.0	# left-top-rear
+	vert3 =  1.0, -0.2, -1.0	# right-top-rear
+	vert3 =  1.0, -0.3, -1.0	# right-bottom-rear
+	vert3 = -1.0, -0.3, -1.0	# left-bottom-rear
 	
 	# faces (counter-clockwise vertex indices for outward normals)
-	face3 = 0, 2, 3				# front face triangle 1  
-	face3 = 0, 1, 2				# front face triangle 2
-	face3 = 4, 6, 5				# back face triangle 1
-	face3 = 4, 7, 6				# back face triangle 2
-	face3 = 0, 3, 7				# left face triangle 1
-	face3 = 0, 7, 4				# left face triangle 2
-	face3 = 1, 5, 6				# right face triangle 1
-	face3 = 1, 6, 2				# right face triangle 2
-	face3 = 4, 1, 0				# top face triangle 1
-	face3 = 4, 5, 1				# top face triangle 2
-	face3 = 3, 2, 6				# bottom face triangle 1
-	face3 = 3, 6, 7				# bottom face triangle 2
+	face3 = 0, 3, 2				# front face triangle 1
+	face3 = 0, 2, 1				# front face triangle 2
+	face3 = 4, 5, 6				# back face triangle 1
+	face3 = 4, 6, 7				# back face triangle 2
+	face3 = 4, 7, 3				# left face triangle 1
+	face3 = 4, 3, 0				# left face triangle 2
+	face3 = 1, 2, 6				# right face triangle 1
+	face3 = 1, 6, 5				# right face triangle 2
+	face3 = 0, 1, 5				# top face triangle 1
+	face3 = 0, 5, 4				# top face triangle 2
+	face3 = 2, 3, 7				# bottom face triangle 1
+	face3 = 2, 7, 6				# bottom face triangle 2
 	
 	# normals (same order as faces)
 	norm3 =  0,  0,  1			# front

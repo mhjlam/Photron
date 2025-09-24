@@ -7,11 +7,8 @@
 
 general
 {
-	numphotons = 10
-	ambienteta = 1.0
-	voxelsize = 0.1
-	partial = 1
-	progress = 1
+	photons = 10
+	voxel_size = 0.1
 }
 
 source
@@ -22,7 +19,7 @@ source
 	direction = 0, -1, 0
 }
 
-tissue
+material
 {
 	id = 0
 	
@@ -35,7 +32,7 @@ tissue
 layer
 {
 	id = 0
-	tissue = 0
+	material = 0
 	
 	# vertices
 	vert3 =  0.0,  0.0, 12.0	# left-top-front

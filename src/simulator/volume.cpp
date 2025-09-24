@@ -196,6 +196,7 @@ double Volume::fraction_inside(const glm::dvec3& voxel_min, const glm::dvec3& vo
 double Volume::fraction_inside_fast(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max,
 									const std::vector<Layer>& layers, int max_subdivisions) const {
 	// Use robust distance field based voxelization and return volume fraction
+	(void)max_subdivisions; // Unused parameter - suppress warning
 	VoxelClassification classification = distance_field_voxelization(voxel_min, voxel_max, layers);
 	return classification.volume_fraction;
 }
@@ -310,21 +311,22 @@ VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_
 		return result; // Empty result (outside all geometry)
 	}
 	
-	// Step 3: Determine which layer(s) contain the voxel and assign correct tissue
+	// Step 3: Determine which layer(s) contain the voxel and assign correct material
 	bool voxel_intersects_geometry = false;
 	uint32_t correct_tissue_id = 0;
 	bool found_containing_layer = false;
 	
-	// Check if voxel center is inside any layer - assign tissue from the containing layer
+	// Check if voxel center is inside any layer - assign material from the containing layer
+	// For nested geometries, later layers (inner ones) should override earlier layers (outer ones)
 	for (const auto& layer : layers) {
 		if (layer.contains_point(voxel_center)) {
 			voxel_intersects_geometry = true;
 			correct_tissue_id = layer.tissue_id;
 			found_containing_layer = true;
 			if (is_debug_voxel) {
-				std::cout << "  Center inside layer " << layer.id << " (tissue " << layer.tissue_id << ")" << std::endl;
+				std::cout << "  Center inside layer " << layer.id << " (material " << layer.tissue_id << ")" << std::endl;
 			}
-			break; // Use first containing layer (layers should not overlap)
+			// Continue checking other layers to allow inner layers to override outer layers
 		}
 	}
 	
@@ -335,7 +337,7 @@ VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_
 	// Also check if surface passes through voxel (distance < half voxel size)
 	if (!voxel_intersects_geometry && std::abs(min_distance) <= SURFACE_THRESHOLD) {
 		voxel_intersects_geometry = true;
-		// For boundary voxels not containing center, use closest layer tissue
+		// For boundary voxels not containing center, use closest layer material
 		if (!found_containing_layer) {
 			correct_tissue_id = layers[closest_layer_id].tissue_id;
 		}
@@ -350,14 +352,14 @@ VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_
 	
 	if (is_debug_voxel) {
 		std::cout << "  Final classification: intersects=" << voxel_intersects_geometry 
-				  << ", tissue=" << correct_tissue_id 
+				  << ", material=" << correct_tissue_id 
 				  << ", boundary=" << (std::abs(min_distance) <= SURFACE_THRESHOLD)
 				  << ", min_dist=" << min_distance << std::endl;
 	}
 	
 	// Step 4: Compute volume fraction and surface classification for intersecting voxels
 	result.is_inside_geometry = true;
-	result.dominant_tissue_id = correct_tissue_id; // Use tissue from containing layer, not closest surface
+	result.dominant_tissue_id = correct_tissue_id; // Use material from containing layer, not closest surface
 	
 	// IMPROVED Boundary voxel detection: Check if surface passes through voxel volume
 	// Method 1: Center-based detection (existing)

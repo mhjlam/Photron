@@ -21,6 +21,31 @@
 // Static pointer for callbacks
 static App* app_instance = nullptr;
 
+// Static member definition
+std::string App::executable_directory_;
+
+// Static method implementations
+void App::set_executable_path(const char* argv0) {
+	std::filesystem::path exe_path(argv0);
+	executable_directory_ = exe_path.parent_path().string();
+	if (executable_directory_.empty()) {
+		executable_directory_ = ".";
+	}
+}
+
+std::string App::get_executable_directory() {
+	return executable_directory_;
+}
+
+std::string App::get_output_path(const std::string& filename) {
+	std::filesystem::path out_dir = std::filesystem::path(executable_directory_) / "out";
+	
+	// Create the out directory if it doesn't exist
+	std::filesystem::create_directories(out_dir);
+	
+	return (out_dir / filename).string();
+}
+
 App::App() : window_(nullptr), window_width_(1200), window_height_(800), should_close_(false) {
 	app_instance = this;
 }
@@ -31,6 +56,11 @@ App::~App() {
 }
 
 bool App::initialize(int argc, char* argv[]) {
+	// Extract executable directory for output file paths
+	if (argc > 0) {
+		set_executable_path(argv[0]);
+	}
+	
 	// Setup command line options
 	cxxopts::Options options("Photron", "Monte Carlo Photon Transport Renderer");
 	
@@ -590,9 +620,9 @@ void App::save_results_as_json(const std::string& filepath) {
 	}
 
 	// Create results directory if it doesn't exist
-	std::filesystem::path results_dir = "results";
+	std::filesystem::path results_dir = std::filesystem::path(get_executable_directory()) / "out" / "results";
 	if (!std::filesystem::exists(results_dir)) {
-		std::filesystem::create_directory(results_dir);
+		std::filesystem::create_directories(results_dir);
 	}
 	
 	// Construct full path in results subfolder
@@ -660,13 +690,13 @@ void App::save_results_as_json(const std::string& filepath) {
 		// Export tissues for this medium
 		auto& tissues = medium.get_tissues();
 		for (size_t j = 0; j < tissues.size(); ++j) {
-			const auto& tissue = tissues[j];
+			const auto& material = tissues[j];
 			file << "        {\n";
-			file << "          \"id\": " << tissue.id << ",\n";
-			file << "          \"eta\": " << tissue.eta << ",\n";
-			file << "          \"mua\": " << tissue.mu_a << ",\n";
-			file << "          \"mus\": " << tissue.mu_s << ",\n";
-			file << "          \"ani\": " << tissue.g << "\n";
+			file << "          \"id\": " << material.id() << ",\n";
+			file << "          \"eta\": " << material.eta() << ",\n";
+			file << "          \"mua\": " << material.mu_a() << ",\n";
+			file << "          \"mus\": " << material.mu_s() << ",\n";
+			file << "          \"ani\": " << material.g() << "\n";
 			file << "        }" << (j < tissues.size() - 1 ? "," : "") << "\n";
 		}
 		file << "      ]\n";
@@ -686,9 +716,9 @@ void App::save_results_as_text(const std::string& filepath) {
 	}
 
 	// Create results directory if it doesn't exist
-	std::filesystem::path results_dir = "results";
+	std::filesystem::path results_dir = std::filesystem::path(get_executable_directory()) / "out" / "results";
 	if (!std::filesystem::exists(results_dir)) {
-		std::filesystem::create_directory(results_dir);
+		std::filesystem::create_directories(results_dir);
 	}
 	
 	// Construct full path in results subfolder
@@ -775,15 +805,15 @@ void App::save_results_as_text(const std::string& filepath) {
 			file << "  Total:               0.0%\n";
 		}
 		
-		// Add tissue properties for this medium
+		// Add material properties for this medium
 		file << "\nTissue Properties\n";
 		auto& tissues = medium.get_tissues();
-		for (const auto& tissue : tissues) {
-			file << "  Tissue " << tissue.id << ":\n";
-			file << "    Refractive Index (eta): " << tissue.eta << "\n";
-			file << "    Absorption Coefficient (mua): " << tissue.mu_a << " cm^-1\n";
-			file << "    Scattering Coefficient (mus): " << tissue.mu_s << " cm^-1\n";
-			file << "    Anisotropy Factor (g): " << tissue.g << "\n";
+		for (const auto& material : tissues) {
+			file << "  material " << material.id() << ":\n";
+			file << "    Refractive Index (eta): " << material.eta() << "\n";
+			file << "    Absorption Coefficient (mua): " << material.mu_a() << " cm^-1\n";
+			file << "    Scattering Coefficient (mus): " << material.mu_s() << " cm^-1\n";
+			file << "    Anisotropy Factor (g): " << material.g() << "\n";
 		}
 		
 		if (i < mediums.size() - 1) {
