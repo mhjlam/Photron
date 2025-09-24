@@ -75,8 +75,10 @@ public:
 
 	// Grid management
 	void clear();
-	bool is_valid_coordinate(uint32_t x, uint32_t y, uint32_t z) const;
-	bool is_empty() const;
+	inline bool is_valid_coordinate(uint32_t x, uint32_t y, uint32_t z) const {
+		return x < dimensions_.x && y < dimensions_.y && z < dimensions_.z;
+	}
+	inline bool is_empty() const { return total_voxels_ == 0; }
 
 	// Iterator support for range-based loops
 	auto begin() { return voxels_.begin(); }
@@ -147,7 +149,9 @@ private:
 	// Private helper methods for grid management
 	void initialize_voxels();
 	void cleanup_voxels();
-	bool is_valid_index(uint32_t linear_index) const;
+	inline bool is_valid_index(uint32_t linear_index) const {
+		return linear_index < total_voxels_;
+	}
 
 	// Private helper methods for volume calculation
 	/**

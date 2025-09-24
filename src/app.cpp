@@ -95,113 +95,26 @@ bool App::initialize(int argc, char* argv[]) {
 		bool verbose_mode = result.count("verbose") > 0;
 		bool headless_mode = result.count("headless") > 0;
 
-		// If headless mode, skip all graphics initialization
+		// Initialize simulator first (always, regardless of headless mode)
+		if (!initialize_simulator(verbose_mode)) {
+			std::cerr << "Failed to initialize simulator" << std::endl;
+			return false;
+		}
+
+		// Run simulation with progress feedback
+		run_simulation_with_progress();
+
+		// If headless mode, we're done - no GUI needed
 		if (headless_mode) {
-			// Initialize simulator only
-			simulator_ = std::make_unique<Simulator>();
-			
-	if (verbose_mode) {
-		// We need to initialize Config first to set verbose mode
-		Config::initialize();
-		Config::get().set_verbose(true);
-	}
-
-	if (!simulator_->initialize(config_file_.c_str())) {
-		std::cerr << "Failed to initialize simulator" << std::endl;
-		return false;
-	}
-
-	// Config is already initialized by simulator->initialize()
-	// No need to call Config::initialize(simulator_->config) anymore			// Run simulation
-			simulator_->simulate();
-			simulator_->report();
-			
 			should_close_ = true;
 			return true;
 		}
 
-		// Initialize GLFW for GUI mode
-		if (!glfwInit()) {
-			std::cerr << "Failed to initialize GLFW" << std::endl;
+		// Initialize GUI only after simulation is complete
+		if (!initialize_gui()) {
+			std::cerr << "Failed to initialize GUI" << std::endl;
 			return false;
 		}
-
-		// Set OpenGL version and profile
-		glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-		glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-		glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-		// Create window
-		window_ =
-			glfwCreateWindow(window_width_, window_height_, "Photron - Monte Carlo Photon Transport", nullptr, nullptr);
-		if (!window_) {
-			std::cerr << "Failed to create GLFW window" << std::endl;
-			glfwTerminate();
-			return false;
-		}
-
-		// Center window on screen
-		const GLFWvidmode* mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
-		if (mode) {
-			int center_x = (mode->width - window_width_) / 2;
-			int center_y = (mode->height - window_height_) / 2;
-			glfwSetWindowPos(window_, center_x, center_y);
-		}
-
-		glfwMakeContextCurrent(window_);
-		glfwSwapInterval(1); // Enable vsync
-
-		// Initialize GLEW
-		if (glewInit() != GLEW_OK) {
-			std::cerr << "Failed to initialize GLEW" << std::endl;
-			glfwTerminate();
-			return false;
-		}
-
-		// Setup callbacks
-		setup_callbacks();
-
-		// Initialize simulator
-		simulator_ = std::make_unique<Simulator>();
-		
-		// Set verbose mode if requested
-		if (verbose_mode) {
-			// We need to initialize Config first to set verbose mode
-			Config::initialize();
-			Config::get().set_verbose(true);
-		}
-		
-		if (!simulator_->initialize(config_file_.c_str())) {
-			std::cerr << "Failed to initialize simulator" << std::endl;
-			return false;
-		}
-		
-		// Config is already initialized by simulator->initialize()
-		// No need to call Config::initialize(simulator_->config) anymore
-
-		// Run simulation
-		simulator_->simulate();
-		simulator_->report();
-
-		// Initialize renderer
-		renderer_ = std::make_unique<Renderer>();
-		if (!renderer_->initialize()) {
-			std::cerr << "Failed to initialize renderer" << std::endl;
-			return false;
-		}
-
-		// Set correct initial viewport size (framebuffer callback only triggers on resize)
-		renderer_->set_viewport(window_width_, window_height_);
-
-		// Initialize overlay
-		overlay_ = std::make_unique<Overlay>();
-		if (!overlay_->initialize(window_)) {
-			std::cerr << "Failed to initialize overlay" << std::endl;
-			return false;
-		}
-
-		// Set up overlay callbacks
-		setup_overlay_callbacks();
 
 		return true;
 	}
@@ -823,4 +736,101 @@ void App::save_results_as_text(const std::string& filepath) {
 
 	file.close();
 	std::cout << "Results saved successfully to " << filepath << std::endl;
+}
+
+bool App::initialize_simulator(bool verbose_mode) {
+	// Initialize simulator
+	simulator_ = std::make_unique<Simulator>();
+	
+	// Set verbose mode if requested
+	if (verbose_mode) {
+		// We need to initialize Config first to set verbose mode
+		Config::initialize();
+		Config::get().set_verbose(true);
+	}
+	
+	if (!simulator_->initialize(config_file_.c_str())) {
+		return false;
+	}
+	
+	return true;
+}
+
+bool App::initialize_gui() {
+	// Initialize GLFW
+	if (!glfwInit()) {
+		std::cerr << "Failed to initialize GLFW" << std::endl;
+		return false;
+	}
+
+	// Set OpenGL version and profile
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+	// Create window
+	window_ = glfwCreateWindow(window_width_, window_height_, "Photron - Monte Carlo Photon Transport", nullptr, nullptr);
+	if (!window_) {
+		std::cerr << "Failed to create GLFW window" << std::endl;
+		glfwTerminate();
+		return false;
+	}
+
+	// Center window on screen
+	const GLFWvidmode* mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
+	if (mode) {
+		int center_x = (mode->width - window_width_) / 2;
+		int center_y = (mode->height - window_height_) / 2;
+		glfwSetWindowPos(window_, center_x, center_y);
+	}
+
+	glfwMakeContextCurrent(window_);
+	glfwSwapInterval(1); // Enable vsync
+
+	// Initialize GLEW
+	if (glewInit() != GLEW_OK) {
+		std::cerr << "Failed to initialize GLEW" << std::endl;
+		glfwTerminate();
+		return false;
+	}
+
+	// Setup callbacks
+	setup_callbacks();
+
+	// Initialize renderer
+	renderer_ = std::make_unique<Renderer>();
+	if (!renderer_->initialize()) {
+		std::cerr << "Failed to initialize renderer" << std::endl;
+		return false;
+	}
+
+	// Set correct initial viewport size (framebuffer callback only triggers on resize)
+	renderer_->set_viewport(window_width_, window_height_);
+
+	// Initialize overlay
+	overlay_ = std::make_unique<Overlay>();
+	if (!overlay_->initialize(window_)) {
+		std::cerr << "Failed to initialize overlay" << std::endl;
+		return false;
+	}
+
+	// Set up overlay callbacks
+	setup_overlay_callbacks();
+	
+	return true;
+}
+
+void App::run_simulation_with_progress() {
+	std::cout << "=== Starting Monte Carlo Simulation ===" << std::endl;
+	std::cout << "Configuration: " << config_file_ << std::endl;
+	std::cout << "Number of photons: " << Config::get().num_photons() << std::endl;
+	std::cout << std::endl;
+	
+	// Run simulation
+	simulator_->simulate();
+	simulator_->report();
+	
+	std::cout << std::endl;
+	std::cout << "=== Simulation Complete ===" << std::endl;
+	std::cout << "Initializing GUI..." << std::endl;
 }

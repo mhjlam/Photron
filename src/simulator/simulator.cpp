@@ -224,11 +224,6 @@ void Simulator::simulate() {
 	for (auto& source : sources) {
 		// for each photon
 		for (uint32_t p = 0; p < photons.size(); ++p) {
-			// progress report
-			if (Config::get().verbose() && ((p + 1) % 1000) == 0) {
-				std::cout << "Photon " << p + 1 << "/" << Config::get().num_photons() << std::endl;
-			}
-
 			// Track initial energy
 			total_initial_energy += 1.0; // Each photon starts with weight 1.0
 
@@ -275,8 +270,20 @@ void Simulator::simulate() {
 					scatter(photons[p]);   // Scatter photon into a new direction
 				}
 			}
+			
+			// Progress report AFTER photon simulation is complete - show every 2% for better visibility  
+			uint32_t progress_interval = std::max(1u, static_cast<uint32_t>(photons.size() / 50)); // Show every 2%
+			
+			if ((p + 1) % progress_interval == 0 || p == 0 || (p + 1) == photons.size()) {
+				double progress_percent = ((double)(p + 1) / photons.size()) * 100.0;
+				std::cout << "\rProgress: " << (p + 1) << "/" << Config::get().num_photons() 
+						  << " (" << std::fixed << std::setprecision(1) << progress_percent << "%)" << std::flush;
+			}
 		}
 	}
+
+	// Complete the progress line
+	std::cout << std::endl;
 
 	// Normalize physical quantities
 	normalize();
@@ -829,16 +836,29 @@ void Simulator::sub_step(Photon& photon) {
 	// ROBUST VOXEL SELECTION: Always find the correct voxel at current position
 	Medium* photon_medium = find_medium_at(photon.position);
 	if (!photon_medium) {
-		std::cerr << "Error: No medium found at photon position in sub_step()" << std::endl;
-		photon.alive = false;
+		if (Config::get().verbose()) {
+			std::cerr << "Error: No medium found at photon position in sub_step()" << std::endl;
+		}
+		if (photon.weight > 0.0) {
+			terminate_photon_and_record_energy(photon, "no_material_properties");
+		} else {
+			photon.alive = false;
+		}
 		return;
 	}
 	
 	// Get the correct voxel at the current position
 	Voxel* current_voxel = photon_medium->voxel_at(photon.position);
 	if (!current_voxel) {
-		std::cerr << "Error: No voxel found at photon position in sub_step()" << std::endl;
-		photon.alive = false;
+		if (Config::get().verbose()) {
+			std::cerr << "Error: No voxel found at photon position in sub_step()" << std::endl;
+		}
+		// Energy conservation: Deposit remaining energy as absorption before terminating
+		if (photon.weight > 0.0) {
+			terminate_photon_and_record_energy(photon, "no_voxel_found");
+		} else {
+			photon.alive = false;
+		}
 		return;
 	}
 	
@@ -847,8 +867,15 @@ void Simulator::sub_step(Photon& photon) {
 	
 	// Validate voxel has material properties
 	if (!photon.voxel->material) {
-		std::cerr << "Error: Photon voxel has no material properties in sub_step()" << std::endl;
-		photon.alive = false;
+		if (Config::get().verbose()) {
+			std::cerr << "Error: Photon voxel has no material properties in sub_step()" << std::endl;
+		}
+		// Energy conservation: Deposit remaining energy as absorption before terminating
+		if (photon.weight > 0.0) {
+			terminate_photon_and_record_energy(photon, "no_material_properties");
+		} else {
+			photon.alive = false;
+		}
 		return;
 	}
 
@@ -918,11 +945,13 @@ void Simulator::sub_step(Photon& photon) {
 
 	// ROBUST ERROR HANDLING: Multiple fallback strategies if intersection fails
 	if (voxdist == std::numeric_limits<double>::max()) {
-		std::cerr << "WARNING: Primary ray-voxel intersection failed. Attempting fallbacks..." << std::endl;
-		std::cerr << "  Ray origin: " << ray.origin().x << ", " << ray.origin().y << ", " << ray.origin().z << std::endl;
-		std::cerr << "  Ray direction: " << ray.direction().x << ", " << ray.direction().y << ", " << ray.direction().z << std::endl;
-		std::cerr << "  Voxel bounds: min(" << box.min_point().x << ", " << box.min_point().y << ", " << box.min_point().z 
-				  << ") max(" << box.max_point().x << ", " << box.max_point().y << ", " << box.max_point().z << ")" << std::endl;
+		if (Config::get().verbose()) {
+			std::cerr << "WARNING: Primary ray-voxel intersection failed. Attempting fallbacks..." << std::endl;
+			std::cerr << "  Ray origin: " << ray.origin().x << ", " << ray.origin().y << ", " << ray.origin().z << std::endl;
+			std::cerr << "  Ray direction: " << ray.direction().x << ", " << ray.direction().y << ", " << ray.direction().z << std::endl;
+			std::cerr << "  Voxel bounds: min(" << box.min_point().x << ", " << box.min_point().y << ", " << box.min_point().z 
+					  << ") max(" << box.max_point().x << ", " << box.max_point().y << ", " << box.max_point().z << ")" << std::endl;
+		}
 		
 		// FALLBACK 1: Try from exact voxel center
 		glm::dvec3 voxel_center = glm::dvec3(
@@ -934,10 +963,14 @@ void Simulator::sub_step(Photon& photon) {
 		voxdist = fallback_ray1.intersect_cuboid_internal(box, photon.intersect, photon.voxel_normal);
 		
 		if (voxdist != std::numeric_limits<double>::max()) {
-			std::cerr << "  Fallback 1 (voxel center) succeeded." << std::endl;
+			if (Config::get().verbose()) {
+				std::cerr << "  Fallback 1 (voxel center) succeeded." << std::endl;
+			}
 		} else {
 			// FALLBACK 2: Use manual boundary calculation
-			std::cerr << "  Fallback 1 failed. Using manual boundary calculation." << std::endl;
+			if (Config::get().verbose()) {
+				std::cerr << "  Fallback 1 failed. Using manual boundary calculation." << std::endl;
+			}
 			
 			// Find which boundary the ray will hit first
 			double t_min = std::numeric_limits<double>::max();
@@ -990,10 +1023,14 @@ void Simulator::sub_step(Photon& photon) {
 				voxdist = t_min;
 				photon.intersect = hit_point;
 				photon.voxel_normal = hit_normal;
-				std::cerr << "  Fallback 2 (manual calculation) succeeded." << std::endl;
+				if (Config::get().verbose()) {
+					std::cerr << "  Fallback 2 (manual calculation) succeeded." << std::endl;
+				}
 			} else {
 				// FALLBACK 3: Emergency exit - force photon to exit current voxel
-				std::cerr << "  All fallbacks failed. Forcing photon exit." << std::endl;
+				if (Config::get().verbose()) {
+					std::cerr << "  All fallbacks failed. Forcing photon exit." << std::endl;
+				}
 				photon.intersect = adjusted_position + photon.direction * EPSILON;
 				photon.voxel_normal = -photon.direction; // Opposite to ray direction
 				voxdist = EPSILON;
@@ -1036,8 +1073,12 @@ void Simulator::sub_step(Photon& photon) {
 	// Get current medium to access its layers
 	Medium* current_medium = find_medium_at(photon.position);
 	if (!current_medium) {
-		// Energy conservation now handled through voxel emittance only
-		photon.alive = false;
+		// Energy conservation: Deposit remaining energy as absorption before terminating
+		if (photon.weight > 0.0) {
+			terminate_photon_and_record_energy(photon, "no_medium_found");
+		} else {
+			photon.alive = false;
+		}
 		return;
 	}
 
@@ -3408,7 +3449,8 @@ void Simulator::terminate_photon_and_record_energy(Photon& photon, const std::st
 	
 	// CONSOLIDATED APPROACH: This function only handles INTERNAL terminations (absorption)
 	// For exits, use radiate() function which handles both voxel emittance and medium records
-	if (reason == "absorption" || reason == "roulette" || reason == "max_iterations") {
+	if (reason == "absorption" || reason == "roulette" || reason == "max_iterations" || 
+		reason == "no_voxel_found" || reason == "no_material_properties" || reason == "no_medium_found") {
 		// Energy absorbed within the medium
 		record_medium->get_metrics().add_total_absorption(photon.weight);
 		

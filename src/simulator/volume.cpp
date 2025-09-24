@@ -126,14 +126,6 @@ void Volume::clear() {
 	voxel_size_ = 0.0;
 }
 
-bool Volume::is_valid_coordinate(uint32_t x, uint32_t y, uint32_t z) const {
-	return x < dimensions_.x && y < dimensions_.y && z < dimensions_.z;
-}
-
-bool Volume::is_empty() const {
-	return total_voxels_ == 0;
-}
-
 // Private helper methods for grid management
 void Volume::initialize_voxels() {
 	// Modern C++20: Pre-allocate and use emplace_back for better performance
@@ -157,10 +149,6 @@ void Volume::initialize_voxels() {
 void Volume::cleanup_voxels() {
 	// Smart pointers automatically clean up when the vector is cleared
 	voxels_.clear();
-}
-
-bool Volume::is_valid_index(uint32_t linear_index) const {
-	return linear_index < total_voxels_;
 }
 
 // Volume calculation methods (integrated from VoxelVolumeCalculator)
@@ -282,13 +270,22 @@ VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_
 	const double SURFACE_THRESHOLD = voxel_size.x * 0.5;  // Half voxel size
 	
 	// DEBUG: Check for voxels near the problematic area
-	bool is_debug_voxel = (voxel_center.x > -0.1 && voxel_center.x < 0.0 && 
-						   voxel_center.y > -0.15 && voxel_center.y < -0.1 && 
-						   voxel_center.z > -0.35 && voxel_center.z < -0.3);
+	bool is_debug_voxel = Config::get().verbose() && 
+		voxel_center.x > -0.1 && voxel_center.x < 0.0 && 
+		voxel_center.y > -0.15 && voxel_center.y < -0.1 && 
+		voxel_center.z > -0.35 && voxel_center.z < -0.3;
 	
 	if (is_debug_voxel) {
-		std::cout << "DEBUG VOXEL - Center: (" << voxel_center.x << ", " << voxel_center.y << ", " << voxel_center.z << ")" << std::endl;
-		std::cout << "  Bounds: [" << voxel_min.x << "," << voxel_max.x << "] [" << voxel_min.y << "," << voxel_max.y << "] [" << voxel_min.z << "," << voxel_max.z << "]" << std::endl;
+		std::cout << "DEBUG VOXEL - Center: (" 
+				  << voxel_center.x << ", " 
+				  << voxel_center.y << ", " 
+				  << voxel_center.z << ")" << std::endl;
+		std::cout << "  Bounds: [" << voxel_min.x << "," 
+				  << voxel_max.x << "] [" 
+				  << voxel_min.y << "," 
+				  << voxel_max.y << "] [" 
+				  << voxel_min.z << "," 
+				  << voxel_max.z << "]" << std::endl;
 	}
 	
 	// Step 1: Compute signed distance from voxel center to mesh surface

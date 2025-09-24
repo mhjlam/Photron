@@ -36,6 +36,11 @@ private:
 	void setup_overlay_callbacks();
 	void update();
 	void render();
+	
+	// Separate initialization methods
+	bool initialize_simulator(bool verbose_mode);
+	bool initialize_gui();
+	void run_simulation_with_progress();
 
 	// Results saving methods
 	void save_results_as_json(const std::string& filepath);
