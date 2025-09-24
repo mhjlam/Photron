@@ -62,7 +62,7 @@ public:
 	void clear_world_text();
 
 private:
-	void render_main_menu_bar();
+	void render_main_menu_bar(bool has_simulator = true);
 	void render_control_panel(Simulator* simulator = nullptr);
 	void render_file_dialog();
 	void render_world_text_overlays();

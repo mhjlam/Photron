@@ -38,7 +38,7 @@ private:
 	void render();
 	
 	// Separate initialization methods
-	bool initialize_simulator(bool verbose_mode);
+	bool initialize_simulator();
 	bool initialize_gui();
 	void run_simulation_with_progress();
 

@@ -65,14 +65,14 @@ bool App::initialize(int argc, char* argv[]) {
 	cxxopts::Options options("Photron", "Monte Carlo Photon Transport Renderer");
 	
 	options.add_options()
-		("c,config", "Configuration file path", cxxopts::value<std::string>())
+		("c,config", "Configuration file path (optional for GUI mode)", cxxopts::value<std::string>())
 		("headless", "Run simulation without GUI")
 		("v,verbose", "Enable verbose initialization messages")
 		("h,help", "Show help message");
 
 	// Allow positional arguments
 	options.parse_positional({"config"});
-	options.positional_help("<config_file>");
+	options.positional_help("[config_file]");
 
 	try {
 		auto result = options.parse(argc, argv);
@@ -84,33 +84,52 @@ bool App::initialize(int argc, char* argv[]) {
 			return true;
 		}
 
-		// Check for required config file
-		if (!result.count("config")) {
-			std::cerr << "Error: Configuration file is required" << std::endl;
+		// Check for config file (now optional)
+		bool has_config_file = result.count("config") > 0;
+		if (has_config_file) {
+			config_file_ = result["config"].as<std::string>();
+		}
+		bool verbose_mode = result.count("verbose") > 0;
+		bool headless_mode = result.count("headless") > 0;
+
+		// If headless mode is requested without a config file, that's an error
+		if (headless_mode && !has_config_file) {
+			std::cerr << "Error: Headless mode requires a configuration file" << std::endl;
 			std::cerr << std::endl << options.help() << std::endl;
 			return false;
 		}
 
-		config_file_ = result["config"].as<std::string>();
-		bool verbose_mode = result.count("verbose") > 0;
-		bool headless_mode = result.count("headless") > 0;
-
-		// Initialize simulator first (always, regardless of headless mode)
-		if (!initialize_simulator(verbose_mode)) {
-			std::cerr << "Failed to initialize simulator" << std::endl;
-			return false;
+		// Always initialize Config (with defaults or from file)
+		if (has_config_file) {
+			Config::initialize(config_file_);
+		} else {
+			Config::initialize(); // Initialize with defaults
 		}
 
-		// Run simulation with progress feedback
-		run_simulation_with_progress();
-
-		// If headless mode, we're done - no GUI needed
-		if (headless_mode) {
-			should_close_ = true;
-			return true;
+		// Set verbose mode if requested
+		if (verbose_mode) {
+			Config::get().set_verbose(true);
 		}
 
-		// Initialize GUI only after simulation is complete
+		// Initialize simulator and run simulation only if we have a config file
+		if (has_config_file) {
+			// Initialize simulator first (always, regardless of headless mode)
+			if (!initialize_simulator()) {
+				std::cerr << "Failed to initialize simulator" << std::endl;
+				return false;
+			}
+
+			// Run simulation with progress feedback
+			run_simulation_with_progress();
+
+			// If headless mode, we're done - no GUI needed
+			if (headless_mode) {
+				should_close_ = true;
+				return true;
+			}
+		}
+
+		// Initialize GUI (either after simulation or directly if no config file)
 		if (!initialize_gui()) {
 			std::cerr << "Failed to initialize GUI" << std::endl;
 			return false;
@@ -177,9 +196,24 @@ void App::setup_overlay_callbacks() {
 		// Disable UI while loading
 		overlay_->set_ui_enabled(false);
 
-		// Load new configuration
-		simulator_->initialize(filepath.c_str());
+		// Update config file path
 		config_file_ = filepath;
+		
+		// Reinitialize Config with the new file
+		Config::shutdown();
+		Config::initialize(config_file_);
+
+		// Create simulator if it doesn't exist
+		if (!simulator_) {
+			if (!initialize_simulator()) {
+				std::cerr << "Failed to initialize simulator" << std::endl;
+				overlay_->set_ui_enabled(true);
+				return;
+			}
+		}
+
+		// Load new configuration into simulator
+		simulator_->initialize(filepath.c_str());
 
 		// Run simulation immediately
 		std::cout << "Running simulation with config: " << filepath << std::endl;
@@ -318,7 +352,11 @@ void App::render() {
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-		overlay_->render_with_simulator(*simulator_);
+		if (simulator_) {
+			overlay_->render_with_simulator(*simulator_);
+		} else {
+			overlay_->render();
+		}
 
 		// Restore depth testing for next frame
 		glEnable(GL_DEPTH_TEST);
@@ -738,16 +776,9 @@ void App::save_results_as_text(const std::string& filepath) {
 	std::cout << "Results saved successfully to " << filepath << std::endl;
 }
 
-bool App::initialize_simulator(bool verbose_mode) {
-	// Initialize simulator
+bool App::initialize_simulator() {
+	// Initialize simulator (Config should already be initialized by this point)
 	simulator_ = std::make_unique<Simulator>();
-	
-	// Set verbose mode if requested
-	if (verbose_mode) {
-		// We need to initialize Config first to set verbose mode
-		Config::initialize();
-		Config::get().set_verbose(true);
-	}
 	
 	if (!simulator_->initialize(config_file_.c_str())) {
 		return false;
@@ -821,6 +852,16 @@ bool App::initialize_gui() {
 }
 
 void App::run_simulation_with_progress() {
+	if (config_file_.empty()) {
+		std::cerr << "Error: run_simulation_with_progress called without config file!" << std::endl;
+		return;
+	}
+	
+	if (!simulator_) {
+		std::cerr << "Error: run_simulation_with_progress called without simulator!" << std::endl;
+		return;
+	}
+
 	std::cout << "=== Starting Monte Carlo Simulation ===" << std::endl;
 	std::cout << "Configuration: " << config_file_ << std::endl;
 	std::cout << "Number of photons: " << Config::get().num_photons() << std::endl;

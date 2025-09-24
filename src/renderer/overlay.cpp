@@ -113,8 +113,16 @@ void Overlay::render() {
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
 
-	render_main_menu_bar();
+	// Handle keyboard shortcuts
+	handle_keyboard_shortcuts();
+
+	render_main_menu_bar(false); // No simulator available
 	render_control_panel();
+
+	// Render file dialog if needed
+	if (show_file_dialog_) {
+		render_file_dialog();
+	}
 
 	// Rendering
 	ImGui::Render();
@@ -133,7 +141,7 @@ void Overlay::render_with_simulator(Simulator& simulator) {
 	// Handle keyboard shortcuts
 	handle_keyboard_shortcuts();
 
-	render_main_menu_bar();
+	render_main_menu_bar(true); // Simulator is available
 	render_control_panel(&simulator);
 
 	// Render file dialog if needed
@@ -146,7 +154,7 @@ void Overlay::render_with_simulator(Simulator& simulator) {
 	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
-void Overlay::render_main_menu_bar() {
+void Overlay::render_main_menu_bar(bool has_simulator) {
 	if (ImGui::BeginMainMenuBar()) {
 		if (ImGui::BeginMenu("File")) {
 			if (ImGui::MenuItem("Load Config...", "Ctrl+O", false, ui_enabled_)) {
@@ -160,7 +168,7 @@ void Overlay::render_main_menu_bar() {
 			ImGui::EndMenu();
 		}
 		if (ImGui::BeginMenu("View")) {
-			if (ImGui::MenuItem("Reset", nullptr, false, ui_enabled_)) {
+			if (ImGui::MenuItem("Reset", nullptr, false, ui_enabled_ && has_simulator)) {
 				if (reset_view_callback_) {
 					reset_view_callback_();
 				}
@@ -168,18 +176,18 @@ void Overlay::render_main_menu_bar() {
 			ImGui::EndMenu();
 		}
 		if (ImGui::BeginMenu("Simulation")) {
-			if (ImGui::MenuItem("Add Photon", "P", false, ui_enabled_)) {
+			if (ImGui::MenuItem("Add Photon", "P", false, ui_enabled_ && has_simulator)) {
 				if (run_simulation_callback_) {
 					run_simulation_callback_();
 				}
 			}
-			if (ImGui::MenuItem("Re-Run Simulation", "Ctrl+R", false, ui_enabled_)) {
+			if (ImGui::MenuItem("Re-Run Simulation", "Ctrl+R", false, ui_enabled_ && has_simulator)) {
 				if (rerun_simulation_callback_) {
 					rerun_simulation_callback_();
 				}
 			}
 			ImGui::Separator();
-			if (ImGui::MenuItem("Save Results...", "Ctrl+S", false, ui_enabled_)) {
+			if (ImGui::MenuItem("Save Results...", "Ctrl+S", false, ui_enabled_ && has_simulator)) {
 				show_file_dialog_ = true;
 				file_dialog_mode_ = FileDialogMode::SaveResults;
 			}
@@ -219,7 +227,15 @@ void Overlay::render_control_panel(Simulator* simulator) {
 	ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
 
 	if (ImGui::Begin("##MainWindow", nullptr, window_flags)) {
-		// Rendering Options Section
+		
+		// If no simulator is loaded, show only the load config option
+		if (!simulator) {
+			ImGui::Text("No configuration loaded.");
+			ImGui::End();
+			return;
+		}
+
+		// Rendering Options Section (only when simulator is available)
 		ImGui::SeparatorText("Rendering");
 
 		// Boolean toggles
@@ -399,7 +415,7 @@ void Overlay::render_file_dialog() {
 	ImGui::SetNextWindowSize(ImVec2(500, 400), ImGuiCond_FirstUseEver);
 	ImGui::SetNextWindowPos(ImVec2(200, 100), ImGuiCond_FirstUseEver);
 
-	if (ImGui::Begin(title, &show_file_dialog_, ImGuiWindowFlags_Modal)) {
+	if (ImGui::Begin(title, &show_file_dialog_)) {
 		// File path input
 		ImGui::Text("File path:");
 		ImGui::SetNextItemWidth(-1);
