@@ -114,7 +114,7 @@ bool Simulator::initialize(std::string file) {
 	}
 
 	// Initialize debug logger
-	DebugLogger::instance().initialize("debug_output.csv");
+	DebugLogger::instance().initialize(App::get_output_path("debug_output.csv"));
 
 	// Initialize light sources
 	if (!initialize_sources()) {
@@ -2324,6 +2324,19 @@ void Simulator::specular_reflection(Photon& photon) {
 		// Record specular reflection (energy immediately reflected at surface)
 		double specular_reflection_energy = photon.weight * fresnel_reflection;
 		medium->get_metrics().add_surface_reflection(specular_reflection_energy);
+		
+		// CRITICAL FIX: Add specular reflection emittance to entrance voxel for visualization
+		// NOTE: Only add to emittance_reflected, not general emittance to avoid double counting
+		if (voxel && specular_reflection_energy > 0.0) {
+			voxel->emittance_reflected += specular_reflection_energy;
+			
+			// Log the specular reflection emittance recording
+			glm::ivec3 voxel_coords = glm::ivec3(voxel->ix(), voxel->iy(), voxel->iz());
+			DebugLogger::instance().log_voxel_emittance(
+				static_cast<int>(photon.id), photon.source.intersect, photon.source.specular_direction, 
+				specular_reflection_energy, voxel_coords, specular_reflection_energy, "Specular reflection at entrance voxel"
+			);
+		}
 		
 		// CRITICAL FIX: Reduce photon weight by reflected amount so only transmitted energy
 		// continues for absorption/emission. This prevents double-counting reflected energy.

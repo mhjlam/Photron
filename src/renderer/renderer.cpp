@@ -1132,6 +1132,57 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 					glm::vec4 incident_color(1.0f, 1.0f, 1.0f, 1.0f); // Bright white
 					add_line(source_pos, surface_entry, incident_color);
 
+					// Cache and draw unique specular reflection rays
+					if (!reflected_rays_cached_) {
+						cached_reflected_rays_.clear();
+						
+						// Collect all unique reflected rays from sources
+						double specular_reflection = simulator_->get_combined_specular_reflection();
+						if (specular_reflection > 0.0 && !simulator_->sources.empty()) {
+							for (const auto& source : simulator_->sources) {
+								glm::vec3 entry_point(
+									static_cast<float>(source.intersect.x),
+									static_cast<float>(source.intersect.y),
+									static_cast<float>(source.intersect.z)
+								);
+								
+								glm::vec3 specular_dir(
+									static_cast<float>(source.specular_direction.x),
+									static_cast<float>(source.specular_direction.y),
+									static_cast<float>(source.specular_direction.z)
+								);
+								
+								// Use energy-proportional color for reflected ray
+								double surface_refraction = simulator_->get_combined_surface_refraction();
+								float reflection_intensity = static_cast<float>(specular_reflection / surface_refraction);
+								glm::vec4 reflection_color(1.0f, reflection_intensity, 0.0f, 1.0f);
+								
+								// Add or update reflected ray in cache
+								ReflectedRay new_ray{entry_point, specular_dir, reflection_color, 1};
+								auto it = cached_reflected_rays_.find(new_ray);
+								if (it != cached_reflected_rays_.end()) {
+									// Combine colors and increment count
+									ReflectedRay updated_ray = *it;
+									updated_ray.color = (updated_ray.color * static_cast<float>(updated_ray.count) + reflection_color) / 
+														static_cast<float>(updated_ray.count + 1);
+									updated_ray.count++;
+									cached_reflected_rays_.erase(it);
+									cached_reflected_rays_.insert(updated_ray);
+								} else {
+									cached_reflected_rays_.insert(new_ray);
+								}
+							}
+						}
+						reflected_rays_cached_ = true;
+					}
+					
+					// Draw cached unique reflected rays
+					for (const auto& reflected_ray : cached_reflected_rays_) {
+						float reflection_length = glm::length(surface_entry - source_pos);
+						glm::vec3 reflection_end = reflected_ray.origin + reflected_ray.direction * reflection_length;
+						add_line(reflected_ray.origin, reflection_end, reflected_ray.color);
+					}
+
 					// If photon actually enters material, draw refracted ray from surface to first interaction
 					if (first_interaction.y < surface_y - 0.001f) {
 						glm::vec4 refracted_color(0.9f, 0.9f, 1.0f, 0.8f); // Light blue
@@ -3217,6 +3268,10 @@ void Renderer::invalidate_all_caches() {
 	
 	// Invalidate surface geometry cache
 	surface_cached_ = false;
+	
+	// Invalidate reflected ray cache
+	reflected_rays_cached_ = false;
+	cached_reflected_rays_.clear();
 }
 
 void Renderer::invalidate_path_instances_cache() {

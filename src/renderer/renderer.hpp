@@ -3,6 +3,7 @@
 #include <fstream>
 #include <functional>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -201,6 +202,32 @@ private:
 		bool screen_position_valid {false}; // Whether screen position is current
 	};
 
+	// Structure for tracking unique reflected rays to avoid duplicates
+	struct ReflectedRay
+	{
+		glm::vec3 origin;      // Reflection point
+		glm::vec3 direction;   // Normalized reflection direction
+		glm::vec4 color;       // Combined color (energy-weighted)
+		int count;             // Number of rays in this direction
+		
+		bool operator<(const ReflectedRay& other) const {
+			// Use a tolerance for direction comparison to group similar rays
+			const float tolerance = 0.01f;
+			
+			if (glm::distance(origin, other.origin) > tolerance) {
+				return glm::length(origin) < glm::length(other.origin);
+			}
+			
+			if (std::abs(direction.x - other.direction.x) > tolerance) {
+				return direction.x < other.direction.x;
+			}
+			if (std::abs(direction.y - other.direction.y) > tolerance) {
+				return direction.y < other.direction.y;
+			}
+			return direction.z < other.direction.z;
+		}
+	};
+
 	// OpenGL resources for shader-based rendering
 	GLuint line_vao_ {0}, line_vbo_ {0};
 	GLuint point_vao_ {0}, point_vbo_ {0};
@@ -241,6 +268,10 @@ private:
 	// Cached energy labels (computed once when simulation updates)
 	std::vector<EnergyLabel> cached_energy_labels_;
 	bool energy_labels_cached_ {false};
+
+	// Cached reflected rays (to avoid rendering duplicate rays)
+	std::set<ReflectedRay> cached_reflected_rays_;
+	bool reflected_rays_cached_ {false};
 
 	// Performance optimization: Cache energy analysis results
 	mutable float cached_min_energy_ {1.0f};

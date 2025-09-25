@@ -599,10 +599,22 @@ double Medium::intersection(Source& source) const {
 
 	double closest_distance = std::numeric_limits<double>::max();
 
+	// Find closest intersection across all layers
 	for (const auto& layer : layers_) {
-		double distance = ray.intersect_layer(layer, intersection_point);
-		if (distance < closest_distance) {
+		Triangle temp_triangle{};
+		glm::dvec3 temp_intersection{};
+		
+		// Use the layer's triangles span to find the first intersection
+		std::span<const Triangle> triangles = layer.triangles();
+		double distance = ray.intersect_first_triangle(
+			std::span<Triangle>(const_cast<Triangle*>(triangles.data()), triangles.size()),
+			temp_intersection, temp_triangle
+		);
+		
+		if (distance > 0 && distance < closest_distance) {
 			closest_distance = distance;
+			intersection_point = temp_intersection;
+			intersected_triangle = temp_triangle;
 		}
 	}
 

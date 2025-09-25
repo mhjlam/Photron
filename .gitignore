@@ -7,8 +7,6 @@
 
 # Compiled executables
 *.exe
-*.out
-*.app
 
 # Build directories (CMake generates these)
 # Intermediary files go to organized subdirectories
@@ -94,6 +92,7 @@ CPackSourceConfig.cmake
 *.positions
 
 # Visual Studio Code
+.github/
 .vscode/
 *.code-workspace
 
