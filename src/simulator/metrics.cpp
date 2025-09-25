@@ -12,6 +12,7 @@
 // Include for the unified energy conservation method
 #include "simulator.hpp"
 #include "config.hpp"
+#include "debug_logger.hpp"
 #include <chrono>
 #include "../app.hpp" // For output path utilities
 
@@ -132,6 +133,10 @@ void Metrics::write_to_file() {
 
 void Metrics::print_report(const class Simulator& simulator) {
 	std::cout << std::endl << "=== Monte Carlo Simulation Results ===" << std::endl << std::endl;
+	
+	if (Config::get().log()) {
+		DebugLogger::instance().log_info("=== Monte Carlo Simulation Results ===");
+	}
 
 	// Per-medium statistics (matching overlay format)
 	auto& mediums = simulator.mediums;
@@ -238,6 +243,13 @@ void Metrics::print_report(const class Simulator& simulator) {
 
 	std::cout << "Execution time:        " << elapsed_time_ms_ << " ms" << std::endl;
 	std::cout << "======================================" << std::endl << std::endl;
+	
+	if (Config::get().log()) {
+		DebugLogger::instance().log_info("Simulation completed successfully");
+		DebugLogger::instance().log_info("Execution time: " + std::to_string(elapsed_time_ms_) + " ms");
+		DebugLogger::instance().log_info("Total photons processed: " + std::to_string(simulator.get_paths().size()));
+		DebugLogger::instance().log_info("======================================");
+	}
 }
 
 void Metrics::reset() {

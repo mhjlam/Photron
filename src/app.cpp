@@ -13,6 +13,8 @@
 #include <imgui.h>
 #include <cxxopts.hpp>
 
+#include "simulator/debug_logger.hpp"
+
 #include "renderer/overlay.hpp"
 #include "renderer/renderer.hpp"
 #include "simulator/simulator.hpp"
@@ -67,7 +69,7 @@ bool App::initialize(int argc, char* argv[]) {
 	options.add_options()
 		("c,config", "Configuration file path (optional for GUI mode)", cxxopts::value<std::string>())
 		("headless", "Run simulation without GUI")
-		("v,verbose", "Enable verbose initialization messages")
+		("l,log", "Enable debug logging messages")
 		("h,help", "Show help message");
 
 	// Allow positional arguments
@@ -89,7 +91,7 @@ bool App::initialize(int argc, char* argv[]) {
 		if (has_config_file) {
 			config_file_ = result["config"].as<std::string>();
 		}
-		bool verbose_mode = result.count("verbose") > 0;
+		bool log_mode = result.count("log") > 0;
 		bool headless_mode = result.count("headless") > 0;
 
 		// If headless mode is requested without a config file, that's an error
@@ -106,9 +108,9 @@ bool App::initialize(int argc, char* argv[]) {
 			Config::initialize(); // Initialize with defaults
 		}
 
-		// Set verbose mode if requested
-		if (verbose_mode) {
-			Config::get().set_verbose(true);
+		// Set log mode if requested
+		if (log_mode) {
+			Config::get().set_log(true);
 		}
 
 		// Initialize simulator and run simulation only if we have a config file
@@ -217,6 +219,9 @@ void App::setup_overlay_callbacks() {
 
 		// Run simulation immediately
 		std::cout << "Running simulation with config: " << filepath << std::endl;
+		if (Config::get().log()) {
+			DebugLogger::instance().log_info("Running simulation with config: " + filepath);
+		}
 		simulator_->simulate();
 		simulator_->report();
 
@@ -259,6 +264,9 @@ void App::setup_overlay_callbacks() {
 
 		// Clear previous results and rerun simulation cleanly
 		std::cout << "Rerunning simulation (clearing previous results)..." << std::endl;
+		if (Config::get().log()) {
+			DebugLogger::instance().log_info("Rerunning simulation (clearing previous results)...");
+		}
 
 		// Re-initialize with the same config file to clear data
 		if (!config_file_.empty()) {
@@ -671,6 +679,9 @@ void App::save_results_as_json(const std::string& filepath) {
 
 	file.close();
 	std::cout << "Results saved successfully to " << filepath << std::endl;
+	if (Config::get().log()) {
+		DebugLogger::instance().log_info("Results saved successfully to " + filepath);
+	}
 }
 
 void App::save_results_as_text(const std::string& filepath) {
@@ -787,6 +798,9 @@ void App::save_results_as_text(const std::string& filepath) {
 
 	file.close();
 	std::cout << "Results saved successfully to " << filepath << std::endl;
+	if (Config::get().log()) {
+		DebugLogger::instance().log_info("Results saved successfully to " + filepath);
+	}
 }
 
 bool App::initialize_simulator() {
@@ -880,11 +894,21 @@ void App::run_simulation_with_progress() {
 	std::cout << "Number of photons: " << Config::get().num_photons() << std::endl;
 	std::cout << std::endl;
 	
+	if (Config::get().log()) {
+		DebugLogger::instance().log_info("=== Starting Monte Carlo Simulation ===");
+		DebugLogger::instance().log_info("Configuration: " + config_file_);
+		DebugLogger::instance().log_info("Number of photons: " + std::to_string(Config::get().num_photons()));
+	}
+	
 	// Run simulation
 	simulator_->simulate();
 	simulator_->report();
 	
-	std::cout << std::endl;
-	std::cout << "=== Simulation Complete ===" << std::endl;
+	std::cout << "=== Simulation Complete ===" << std::endl << std::endl;
 	std::cout << "Initializing GUI..." << std::endl;
+	
+	if (Config::get().log()) {
+		DebugLogger::instance().log_info("=== Simulation Complete ===");
+		DebugLogger::instance().log_info("Initializing GUI...");
+	}
 }

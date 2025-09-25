@@ -5,9 +5,11 @@
 #include <memory>
 #include <random>
 #include <stdexcept>
+#include <sstream>
 
 #include "math/random.hpp"
 #include "simulator/simulator.hpp"
+#include "debug_logger.hpp"
 
 // Default constructor
 Volume::Volume() : dimensions_ {0, 0, 0}, total_voxels_ {0}, voxel_size_ {0.0} {
@@ -270,22 +272,27 @@ VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_
 	const double SURFACE_THRESHOLD = voxel_size.x * 0.5;  // Half voxel size
 	
 	// DEBUG: Check for voxels near the problematic area
-	bool is_debug_voxel = Config::get().verbose() && 
+	bool is_debug_voxel = Config::get().log() && 
 		voxel_center.x > -0.1 && voxel_center.x < 0.0 && 
 		voxel_center.y > -0.15 && voxel_center.y < -0.1 && 
 		voxel_center.z > -0.35 && voxel_center.z < -0.3;
 	
 	if (is_debug_voxel) {
-		std::cout << "DEBUG VOXEL - Center: (" 
+		std::ostringstream debug_msg;
+		debug_msg << "DEBUG VOXEL - Center: (" 
 				  << voxel_center.x << ", " 
 				  << voxel_center.y << ", " 
-				  << voxel_center.z << ")" << std::endl;
-		std::cout << "  Bounds: [" << voxel_min.x << "," 
+				  << voxel_center.z << ")";
+		DebugLogger::instance().log_debug(debug_msg.str());
+		
+		std::ostringstream bounds_msg;
+		bounds_msg << "  Bounds: [" << voxel_min.x << "," 
 				  << voxel_max.x << "] [" 
 				  << voxel_min.y << "," 
 				  << voxel_max.y << "] [" 
 				  << voxel_min.z << "," 
-				  << voxel_max.z << "]" << std::endl;
+				  << voxel_max.z << "]";
+		DebugLogger::instance().log_debug(bounds_msg.str());
 	}
 	
 	// Step 1: Compute signed distance from voxel center to mesh surface
@@ -321,14 +328,16 @@ VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_
 			correct_tissue_id = layer.tissue_id;
 			found_containing_layer = true;
 			if (is_debug_voxel) {
-				std::cout << "  Center inside layer " << layer.id << " (material " << layer.tissue_id << ")" << std::endl;
+				std::ostringstream debug_msg;
+				debug_msg << "  Center inside layer " << layer.id << " (material " << layer.tissue_id << ")";
+				DebugLogger::instance().log_debug(debug_msg.str());
 			}
 			// Continue checking other layers to allow inner layers to override outer layers
 		}
 	}
 	
 	if (is_debug_voxel && !found_containing_layer) {
-		std::cout << "  Center not inside any layer" << std::endl;
+		DebugLogger::instance().log_debug("  Center not inside any layer");
 	}
 	
 	// Also check if surface passes through voxel (distance < half voxel size)
@@ -348,10 +357,12 @@ VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_
 	}
 	
 	if (is_debug_voxel) {
-		std::cout << "  Final classification: intersects=" << voxel_intersects_geometry 
+		std::ostringstream debug_msg;
+		debug_msg << "  Final classification: intersects=" << voxel_intersects_geometry 
 				  << ", material=" << correct_tissue_id 
 				  << ", boundary=" << (std::abs(min_distance) <= SURFACE_THRESHOLD)
-				  << ", min_dist=" << min_distance << std::endl;
+				  << ", min_dist=" << min_distance;
+		DebugLogger::instance().log_debug(debug_msg.str());
 	}
 	
 	// Step 4: Compute volume fraction and surface classification for intersecting voxels
@@ -401,10 +412,12 @@ VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_
 	result.is_boundary_voxel = center_near_surface || surface_intersects_volume;
 	
 	if (is_debug_voxel) {
-		std::cout << "  Boundary detection: center_near=" << center_near_surface 
+		std::ostringstream debug_msg;
+		debug_msg << "  Boundary detection: center_near=" << center_near_surface 
 				  << ", surface_intersects=" << surface_intersects_volume
 				  << ", samples=" << inside_samples << "/" << total_samples
-				  << ", final_boundary=" << result.is_boundary_voxel << std::endl;
+				  << ", final_boundary=" << result.is_boundary_voxel;
+		DebugLogger::instance().log_debug(debug_msg.str());
 	}
 	
 	if (result.is_boundary_voxel) {

@@ -10,16 +10,11 @@
 #include <string_view>
 #include <vector>
 #include <span>
+
 #include "math/concepts.hpp"
 #include "simulator/layer.hpp"
 #include "simulator/photon.hpp"
 #include "simulator/material.hpp"
-
-// Monte Carlo splitting methods for partial reflection/transmission
-enum class SplittingMethod {
-	RUSSIAN_ROULETTE,  // Default: Use statistical selection (one path per photon)
-	TRUE_SPLITTING     // Use emitters to create multiple photons (both paths)
-};
 
 class Config
 {
@@ -27,23 +22,20 @@ private:
 	static std::unique_ptr<Config> instance_;
 	static bool initialized_;
 
-	uint32_t nx_ {0};          // number of voxels in the x direction
-	uint32_t ny_ {0};          // number of voxels in the y direction
-	uint32_t nz_ {0};          // number of voxels in the z direction
+	uint32_t nx_ {0};          		// number of voxels in the x direction
+	uint32_t ny_ {0};          		// number of voxels in the y direction
+	uint32_t nz_ {0};          		// number of voxels in the z direction
 
-	uint64_t num_layers_ {0};  // number of layers
-	uint64_t num_voxels_ {0};  // number of voxels
-	uint64_t num_photons_ {0}; // number of photons
-	uint64_t num_sources_ {0}; // number of light sources
+	double vox_size_ {0.0};      	// uniform size of each voxel (dx=dy=dz)
 
-	double vox_size_ {0.0};      // uniform size of each voxel (dx=dy=dz)
-	// double ambient_eta_ {1.0};   // refractive index of ambient medium - always air (1.0)
+	uint64_t num_layers_ {0};  		// number of layers
+	uint64_t num_voxels_ {0};  		// number of voxels
+	uint64_t num_photons_ {0}; 		// number of photons
+	uint64_t num_sources_ {0}; 		// number of light sources
 
-	// bool partial_ {true};         // partial reflection - now always enabled
-	bool verbose_ {false};         // display verbose debug and progress messages
-	bool deterministic_ {false};   // use deterministic random seed for reproducible results
-	SplittingMethod splitting_method_ {SplittingMethod::RUSSIAN_ROULETTE}; // Monte Carlo splitting method
-
+	bool log_ {false};         		// display logging debug and progress messages
+	bool deterministic_ {false};   	// use deterministic random seed for reproducible results
+	
 	// Parsing configuration data
 	std::vector<Source> sources_;
 	std::vector<Material> tissues_;
@@ -190,9 +182,8 @@ public:
 	[[nodiscard]] constexpr double vox_size() const noexcept { return vox_size_; }
 	[[nodiscard]] constexpr double ambient_eta() const noexcept { return 1.0; } // Always air
 	[[nodiscard]] constexpr bool partial() const noexcept { return true; } // Always enabled
-	[[nodiscard]] constexpr bool verbose() const noexcept { return verbose_; }
+	[[nodiscard]] constexpr bool log() const noexcept { return log_; }
 	[[nodiscard]] constexpr bool deterministic() const noexcept { return deterministic_; }
-	[[nodiscard]] constexpr SplittingMethod splitting_method() const noexcept { return splitting_method_; }
 
 	// Access parsed data with span for zero-copy access
 	[[nodiscard]] std::span<const Source> sources() const noexcept { 
@@ -225,9 +216,8 @@ public:
 	void set_vox_size(double vox_size) noexcept { vox_size_ = vox_size; }
 	// void set_ambient_eta(double ambient_eta) noexcept { /* always 1.0 */ } // No longer configurable
 	// void set_partial(bool partial) noexcept { partial_ = partial; } // No longer configurable
-	void set_verbose(bool verbose) noexcept { verbose_ = verbose; }
+	void set_log(bool log) noexcept { log_ = log; }
 	void set_deterministic(bool deterministic) noexcept { deterministic_ = deterministic; }
-	void set_splitting_method(SplittingMethod method) noexcept { splitting_method_ = method; }
 
 	// Main parsing interface
 	bool parse_config_file(const std::string& filename);

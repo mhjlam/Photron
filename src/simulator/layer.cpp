@@ -4,6 +4,9 @@
 #include <iostream>
 #include <limits>
 #include <ranges>
+#include <sstream>
+
+#include "debug_logger.hpp"
 
 /**
  * Calculate the bounding box of the mesh
@@ -183,8 +186,10 @@ void Layer::validate_and_fix_normals() {
 	}
 
 	if (flipped_count > 0) {
-		std::cout << "Layer " << static_cast<int>(id) << ": Fixed " << flipped_count 
-				  << " inward-pointing normals out of " << mesh.size() << " triangles." << std::endl;
+		std::ostringstream debug_msg;
+		debug_msg << "Layer " << static_cast<int>(id) << ": Fixed " << flipped_count 
+				  << " inward-pointing normals out of " << mesh.size() << " triangles.";
+		DebugLogger::instance().log_info(debug_msg.str());
 	}
 
 	// Rebuild spatial acceleration structure with corrected normals

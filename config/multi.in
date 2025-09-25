@@ -8,8 +8,6 @@ general
 {
 	photons = 50
 	voxel_size = 0.1
-	
-	verbose = 0
 }
 
 source

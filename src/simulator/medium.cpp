@@ -6,10 +6,12 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <sstream>
 
 #include "math/ray.hpp"
 #include "voxel.hpp"
 #include "../app.hpp" // For output path utilities
+#include "debug_logger.hpp"
 
 Medium::Medium(Config& config) : config_(config) {
 	// Reserve space for common use cases
@@ -36,8 +38,11 @@ bool Medium::initialize() {
 		std::cerr << "An error occurred while initializing the voxel grid." << std::endl;
 		return false;
 	}
-	if (config_.verbose()) {
-		std::cout << "Voxel grid initialized successfully." << std::endl;
+	if (config_.log()) {
+		// Log to debug file only in log mode
+		if (Config::get().log()) {
+			DebugLogger::instance().log_info("Voxel grid initialized successfully.");
+		}
 	}
 
 	// Intialize layers
@@ -45,14 +50,18 @@ bool Medium::initialize() {
 		std::cerr << "An error occurred while initializing the layers." << std::endl;
 		return false;
 	}
-	if (config_.verbose()) {
-		std::cout << "Layers initialized successfully." << std::endl;
+	if (config_.log()) {
+		// Log to debug file only in log mode
+		if (Config::get().log()) {
+			DebugLogger::instance().log_info("Layers initialized successfully.");
+		}
 	}
 
 	// Reset simulation data after voxels are created
 	reset_simulation_data();
-	if (config_.verbose()) {
+	if (config_.log()) {
 		std::cout << "Simulation data reset completed." << std::endl;
+		DebugLogger::instance().log_info("Simulation data reset completed.");
 	}
 
 	// voxelize the geometry
@@ -60,20 +69,23 @@ bool Medium::initialize() {
 		std::cerr << "An error occurred during geometry voxelization." << std::endl;
 		return false;
 	}
-	if (config_.verbose()) {
+	if (config_.log()) {
 		std::cout << "Geometry voxelization completed successfully." << std::endl;
+		DebugLogger::instance().log_info("Geometry voxelization completed successfully.");
 	}
 
 	// PHASE 2: Skip old surface detection - Distance Field Based voxelization already set correct surface flags
 	// disambiguate_surface_voxels();  // DISABLED: SDF voxelization is already accurate
-	if (config_.verbose()) {
+	if (config_.log()) {
 		std::cout << "Surface voxel disambiguation skipped (using SDF results)." << std::endl;
+		DebugLogger::instance().log_info("Surface voxel disambiguation skipped (using SDF results).");
 	}
 
 	// Identify surface voxels - DISABLED: SDF already set is_surface_voxel correctly
 	// identify_surface_voxels();  // DISABLED: Trust SDF voxelization results
-	if (config_.verbose()) {
+	if (config_.log()) {
 		std::cout << "Surface voxel identification skipped (using SDF results)." << std::endl;
+		DebugLogger::instance().log_info("Surface voxel identification skipped (using SDF results).");
 	}
 
 	return true;
@@ -191,13 +203,18 @@ bool Medium::voxelize_layers() {
 	uint32_t nz = config_.nz();
 	double vox_size = config_.vox_size();
 
-	if (config_.verbose()) {
+	if (config_.log()) {
 		std::cout << "Voxelizing geometry..." << std::endl;
+		DebugLogger::instance().log_info("Voxelizing geometry...");
 		std::cout << "Grid dimensions: " 
 		          << nx << "x" << ny << "x" << nz 
 				  << " (total " << (nx * ny * nz) 
 				  << " voxels, size: " << vox_size 
 				  << ")" << std::endl;
+		std::stringstream dim_msg;
+		dim_msg << "Grid dimensions: " << nx << "x" << ny << "x" << nz 
+		        << " (total " << (nx * ny * nz) << " voxels, size: " << vox_size << ")";
+		DebugLogger::instance().log_info(dim_msg.str());
 		std::cout << "Grid bounds: min(" 
 		          << bounds_.min_bounds.x << "," 
 		          << bounds_.min_bounds.y << "," 
@@ -206,6 +223,12 @@ bool Medium::voxelize_layers() {
 		          << bounds_.max_bounds.y << "," 
 		          << bounds_.max_bounds.z << ")"
 				  << std::endl;
+		std::stringstream bounds_msg;
+		bounds_msg << "Grid bounds: min(" << bounds_.min_bounds.x << "," 
+		           << bounds_.min_bounds.y << "," << bounds_.min_bounds.z << ") max(" 
+		           << bounds_.max_bounds.x << "," << bounds_.max_bounds.y << "," 
+		           << bounds_.max_bounds.z << ")";
+		DebugLogger::instance().log_info(bounds_msg.str());
 	}
 
 	int total_voxels_assigned = 0;
@@ -243,9 +266,13 @@ bool Medium::voxelize_layers() {
 		}
 	}
 
-	if (config_.verbose()) {
+	if (config_.log()) {
 		std::cout << "Point-containment voxelization completed. Assigned material to " << total_voxels_assigned << " voxels ("
 				  << partial_voxels << " partial)." << std::endl;
+		std::stringstream voxel_msg;
+		voxel_msg << "Point-containment voxelization completed. Assigned material to " << total_voxels_assigned 
+		          << " voxels (" << partial_voxels << " partial).";
+		DebugLogger::instance().log_info(voxel_msg.str());
 	}
 
 	// PHASE 2: Detect external surface voxels (voxels adjacent to ambient)
@@ -258,7 +285,7 @@ void Medium::disambiguate_surface_voxels() {
 	const glm::uvec3& dimensions = volume_.dimensions();
 	int false_positives_removed = 0;
 	
-	std::cout << "Starting surface disambiguation for boundary voxels..." << std::endl;
+	DebugLogger::instance().log_debug("Starting surface disambiguation for boundary voxels...");
 	
 	// Debug: Check specific problematic voxels first
 	int problematic_coords[][3] = {{20, 7, 2}, {19, 9, 5}, {13, 8, 12}};
@@ -266,11 +293,13 @@ void Medium::disambiguate_surface_voxels() {
 		int x = problematic_coords[i][0], y = problematic_coords[i][1], z = problematic_coords[i][2];
 		if (x < (int)dimensions.x && y < (int)dimensions.y && z < (int)dimensions.z) {
 			Voxel* voxel = volume_.at(x, y, z);
-			std::cout << "DEBUG: Problematic voxel (" << x << "," << y << "," << z 
+			std::ostringstream debug_msg;
+			debug_msg << "DEBUG: Problematic voxel (" << x << "," << y << "," << z 
 					  << ") - material=" << (voxel->material ? "YES" : "NO")
 					  << " boundary=" << (voxel->is_boundary_voxel ? "YES" : "NO")
 					  << " surface=" << (voxel->is_surface_voxel ? "YES" : "NO")
-					  << " volume_fraction=" << voxel->volume_fraction_inside << std::endl;
+					  << " volume_fraction=" << voxel->volume_fraction_inside;
+			DebugLogger::instance().log_debug(debug_msg.str());
 		}
 	}
 	
@@ -288,8 +317,10 @@ void Medium::disambiguate_surface_voxels() {
 				// Debug output for specific problematic voxels
 				bool is_problematic = (x == 20 && y == 7 && z == 2) || (x == 19 && y == 9 && z == 5) || (x == 13 && y == 8 && z == 12);
 				if (is_problematic) {
-					std::cout << "DEBUG: Processing boundary voxel (" << x << "," << y << "," << z 
-							  << ") with volume_inside=" << voxel->volume_fraction_inside << std::endl;
+					std::ostringstream debug_msg;
+					debug_msg << "DEBUG: Processing boundary voxel (" << x << "," << y << "," << z 
+							  << ") with volume_inside=" << voxel->volume_fraction_inside;
+					DebugLogger::instance().log_debug(debug_msg.str());
 				}
 				
 				// Check 6-connected neighbors (faces only, not edges/corners)
@@ -343,7 +374,7 @@ void Medium::disambiguate_surface_voxels() {
 		}
 	}
 	
-	if (config_.verbose()) {
+	if (config_.log()) {
 		std::cout << "Surface disambiguation removed " << false_positives_removed << " false positive voxels." << std::endl;
 	}
 }
@@ -410,7 +441,7 @@ void Medium::identify_surface_voxels() {
 		}
 	}
 	
-	if (config_.verbose()) {
+	if (config_.log()) {
 		std::cout << "Identified " << surface_voxel_count << " surface voxels." << std::endl;
 	}
 }
@@ -667,8 +698,9 @@ void Medium::detect_external_surface_voxels() {
 	const glm::uvec3& dimensions = volume_.dimensions();
 	int surface_voxel_count = 0;
 	
-	if (config_.verbose()) {
+	if (config_.log()) {
 		std::cout << "Detecting external surface voxels..." << std::endl;
+		DebugLogger::instance().log_info("Detecting external surface voxels...");
 	}
 	
 	// For each voxel with material, check if it has neighbors without material
@@ -722,7 +754,10 @@ void Medium::detect_external_surface_voxels() {
 		}
 	}
 	
-	if (config_.verbose()) {
+	if (config_.log()) {
 		std::cout << "External surface detection completed. Found " << surface_voxel_count << " surface voxels." << std::endl;
+		std::stringstream surface_msg;
+		surface_msg << "External surface detection completed. Found " << surface_voxel_count << " surface voxels.";
+		DebugLogger::instance().log_info(surface_msg.str());
 	}
 }

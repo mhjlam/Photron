@@ -58,7 +58,7 @@ bool Overlay::initialize(GLFWwindow* window) {
 		return false;
 	}
 
-	if (Config::get().verbose()) {
+	if (Config::get().log()) {
 		std::cout << "ImGui overlay initialized successfully" << std::endl;
 	}
 	return true;

@@ -10,7 +10,7 @@ general
 	photons = 200
 	voxel_size = 0.1
 	
-	verbose = 1
+	log = 1
 	deterministic = 1
 }
 

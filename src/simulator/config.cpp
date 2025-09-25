@@ -2,9 +2,11 @@
 
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <utility>
 
 #include "math/triangle.hpp"
+#include "debug_logger.hpp"
 
 // Static member definitions
 std::unique_ptr<Config> Config::instance_ = nullptr;
@@ -107,8 +109,8 @@ bool Config::parse_general_config(std::list<std::string>& data) {
 		else if (equals(param, "voxel_size")) {
 			vox_size_ = str2num<double>(value);
 		}
-		else if (equals(param, "verbose")) {
-			verbose_ = str2num<bool>(value);
+		else if (equals(param, "log")) {
+			log_ = str2num<bool>(value);
 		}
 		else if (equals(param, "deterministic")) {
 			deterministic_ = str2num<bool>(value);
@@ -390,10 +392,12 @@ bool Config::parse_layer_config(std::list<std::string>& data) {
 	// Update layer to reference the new material
 	layer.tissue_id = material_id;
 	
-	if (verbose_) {
-		std::cout << "Created material " << (int)material_id 
+	if (log_) {
+		std::ostringstream debug_msg;
+		debug_msg << "Created material " << (int)material_id 
 		          << " for layer " << (int)layer.id
-		          << " (eta=" << eta << ", mua=" << mua << ", mus=" << mus << ", ani=" << ani << ")" << std::endl;
+		          << " (eta=" << eta << ", mua=" << mua << ", mus=" << mus << ", ani=" << ani << ")";
+		DebugLogger::instance().log_info(debug_msg.str());
 	}
 	
 	// add to collection using move semantics

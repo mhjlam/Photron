@@ -53,7 +53,7 @@ Renderer::~Renderer() {
 }
 
 bool Renderer::initialize() {
-	if (Config::is_initialized() && Config::get().verbose()) {
+	if (Config::is_initialized() && Config::get().log()) {
 		std::cout << "Initializing modern OpenGL 4.5 renderer..." << std::endl;
 	}
 
@@ -93,7 +93,7 @@ bool Renderer::initialize() {
 	// Setup initial camera
 	update_camera();
 
-	if (Config::is_initialized() && Config::get().verbose()) {
+	if (Config::is_initialized() && Config::get().log()) {
 		std::cout << "Renderer initialized successfully" << std::endl;
 	}
 	return true;
@@ -104,7 +104,7 @@ void Renderer::setup_opengl() {
 	const GLubyte* version = glGetString(GL_VERSION);
 	const GLubyte* renderer = glGetString(GL_RENDERER);
 
-	if (Config::is_initialized() && Config::get().verbose()) {
+	if (Config::is_initialized() && Config::get().log()) {
 		std::cout << "OpenGL Version:  " << version << std::endl;
 		std::cout << "Graphics Device: " << renderer << std::endl;
 	}
