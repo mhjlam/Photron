@@ -1487,30 +1487,109 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 		}
 		}
 
-		// PERFORMANCE: Add all emitter direction vectors to instanced rendering cache
+		// PERFORMANCE: Add all emitter direction vectors to instanced rendering cache with deduplication
 		if (!simulator_->emitters.empty()) {
+			// Group emitters by origin position and direction (with margin for similar directions)
+			std::map<std::tuple<int, int, int, int, int, int>, std::vector<std::shared_ptr<Emitter>>> direction_groups;
+			const double POSITION_PRECISION = 100.0; // Group positions within 0.01 units
+			const double DIRECTION_PRECISION = 50.0;  // Group directions within ~0.02 radians (~1.1 degrees)
+			
 			for (const auto& emitter : simulator_->emitters) {
-				if (emitter->weight > 0.001) { // Show exits with threshold
-					glm::vec3 start_pos(
-						static_cast<float>(emitter->position.x),
-						static_cast<float>(emitter->position.y),
-						static_cast<float>(emitter->position.z)
-					);
+				if (emitter->weight > 0.001) { // Only process significant emitters
+					// Quantize position and direction for grouping
+					int pos_x = static_cast<int>(std::round(emitter->position.x * POSITION_PRECISION));
+					int pos_y = static_cast<int>(std::round(emitter->position.y * POSITION_PRECISION));
+					int pos_z = static_cast<int>(std::round(emitter->position.z * POSITION_PRECISION));
+					int dir_x = static_cast<int>(std::round(emitter->direction.x * DIRECTION_PRECISION));
+					int dir_y = static_cast<int>(std::round(emitter->direction.y * DIRECTION_PRECISION));
+					int dir_z = static_cast<int>(std::round(emitter->direction.z * DIRECTION_PRECISION));
 					
-					glm::vec3 end_pos(
-						static_cast<float>(emitter->position.x + emitter->direction.x * 0.05),
-						static_cast<float>(emitter->position.y + emitter->direction.y * 0.05),
-						static_cast<float>(emitter->position.z + emitter->direction.z * 0.05)
-					);
-					
-					// Use percentage-based coloring consistent with emitter points
-					float surface_refraction = static_cast<float>(simulator_->get_combined_surface_refraction());
-					float energy_percentage = static_cast<float>(emitter->weight / surface_refraction);
-					glm::vec4 direction_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
-					direction_color.a = 0.8f; // Slightly transparent for distinction
-					
-					cached_line_instances_.push_back({start_pos, end_pos, direction_color});
+					auto group_key = std::make_tuple(pos_x, pos_y, pos_z, dir_x, dir_y, dir_z);
+					direction_groups[group_key].push_back(emitter);
 				}
+			}
+			
+			// Render one emitter vector per group with averaged energy
+			for (const auto& [group_key, grouped_emitters] : direction_groups) {
+				if (grouped_emitters.empty()) continue;
+				
+				// Use the first emitter for position and direction
+				const auto& representative = grouped_emitters[0];
+				glm::vec3 start_pos(
+					static_cast<float>(representative->position.x),
+					static_cast<float>(representative->position.y),
+					static_cast<float>(representative->position.z)
+				);
+				
+				glm::vec3 end_pos(
+					static_cast<float>(representative->position.x + representative->direction.x * 0.05),
+					static_cast<float>(representative->position.y + representative->direction.y * 0.05),
+					static_cast<float>(representative->position.z + representative->direction.z * 0.05)
+				);
+				
+				// Average the energy of all emitters in this group
+				double total_weight = 0.0;
+				for (const auto& emitter : grouped_emitters) {
+					total_weight += emitter->weight;
+				}
+				
+				// Use percentage-based coloring with averaged energy
+				float surface_refraction = static_cast<float>(simulator_->get_combined_surface_refraction());
+				float energy_percentage = static_cast<float>(total_weight / surface_refraction);
+				glm::vec4 direction_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
+				direction_color.a = 0.8f; // Slightly transparent for distinction
+				
+				cached_line_instances_.push_back({start_pos, end_pos, direction_color});
+			}
+		}
+
+		// Add specular reflection emitter for incident photon's surface reflection
+		// This is integrated into the direction grouping above to avoid duplication
+		double specular_reflection = simulator_->get_combined_specular_reflection();
+		if (specular_reflection > 0.0 && !simulator_->sources.empty()) {
+			const Source& source = simulator_->sources[0];
+			
+			// Check if there are any regular emitters at the same position with similar direction
+			bool found_similar_emitter = false;
+			glm::dvec3 specular_pos = source.intersect;
+			glm::dvec3 specular_dir = glm::normalize(source.specular_direction);
+			
+			const double POSITION_TOLERANCE = 0.01; // Same as POSITION_PRECISION above
+			const double ANGLE_TOLERANCE = 0.02;    // Same as DIRECTION_PRECISION above
+			
+			for (const auto& emitter : simulator_->emitters) {
+				if (emitter->weight <= 0.001) continue;
+				
+				double pos_distance = glm::length(emitter->position - specular_pos);
+				glm::dvec3 emitter_dir = glm::normalize(emitter->direction);
+				double angle_diff = glm::length(emitter_dir - specular_dir);
+				
+				if (pos_distance <= POSITION_TOLERANCE && angle_diff <= ANGLE_TOLERANCE) {
+					found_similar_emitter = true;
+					break;
+				}
+			}
+			
+			// Only add specular reflection vector if no similar emitter exists
+			if (!found_similar_emitter) {
+				glm::vec3 reflection_start(static_cast<float>(source.intersect.x),
+										   static_cast<float>(source.intersect.y),
+										   static_cast<float>(source.intersect.z));
+				
+				// Make specular reflection vector twice as long as regular emitters (0.1 vs 0.05)
+				glm::vec3 reflection_end(
+					static_cast<float>(source.intersect.x + source.specular_direction.x * 0.1),
+					static_cast<float>(source.intersect.y + source.specular_direction.y * 0.1),
+					static_cast<float>(source.intersect.z + source.specular_direction.z * 0.1)
+				);
+				
+				// Use energy-based coloring - map specular reflection energy to color
+				// Use the actual specular reflection value as energy for better color mapping
+				float specular_energy = static_cast<float>(specular_reflection);
+				glm::vec4 specular_color = get_adaptive_energy_color(specular_energy, 0.0f, 1.0f);
+				specular_color.a = 1.0f; // Full opacity for better visibility
+				
+				cached_line_instances_.push_back({reflection_start, reflection_end, specular_color});
 			}
 		}
 
@@ -1630,8 +1709,8 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 			}
 			
 			// Add surface specular reflection as an emitter point
-			double specular_reflection = simulator_->get_combined_specular_reflection();
-			if (specular_reflection > 0.0 && !simulator_->sources.empty()) {
+			double surface_specular_reflection = simulator_->get_combined_specular_reflection();
+			if (surface_specular_reflection > 0.0 && !simulator_->sources.empty()) {
 				const Source& source = simulator_->sources[0];
 				
 				// Use actual source intersection point
@@ -1641,7 +1720,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 
 				// Use percentage-based coloring for surface reflection
 				double surface_refraction = simulator_->get_combined_surface_refraction();
-				float energy_percentage = static_cast<float>(specular_reflection / surface_refraction);
+				float energy_percentage = static_cast<float>(surface_specular_reflection / surface_refraction);
 				glm::vec4 surface_point_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
 				surface_point_color.a = 1.0f; // Full opacity for surface reflection point
 
@@ -2497,11 +2576,11 @@ void Renderer::cache_energy_labels_from_emitters() {
 		if (total_reflected_energy > total_transmitted_energy && total_reflected_energy > total_unclassified_energy) {
 			// Predominantly reflected
 			label_text = percent_text;
-			label_color = glm::vec4(0.4f, 0.8f, 0.4f, 1.0f); // Green for reflection (changed from yellow)
+			label_color = glm::vec4(0.2f, 0.8f, 0.2f, 1.0f); // Bright green for reflection (clearly visible)
 		} else if (total_transmitted_energy > total_reflected_energy && total_transmitted_energy > total_unclassified_energy) {
 			// Predominantly transmitted
 			label_text = percent_text;
-			label_color = glm::vec4(0.3f, 0.8f, 1.0f, 1.0f); // Blue for transmission
+			label_color = glm::vec4(0.2f, 0.6f, 1.0f, 1.0f); // Bright blue for transmission (clearly visible)
 		} else {
 			// Mixed or unclassified
 			label_text = percent_text;
@@ -2518,15 +2597,17 @@ void Renderer::cache_energy_labels_from_emitters() {
 		});
 	}
 
-	// Add surface specular reflection label
+	// Add surface specular reflection label - position at tip of reflection vector
 	double specular_reflection = simulator_->get_combined_specular_reflection();
 	if (specular_reflection > 0.0 && !simulator_->sources.empty()) {
 		const Source& source = simulator_->sources[0];
 		
-		// Use actual source intersection point for label position
-		glm::vec3 surface_label_pos(static_cast<float>(source.intersect.x),
-									static_cast<float>(source.intersect.y),
-									static_cast<float>(source.intersect.z));
+		// Position label at the tip of the specular reflection vector (twice as long as regular emitters)
+		glm::vec3 surface_label_pos(
+			static_cast<float>(source.intersect.x + source.specular_direction.x * 0.1),
+			static_cast<float>(source.intersect.y + source.specular_direction.y * 0.1),
+			static_cast<float>(source.intersect.z + source.specular_direction.z * 0.1)
+		);
 		
 		// Calculate normalized percentage for surface reflection
 		double surface_refraction = simulator_->get_combined_surface_refraction();
@@ -2536,8 +2617,8 @@ void Renderer::cache_energy_labels_from_emitters() {
 		int rounded_percent = static_cast<int>(energy_percent);
 		std::string surface_percent_text = (rounded_percent == 0 && energy_percent > 0.0) ? "<1%" : std::format("{}%", rounded_percent);
 		
-		// Use green color for surface reflection (same as regular reflection)
-		glm::vec4 surface_label_color = glm::vec4(0.4f, 0.8f, 0.4f, 1.0f);
+		// Use bright purple color for surface specular reflection to match saturation of green and blue
+		glm::vec4 surface_label_color = glm::vec4(0.8f, 0.3f, 1.0f, 1.0f);
 		
 		cached_energy_labels_.push_back({
 			.world_position = surface_label_pos,

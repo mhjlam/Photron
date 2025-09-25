@@ -205,8 +205,9 @@ void Metrics::print_report(const class Simulator& simulator) {
 			double transmission_percent = (energy.total_transmission / baseline_energy) * 100.0;
 			
 			// Total should equal baseline_energy for perfect conservation
-			// Don't add surface_reflection separately as it's now included in total_reflection
-			double total_accounted = energy.total_absorption + energy.total_reflection + energy.total_transmission;
+			// Include surface_reflection in total for accurate energy conservation
+			double total_accounted = energy.surface_reflection + energy.total_absorption + 
+			                         energy.total_reflection + energy.total_transmission;
 			double total_percent = (total_accounted / baseline_energy) * 100.0;
 
 			std::cout << "  Specular reflection: " << std::fixed << std::setprecision(1) 
