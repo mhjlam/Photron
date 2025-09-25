@@ -300,44 +300,25 @@ void Simulator::simulate() {
 	double total_absorption = 0.0, specular_reflection = 0.0, diffuse_reflection = 0.0;
 	double surface_refraction = 0.0, specular_transmission = 0.0, diffuse_transmission = 0.0;
 	
-	// Calculate voxel-based totals for accurate energy accounting
-	double total_voxel_absorption = 0.0;
-	double total_voxel_emittance = 0.0;
+	// Variables were used for voxel-based energy accounting but are now obsolete
+	// All energy calculations use medium metrics to avoid double-counting
 	
 	for (const auto& medium : mediums) {
 		const auto& medium_metrics = medium.get_metrics();
-		// Still use medium records for surface interactions (these are accurate)
+		// Use medium records for all energy calculations - these maintain proper conservation
 		specular_reflection += medium_metrics.get_surface_reflection();
 		surface_refraction += medium_metrics.get_surface_refraction();
-		
-		// Calculate voxel totals for this medium using Volume iterators
-		const auto& volume = medium.get_volume();
-		for (const auto& voxel : volume) {
-			if (voxel && voxel->material != nullptr) {
-				total_voxel_absorption += voxel->absorption;
-				total_voxel_emittance += voxel->emittance;
-			}
-		}
-	}
-	
-	// Use voxel totals for metrics instead of inflated medium records
-	// Use pure voxel-based energy accounting for consistency
-	total_absorption = total_voxel_absorption;
-	specular_transmission = 0.0; // No specular transmission in current config  
-	
-	// Aggregate voxel data to medium records before calculating metrics
-	aggregate_voxel_data();
-	
-	// Calculate diffuse reflection and transmission from medium records (now populated)
-	diffuse_reflection = 0.0;
-	diffuse_transmission = 0.0;
-	
-	// Use the direction-classified totals from medium records (populated by aggregate_voxel_data)
-	for (const auto& medium : mediums) {
-		const auto& medium_metrics = medium.get_metrics();
+		total_absorption += medium_metrics.get_total_absorption();
 		diffuse_reflection += medium_metrics.get_diffuse_reflection();
+		specular_transmission += medium_metrics.get_specular_transmission();
 		diffuse_transmission += medium_metrics.get_diffuse_transmission();
 	}
+	
+	// Use medium metrics for energy conservation (not voxel totals to avoid double-counting)
+	// Voxel totals are used only for rendering and include specular reflection for visualization
+	
+	// Aggregate voxel data to medium records before calculating final metrics
+	aggregate_voxel_data();
 	
 	// Also aggregate transport metrics (path length, step sizes, scatter events)
 	// Aggregate scatter events from mediums 
@@ -2129,8 +2110,8 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 	// Use proper reflection/transmission determination based on exit position relative to entry
 	bool is_reflecting = is_photon_reflecting(photon);
 	if (is_reflecting) {
-		// Exit on same side as entry - classify as reflection
-		exit_voxel->emittance_reflected += weight;
+		// Exit on same side as entry - classify as diffuse reflection (not specular)
+		exit_voxel->diffuse_reflection += weight;
 		photon.exit_type = Photon::ExitType::REFLECTED;
 		DebugLogger::instance().log_photon_event(
 			static_cast<int>(photon.id), "REFLECT", photon.position, direction, 
@@ -2139,7 +2120,7 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 		);
 	} else {
 		// Exit on opposite side from entry - classify as transmission  
-		exit_voxel->emittance_transmitted += weight;
+		exit_voxel->diffuse_transmission += weight;
 		photon.exit_type = Photon::ExitType::TRANSMITTED;
 		DebugLogger::instance().log_photon_event(
 			static_cast<int>(photon.id), "TRANSMIT", photon.position, direction, 
@@ -2270,9 +2251,9 @@ void Simulator::normalize() {
 			voxel->emittance /= (Config::get().num_photons() * Config::get().num_sources());
 			
 			// CRITICAL FIX: Also normalize the directional emittance fields used by energy conservation
-			voxel->emittance_reflected /= (Config::get().num_photons() * Config::get().num_sources());
-			voxel->emittance_transmitted /= (Config::get().num_photons() * Config::get().num_sources());
-			voxel->emittance_diffuse /= (Config::get().num_photons() * Config::get().num_sources());
+			voxel->specular_reflection /= (Config::get().num_photons() * Config::get().num_sources());
+			voxel->diffuse_transmission /= (Config::get().num_photons() * Config::get().num_sources());
+			voxel->diffuse_reflection /= (Config::get().num_photons() * Config::get().num_sources());
 		}
 	}
 }
@@ -2329,6 +2310,11 @@ void Simulator::specular_reflection(Photon& photon) {
 		// Record specular reflection (energy immediately reflected at surface)
 		double specular_reflection_energy = photon.weight * fresnel_reflection;
 		medium->get_metrics().add_surface_reflection(specular_reflection_energy);
+		
+		// ADD SPECULAR REFLECTION TO ENTRY VOXEL EMITTANCE FOR RENDERING
+		// This makes specular reflection visible in the renderer without breaking energy conservation
+		// in the simulator metrics (which remain separate for physics accuracy)
+		voxel->specular_reflection += specular_reflection_energy;
 		
 		// CRITICAL FIX: Reduce photon weight by reflected amount so only transmitted energy
 		// continues for absorption/emission. This prevents double-counting reflected energy.
@@ -2478,8 +2464,8 @@ void Simulator::aggregate_voxel_data() {
 							medium.get_metrics().add_total_absorption(voxel->absorption);
 							
 							// Aggregate emittance by direction classification
-							medium.get_metrics().add_diffuse_reflection(voxel->emittance_reflected);
-							medium.get_metrics().add_diffuse_transmission(voxel->emittance_transmitted);
+							medium.get_metrics().add_diffuse_reflection(voxel->specular_reflection);
+							medium.get_metrics().add_diffuse_transmission(voxel->diffuse_transmission);
 							
 							// Note: surface_refraction and specular_reflection handled separately
 							// Note: specular_transmission currently unused
@@ -3381,10 +3367,10 @@ Simulator::EnergyConservation Simulator::calculate_energy_conservation() const {
 	result.surface_refraction = get_combined_surface_refraction();
 	
 	// Calculate total voxel-based energy for accurate accounting
-	// Use the actual voxel-level reflection/transmission classification
-	// that was recorded during photon exit in the radiate() function
+	// Separate specular reflection (at surface entry) from diffuse reflection (at exit)
 	double total_voxel_absorption = 0.0;
-	double total_voxel_reflection = 0.0;
+	double total_voxel_specular_reflection = 0.0;
+	double total_voxel_diffuse_reflection = 0.0;
 	double total_voxel_transmission = 0.0;
 	
 	for (const auto& medium : mediums) {
@@ -3393,23 +3379,24 @@ Simulator::EnergyConservation Simulator::calculate_energy_conservation() const {
 			if (voxel && voxel->material != nullptr) {
 				total_voxel_absorption += voxel->absorption;
 				
-				// Use the actual direction-classified emittance that was recorded
-				// during photon exit based on the is_photon_reflecting() determination
-				total_voxel_reflection += voxel->emittance_reflected;
-				total_voxel_transmission += voxel->emittance_transmitted;
+				// Separate specular reflection (at entry) from diffuse reflection (at exit)
+				total_voxel_specular_reflection += voxel->specular_reflection;
+				total_voxel_diffuse_reflection += voxel->diffuse_reflection;
+				total_voxel_transmission += voxel->diffuse_transmission;
 			}
 		}
 	}
 	
 	result.total_absorption = total_voxel_absorption;
-	result.total_reflection = total_voxel_reflection;
+	result.total_reflection = total_voxel_diffuse_reflection;  // Only diffuse reflection for the "Reflection" line
 	result.total_transmission = total_voxel_transmission;
-	result.total_diffusion = total_voxel_reflection + total_voxel_transmission;
+	result.total_diffusion = total_voxel_diffuse_reflection + total_voxel_transmission;
+	
+	// For surface reflection: use the voxel-based specular reflection which includes entry reflectance
+	result.surface_reflection = total_voxel_specular_reflection;
 	
 	// Total energy should include ALL components for proper conservation check
-	// This represents the total energy accounted for across all interaction types
-	result.total_energy = result.surface_reflection + result.total_absorption + 
-	                     result.total_reflection + result.total_transmission;
+	result.total_energy = result.surface_reflection + result.total_absorption + result.total_reflection + result.total_transmission;
 	
 	return result;
 }
@@ -3921,7 +3908,7 @@ void Simulator::output_voxel_emittance_summary() {
 				
 				if (is_surface) surface_voxels++;
 				
-				double total_voxel_emittance = voxel->emittance_reflected + voxel->emittance_transmitted;
+				double total_voxel_emittance = voxel->specular_reflection + voxel->diffuse_transmission;
 				if (total_voxel_emittance > 0.0) voxels_with_emittance++;
 				
 				// Calculate world coordinates of voxel center using bounds
@@ -3933,7 +3920,7 @@ void Simulator::output_voxel_emittance_summary() {
 				
 				// Energy normalized by total photon energy launched (more meaningful than percentage)
 				double energy_normalized = total_photon_energy > 0.0 ? 
-					(voxel->absorption + voxel->emittance) / total_photon_energy : 0.0;
+					(voxel->absorption + voxel->total_emittance()) / total_photon_energy : 0.0;
 				
 				file << 0 << ","  // Use 0 instead of medium.id() which doesn't exist
 					 << voxel->ix() << "," << voxel->iy() << "," << voxel->iz() << ","
@@ -3942,8 +3929,8 @@ void Simulator::output_voxel_emittance_summary() {
 					 << "TRUE,"
 					 << voxel->absorption << ","
 					 << voxel->emittance << ","
-					 << voxel->emittance_reflected << ","
-					 << voxel->emittance_transmitted << ","
+					 << voxel->specular_reflection << ","
+					 << voxel->diffuse_transmission << ","
 					 << total_voxel_emittance << ","
 					 << energy_normalized << "\n";
 			}

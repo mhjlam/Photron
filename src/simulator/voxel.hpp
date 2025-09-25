@@ -19,26 +19,28 @@ public:
 	double emittance;
 	Material* material;
 
+	// Voxel classification flags
+	bool is_boundary_voxel;         // True if voxel intersects geometry boundary
+	bool is_surface_voxel;          // True if voxel is at the outer surface of the voxel cluster
+
 	// Exit direction tracking for energy conservation
-	double emittance_transmitted;  // Energy exiting via transmission (no angle change)
-	double emittance_reflected;    // Energy exiting via specular reflection (angle changed)
-	double emittance_diffuse;      // Energy exiting via diffuse reflection (scattered)
+	double specular_reflection;    	// Energy exiting via specular reflection (angle changed)
+	double diffuse_reflection;      // Energy exiting via diffuse reflection (scattered)
+	double diffuse_transmission;  	// Energy exiting via transmission (no angle change)
 
 	// Partial volume support for boundary physics
 	double volume_fraction_inside;  // Fraction of voxel volume inside the geometry [0.0, 1.0]
 	double volume_fraction_outside; // Fraction of voxel volume outside the geometry [0.0, 1.0]
-	bool is_boundary_voxel;         // True if voxel intersects geometry boundary
-	bool is_surface_voxel;          // True if voxel is at the outer surface of the voxel cluster
 
 	Voxel() :
 		coords(0), absorption(0), emittance(0), material(nullptr), 
-		emittance_transmitted(0), emittance_reflected(0), emittance_diffuse(0),
+		diffuse_transmission(0), specular_reflection(0), diffuse_reflection(0),
 		volume_fraction_inside(0.0), volume_fraction_outside(0.0), 
 		is_boundary_voxel(false), is_surface_voxel(false) {}
 
 	Voxel(uint32_t x, uint32_t y, uint32_t z) :
 		coords(x, y, z), absorption(0), emittance(0), material(nullptr), 
-		emittance_transmitted(0), emittance_reflected(0), emittance_diffuse(0),
+		diffuse_transmission(0), specular_reflection(0), diffuse_reflection(0),
 		volume_fraction_inside(0.0), volume_fraction_outside(0.0), 
 		is_boundary_voxel(false), is_surface_voxel(false) {}
 
@@ -59,13 +61,13 @@ public:
 	}
 
 	// Energy tracking utilities
-	double total_emittance() const { return emittance_transmitted + emittance_reflected + emittance_diffuse; }
+	double total_emittance() const { return diffuse_transmission + specular_reflection + diffuse_reflection; }
 	void reset_energy() { 
 		absorption = 0; 
 		emittance = 0; 
-		emittance_transmitted = 0; 
-		emittance_reflected = 0; 
-		emittance_diffuse = 0; 
+		diffuse_transmission = 0; 
+		specular_reflection = 0; 
+		diffuse_reflection = 0; 
 	}
 
 		// Special comparison overloads

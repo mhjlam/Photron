@@ -422,9 +422,9 @@ void Medium::reset_simulation_data() {
 			voxel_ptr->absorption = 0.0;
 			voxel_ptr->emittance = 0.0;
 			// Reset directional emittance fields as well
-			voxel_ptr->emittance_reflected = 0.0;
-			voxel_ptr->emittance_transmitted = 0.0;
-			voxel_ptr->emittance_diffuse = 0.0;
+			voxel_ptr->specular_reflection = 0.0;
+			voxel_ptr->diffuse_transmission = 0.0;
+			voxel_ptr->diffuse_reflection = 0.0;
 		}
 	}
 
@@ -444,9 +444,9 @@ void Medium::normalize() {
 			voxel_ptr->emittance /= config_.num_photons() * config_.num_sources();
 			
 			// CRITICAL FIX: Also normalize the directional emittance fields used by energy conservation
-			voxel_ptr->emittance_reflected /= config_.num_photons() * config_.num_sources();
-			voxel_ptr->emittance_transmitted /= config_.num_photons() * config_.num_sources();
-			voxel_ptr->emittance_diffuse /= config_.num_photons() * config_.num_sources();
+			voxel_ptr->specular_reflection /= config_.num_photons() * config_.num_sources();
+			voxel_ptr->diffuse_transmission /= config_.num_photons() * config_.num_sources();
+			voxel_ptr->diffuse_reflection /= config_.num_photons() * config_.num_sources();
 		}
 	}
 }

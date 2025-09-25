@@ -538,7 +538,7 @@ void Renderer::draw_voxels(const Settings& settings) {
 
 					if (voxel) {
 						float absorption = static_cast<float>(voxel->absorption);
-						float emittance = static_cast<float>(voxel->emittance);
+						float emittance = static_cast<float>(voxel->total_emittance()); // Combines all emittance types including specular reflection
 
 						// DEBUG: Print ALL voxels that have emittance values
 						if (emittance > 1e-10f) {
@@ -666,9 +666,9 @@ void Renderer::draw_voxels(const Settings& settings) {
 						float fz = static_cast<float>(z);
 						glm::vec3 voxel_pos(fx, fy, fz);
 
-						// Use real emittance data from simulation - do not add artificial surface scattering
+						// Use real emittance data from simulation - including specular reflection at entry
 						float absorption = static_cast<float>(voxel->absorption);
-						float emittance = static_cast<float>(voxel->emittance);
+						float emittance = static_cast<float>(voxel->total_emittance()); // Combines emittance_transmitted + emittance_reflected + emittance_diffuse
 
 						float total_energy;
 						if (settings.voxel_mode == VoxelMode::Absorption) {
@@ -928,7 +928,7 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 
 					// Calculate energy based on current mode
 					float absorption = static_cast<float>(voxel->absorption);
-					float emittance = static_cast<float>(voxel->emittance);
+					float emittance = static_cast<float>(voxel->total_emittance()); // Includes specular reflection from entry
 					
 					float total_energy;
 					
@@ -3149,7 +3149,7 @@ void Renderer::update_cached_energy_range(const Settings& settings) const {
 															 static_cast<uint32_t>(iz));
 						if (voxel) {
 							float absorption = static_cast<float>(voxel->absorption);
-							float emittance = static_cast<float>(voxel->emittance);
+							float emittance = static_cast<float>(voxel->total_emittance()); // Includes specular reflection
 							
 							// Use the current settings to determine energy calculation method
 							float total_energy;
