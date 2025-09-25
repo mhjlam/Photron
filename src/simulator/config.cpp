@@ -101,24 +101,11 @@ bool Config::parse_general_config(std::list<std::string>& data) {
 
 	// Parse each parameter
 	for (const auto& [param, value] : param_values) {
-		if (equals(param, "numphotons") || equals(param, "photons")) {
+		if (equals(param, "photons")) {
 			num_photons_ = str2num<uint64_t>(value);
 		}
-		else if (equals(param, "ambienteta")) {
-			// ambient eta is now always 1.0 (air) - ignore but keep for backward compatibility
-			if (str2num<double>(value) != 1.0) {
-				std::cerr << "Warning: ambienteta is deprecated and forced to 1.0 (air)" << std::endl;
-			}
-		}
-		else if (equals(param, "voxelsize") || equals(param, "voxel_size")) {
+		else if (equals(param, "voxel_size")) {
 			vox_size_ = str2num<double>(value);
-		}
-		else if (equals(param, "ignore-partial")) {
-			// partial is now always enabled - ignore this parameter for compatibility
-		}
-		else if (equals(param, "progress")) {
-			// progress is renamed to verbose - keep for backward compatibility
-			verbose_ = str2num<bool>(value);
 		}
 		else if (equals(param, "verbose")) {
 			verbose_ = str2num<bool>(value);
@@ -127,9 +114,6 @@ bool Config::parse_general_config(std::list<std::string>& data) {
 			deterministic_ = str2num<bool>(value);
 		}
 	}
-
-	// Validation
-	// Ambient eta is now always 1.0 (air) - no validation needed
 
 	return true;
 }
@@ -184,15 +168,6 @@ bool Config::parse_source_config(std::list<std::string>& data) {
 
 	return true;
 }
-
-/*
-// Legacy method - no longer used since material definitions are inline only
-bool Config::parse_tissue_config(std::list<std::string>& data) {
-	// This method is deprecated - all materials are now defined inline within layers
-	std::cerr << "Error: parse_tissue_config called but standalone materials are no longer supported." << std::endl;
-	return false;
-}
-*/
 
 bool Config::parse_layer_config(std::list<std::string>& data) {
 	Layer layer;
@@ -355,9 +330,6 @@ bool Config::parse_layer_config(std::list<std::string>& data) {
 			std::cerr << "  Computed normal: (" << computed_normal.x << ", " << computed_normal.y << ", " << computed_normal.z << ")" << std::endl;
 		}
 
-		// Use computed normal instead of config normal for accuracy
-		// triangle.set_normal(face_normal);
-		
 		// add the triangle to the triangle mesh
 		triangle_mesh.push_back(triangle);
 	}

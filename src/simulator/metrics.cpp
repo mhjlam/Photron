@@ -185,9 +185,9 @@ void Metrics::print_report(const class Simulator& simulator) {
 		          << energy.total_absorption << std::endl;
 		std::cout << "  Total diffusion:     " << std::fixed << std::setprecision(6) 
 		          << energy.total_diffusion << std::endl;
-		std::cout << "    Reflection:        " << std::fixed << std::setprecision(6) 
+		std::cout << "    Diffuse reflection:" << std::fixed << std::setprecision(6) 
 		          << energy.total_reflection << std::endl;
-		std::cout << "    Transmission:      " << std::fixed << std::setprecision(6) 
+		std::cout << "    Diffuse transmission:" << std::fixed << std::setprecision(6) 
 		          << energy.total_transmission << std::endl;
 		
 		std::cout << std::endl;
@@ -213,9 +213,9 @@ void Metrics::print_report(const class Simulator& simulator) {
 			          << surface_reflection_percent << "%" << std::endl;
 			std::cout << "  Absorption:          " << std::fixed << std::setprecision(1) 
 			          << absorption_percent << "%" << std::endl;
-			std::cout << "  Reflection:          " << std::fixed << std::setprecision(1) 
+			std::cout << "  Diffuse reflection:  " << std::fixed << std::setprecision(1) 
 			          << reflection_percent << "%" << std::endl;
-			std::cout << "  Transmission:        " << std::fixed << std::setprecision(1) 
+			std::cout << "  Diffuse transmission:" << std::fixed << std::setprecision(1) 
 			          << transmission_percent << "%" << std::endl;
 			std::cout << "  Total:               " << std::fixed << std::setprecision(1) 
 			          << total_percent << "%" << std::endl;
@@ -227,8 +227,8 @@ void Metrics::print_report(const class Simulator& simulator) {
 		} else {
 			std::cout << "  Specular reflection: 0.0%" << std::endl;
 			std::cout << "  Absorption:          0.0%" << std::endl;
-			std::cout << "  Reflection:          0.0%" << std::endl;
-			std::cout << "  Transmission:        0.0%" << std::endl;
+			std::cout << "  Diffuse reflection:  0.0%" << std::endl;
+			std::cout << "  Diffuse transmission:0.0%" << std::endl;
 			std::cout << "  Total:               0.0%" << std::endl;
 		}
 		

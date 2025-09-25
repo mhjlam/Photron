@@ -359,8 +359,8 @@ void Overlay::render_control_panel(Simulator* simulator) {
 					ImGui::Text("Radiance Properties");
 					ImGui::Text("  Total absorption:    %.6f", energy.total_absorption);
 					ImGui::Text("  Total diffusion:     %.6f", energy.total_diffusion);
-					ImGui::Text("    Reflection:        %.6f", energy.total_reflection);
-					ImGui::Text("    Transmission:      %.6f", energy.total_transmission);
+					ImGui::Text("    Diffuse reflection:%.6f", energy.total_reflection);
+					ImGui::Text("    Diffuse transmission:%.6f", energy.total_transmission);
 					
 					ImGui::Spacing();
 					
@@ -388,8 +388,8 @@ void Overlay::render_control_panel(Simulator* simulator) {
 
 						ImGui::Text("  Specular reflection: %7.1f%%", surface_reflection_percent);
 						ImGui::Text("  Absorption:          %7.1f%%", absorption_percent);
-						ImGui::Text("  Reflection:          %7.1f%%", reflection_percent);
-						ImGui::Text("  Transmission:        %7.1f%%", transmission_percent);
+						ImGui::Text("  Diffuse reflection:  %7.1f%%", reflection_percent);
+						ImGui::Text("  Diffuse transmission:%7.1f%%", transmission_percent);
 						ImGui::TextColored(total_color, "  Total:               %7.1f%%", total_percent);
 					}
 					else {

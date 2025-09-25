@@ -2268,6 +2268,11 @@ void Simulator::normalize() {
 
 			voxel->absorption /= (Config::get().num_photons() * Config::get().num_sources());
 			voxel->emittance /= (Config::get().num_photons() * Config::get().num_sources());
+			
+			// CRITICAL FIX: Also normalize the directional emittance fields used by energy conservation
+			voxel->emittance_reflected /= (Config::get().num_photons() * Config::get().num_sources());
+			voxel->emittance_transmitted /= (Config::get().num_photons() * Config::get().num_sources());
+			voxel->emittance_diffuse /= (Config::get().num_photons() * Config::get().num_sources());
 		}
 	}
 }
@@ -2544,9 +2549,9 @@ void Simulator::report() {
 		}
 		
 		ofs_rep << "Total absorption:      " << '\t' << std::fixed << total_absorption << std::endl;
-		ofs_rep << "Diffuse reflection:    " << '\t' << std::fixed << diffuse_reflection << std::endl;
-		ofs_rep << "Specular reflection:   " << '\t' << std::fixed << specular_reflection << std::endl;
+		ofs_rep << "Surface reflection:    " << '\t' << std::fixed << specular_reflection << std::endl;
 		ofs_rep << "Surface refraction:    " << '\t' << std::fixed << surface_refraction << std::endl;
+		ofs_rep << "Diffuse reflection:    " << '\t' << std::fixed << diffuse_reflection << std::endl;
 		ofs_rep << "Diffuse transmission:  " << '\t' << std::fixed << diffuse_transmission << std::endl;
 		ofs_rep << "Specular transmission: " << '\t' << std::fixed << specular_transmission << std::endl;
 		ofs_rep << std::endl;
@@ -3376,7 +3381,8 @@ Simulator::EnergyConservation Simulator::calculate_energy_conservation() const {
 	result.surface_refraction = get_combined_surface_refraction();
 	
 	// Calculate total voxel-based energy for accurate accounting
-	// This approach bypasses normalization issues and gives the most accurate energy accounting
+	// Use the actual voxel-level reflection/transmission classification
+	// that was recorded during photon exit in the radiate() function
 	double total_voxel_absorption = 0.0;
 	double total_voxel_reflection = 0.0;
 	double total_voxel_transmission = 0.0;
@@ -3387,22 +3393,10 @@ Simulator::EnergyConservation Simulator::calculate_energy_conservation() const {
 			if (voxel && voxel->material != nullptr) {
 				total_voxel_absorption += voxel->absorption;
 				
-				// Classify emittance into reflection vs transmission based on medium records
-				// The medium records contain direction-classified emittance after aggregate_voxel_data()
-				const auto& medium_metrics = medium.get_metrics();
-				double total_medium_emittance = medium_metrics.get_diffuse_reflection() + medium_metrics.get_diffuse_transmission();
-				
-				if (total_medium_emittance > 0.0) {
-					// Proportionally split voxel emittance based on medium record ratios
-					double reflection_ratio = medium_metrics.get_diffuse_reflection() / total_medium_emittance;
-					double transmission_ratio = medium_metrics.get_diffuse_transmission() / total_medium_emittance;
-					
-					total_voxel_reflection += voxel->emittance * reflection_ratio;
-					total_voxel_transmission += voxel->emittance * transmission_ratio;
-				} else {
-					// No medium emittance recorded, assume all goes to transmission
-					total_voxel_transmission += voxel->emittance;
-				}
+				// Use the actual direction-classified emittance that was recorded
+				// during photon exit based on the is_photon_reflecting() determination
+				total_voxel_reflection += voxel->emittance_reflected;
+				total_voxel_transmission += voxel->emittance_transmitted;
 			}
 		}
 	}

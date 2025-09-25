@@ -736,8 +736,8 @@ void App::save_results_as_text(const std::string& filepath) {
 		file << "\nRadiance Properties\n";
 		file << "  Total absorption:    " << std::fixed << std::setprecision(6) << energy.total_absorption << "\n";
 		file << "  Total diffusion:     " << std::fixed << std::setprecision(6) << energy.total_diffusion << "\n";
-		file << "    Reflection:        " << std::fixed << std::setprecision(6) << energy.total_reflection << "\n";
-		file << "    Transmission:      " << std::fixed << std::setprecision(6) << energy.total_transmission << "\n";
+		file << "    Diffuse reflection:" << std::fixed << std::setprecision(6) << energy.total_reflection << "\n";
+		file << "    Diffuse transmission:" << std::fixed << std::setprecision(6) << energy.total_transmission << "\n";
 		
 		file << "\nEnergy Conservation\n";
 		if (energy.surface_refraction > 0) {
@@ -757,15 +757,15 @@ void App::save_results_as_text(const std::string& filepath) {
 			
 			file << "  Surface reflection:  " << std::fixed << std::setprecision(1) << surface_reflection_percent << "%\n";
 			file << "  Absorption:          " << std::fixed << std::setprecision(1) << absorption_percent << "%\n";
-			file << "  Reflection:  		" << std::fixed << std::setprecision(1) << reflection_percent << "%\n";
-			file << "  Transmission:        " << std::fixed << std::setprecision(1) << transmission_percent << "%\n";
+			file << "  Diffuse reflection:  " << std::fixed << std::setprecision(1) << reflection_percent << "%\n";
+			file << "  Diffuse transmission:" << std::fixed << std::setprecision(1) << transmission_percent << "%\n";
 			file << "  Total:               " << std::fixed << std::setprecision(1) << total_percent << "%\n";
 		}
 		else {
 			file << "  Surface reflection:  0.0%\n";
 			file << "  Absorption:          0.0%\n";
-			file << "  Reflection:  		0.0%\n";
-			file << "  Transmission:        0.0%\n";
+			file << "  Diffuse reflection:  0.0%\n";
+			file << "  Diffuse transmission:0.0%\n";
 			file << "  Total:               0.0%\n";
 		}
 		
