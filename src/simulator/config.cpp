@@ -76,10 +76,9 @@ bool Config::parse_config_file(const std::string& filename) {
 			}
 		}
 		else if (equals(section_name, "material") || equals(section_name, "tissue")) {
-			if (!parse_tissue_config(data)) {
-				std::cerr << "Failed to parse " << section_name << " section." << std::endl;
-				return false;
-			}
+			std::cerr << "Error: Standalone material/tissue blocks are no longer supported. "
+			          << "Define material properties directly within layer blocks." << std::endl;
+			return false;
 		}
 		else if (equals(section_name, "layer")) {
 			if (!parse_layer_config(data)) {
@@ -137,6 +136,9 @@ bool Config::parse_general_config(std::list<std::string>& data) {
 
 bool Config::parse_source_config(std::list<std::string>& data) {
 	Source source;
+	
+	// Automatically assign ID based on order of definition
+	source.id = static_cast<uint64_t>(sources_.size());
 
 	// set source properties
 	for (const auto& it : parameter_values(data)) {
@@ -144,7 +146,8 @@ bool Config::parse_source_config(std::list<std::string>& data) {
 		std::string value = it.second;
 
 		if (equals(param, "id")) {
-			source.id = str2num<uint64_t>(value);
+			std::cerr << "Error: Explicit source IDs are no longer supported. IDs are assigned automatically based on order of definition." << std::endl;
+			return false;
 		}
 		else if (equals(param, "position")) {
 			std::vector<double> p = split(value, ',');
@@ -182,70 +185,32 @@ bool Config::parse_source_config(std::list<std::string>& data) {
 	return true;
 }
 
+/*
+// Legacy method - no longer used since material definitions are inline only
 bool Config::parse_tissue_config(std::list<std::string>& data) {
-	Material material;
-
-	// set material type properties
-	for (const auto& it : parameter_values(data)) {
-		std::string param = it.first;
-		std::string value = it.second;
-
-		if (equals(param, "id")) {
-			material.set_id(str2num<uint8_t>(value));
-		}
-		else if (equals(param, "ani")) {
-			material.set_g(str2num<double>(value));
-		}
-		else if (equals(param, "eta")) {
-			material.set_eta(str2num<double>(value));
-		}
-		else if (equals(param, "mua")) {
-			material.set_mu_a(str2num<double>(value));
-		}
-		else if (equals(param, "mus")) {
-			material.set_mu_s(str2num<double>(value));
-		}
-	}
-
-	// check faulty input
-	if (material.g() < -1.0 || material.g() > 1.0) {
-		std::cerr << "Error: Invalid anisotropy factor g=" << material.g() 
-		          << " for material ID " << (int)material.id()
-		          << ". Must be between -1.0 and 1.0" << std::endl;
-		return false;
-	}
-	if (material.eta() < 1.0 || material.eta() > 3.0) {
-		std::cerr << "Error: Invalid refractive index eta=" << material.eta() 
-		          << " for material ID " << (int)material.id()
-		          << ". Must be between 1.0 and 3.0" << std::endl;
-		return false;
-	}
-	if (material.mu_a() < 0) {
-		std::cerr << "Error: Invalid absorption coefficient mu_a=" << material.mu_a() 
-		          << " for material ID " << (int)material.id()
-		          << ". Must be >= 0" << std::endl;
-		return false;
-	}
-	if (material.mu_s() < 0) {
-		std::cerr << "Error: Invalid scattering coefficient mu_s=" << material.mu_s() 
-		          << " for material ID " << (int)material.id()
-		          << ". Must be >= 0" << std::endl;
-		return false;
-	}
-
-	// add to collection
-	tissues_.push_back(material);
-
-	return true;
+	// This method is deprecated - all materials are now defined inline within layers
+	std::cerr << "Error: parse_tissue_config called but standalone materials are no longer supported." << std::endl;
+	return false;
 }
+*/
 
 bool Config::parse_layer_config(std::list<std::string>& data) {
 	Layer layer;
+	
+	// Automatically assign ID based on order of definition
+	layer.id = static_cast<uint8_t>(tissues_.size());
 
 	std::vector<glm::uvec3> faces;       // vertex index tuple (faces)
 	std::vector<glm::dvec3> vertices;    // triangle vertices
 	std::vector<glm::dvec3> normals;     // normal vectors (one per triangle)
 	std::vector<Triangle> triangle_mesh; // constructed faces
+
+	// Material properties (required inline definition)
+	bool has_eta = false, has_mua = false, has_mus = false, has_ani = false;
+	double eta = 1.37;
+	double mua = 1.0;
+	double mus = 10.0;
+	double ani = 0.0;
 
 	// set layer properties
 	for (const auto& it : parameter_values(data)) {
@@ -253,16 +218,33 @@ bool Config::parse_layer_config(std::list<std::string>& data) {
 		std::string value = it.second;
 
 		// identifiers
-		if (equals(param, "id")) {
-			layer.id = static_cast<uint8_t>(str2num<int>(value));
+		if (equals(param, "material") || equals(param, "tissue")) {
+			std::cerr << "Error: Material references are no longer supported in layer " << (int)layer.id
+			          << ". Define material properties (eta, mua, mus, ani) directly within the layer block." << std::endl;
+			return false;
 		}
-		else if (equals(param, "material") || equals(param, "tissue")) {
-			layer.tissue_id = static_cast<uint8_t>(str2num<int>(value));
+
+		// Material properties (required inline definition)
+		else if (equals(param, "eta")) {
+			eta = str2num<double>(value);
+			has_eta = true;
+		}
+		else if (equals(param, "mua")) {
+			mua = str2num<double>(value);
+			has_mua = true;
+		}
+		else if (equals(param, "mus")) {
+			mus = str2num<double>(value);
+			has_mus = true;
+		}
+		else if (equals(param, "ani") || equals(param, "g")) {
+			ani = str2num<double>(value);
+			has_ani = true;
 		}
 
 		// geometric properties
 		// vertex
-		else if (equals(param, "vert3")) {
+		else if (equals(param, "vertex")) {
 			std::vector<double> v = split(value, ',');
 			if (v.size() < 3) {
 				continue;
@@ -272,10 +254,10 @@ bool Config::parse_layer_config(std::list<std::string>& data) {
 			vertices.push_back(vert);
 		}
 		// triangle face
-		else if (equals(param, "face3")) {
+		else if (equals(param, "face")) {
 			std::vector<double> v = split(value, ',');
 
-			// invalid face3 detected
+			// invalid face detected
 			if (v.size() < 3) {
 				std::cerr << "Error: Layer " << (int)layer.id 
 				          << " face definition '" << value 
@@ -287,7 +269,7 @@ bool Config::parse_layer_config(std::list<std::string>& data) {
 				glm::uvec3(static_cast<uint32_t>(v[0]), static_cast<uint32_t>(v[1]), static_cast<uint32_t>(v[2])));
 		}
 		// normal
-		else if (equals(param, "norm3")) {
+		else if (equals(param, "normal")) {
 			std::vector<double> v = split(value, ',');
 			if (v.size() < 3) {
 				continue;
@@ -388,6 +370,59 @@ bool Config::parse_layer_config(std::list<std::string>& data) {
 	
 	// Validate and fix normal orientations to ensure consistency
 	layer.validate_and_fix_normals();
+	
+	// Validate that all required material properties are provided
+	if (!has_eta || !has_mua || !has_mus || !has_ani) {
+		std::cerr << "Error: Layer " << (int)layer.id << " is missing required material properties. ";
+		std::cerr << "All layers must define: eta, mua, mus, ani (or g)" << std::endl;
+		std::cerr << "Missing: ";
+		if (!has_eta) std::cerr << "eta ";
+		if (!has_mua) std::cerr << "mua ";
+		if (!has_mus) std::cerr << "mus ";
+		if (!has_ani) std::cerr << "ani ";
+		std::cerr << std::endl;
+		return false;
+	}
+
+	// Validate material property ranges
+	if (ani < -1.0 || ani > 1.0) {
+		std::cerr << "Error: Invalid anisotropy factor ani=" << ani 
+		          << " for layer " << (int)layer.id
+		          << ". Must be between -1.0 and 1.0" << std::endl;
+		return false;
+	}
+	if (eta < 1.0 || eta > 3.0) {
+		std::cerr << "Error: Invalid refractive index eta=" << eta 
+		          << " for layer " << (int)layer.id
+		          << ". Must be between 1.0 and 3.0" << std::endl;
+		return false;
+	}
+	if (mua < 0) {
+		std::cerr << "Error: Invalid absorption coefficient mua=" << mua 
+		          << " for layer " << (int)layer.id
+		          << ". Must be >= 0" << std::endl;
+		return false;
+	}
+	if (mus < 0) {
+		std::cerr << "Error: Invalid scattering coefficient mus=" << mus 
+		          << " for layer " << (int)layer.id
+		          << ". Must be >= 0" << std::endl;
+		return false;
+	}
+	
+	// Create material with the inline properties
+	uint8_t material_id = static_cast<uint8_t>(tissues_.size());
+	Material inline_material(material_id, ani, eta, mua, mus);
+	tissues_.push_back(std::move(inline_material));
+	
+	// Update layer to reference the new material
+	layer.tissue_id = material_id;
+	
+	if (verbose_) {
+		std::cout << "Created material " << (int)material_id 
+		          << " for layer " << (int)layer.id
+		          << " (eta=" << eta << ", mua=" << mua << ", mus=" << mus << ", ani=" << ani << ")" << std::endl;
+	}
 	
 	// add to collection using move semantics
 	layers_.push_back(std::move(layer));

@@ -220,6 +220,19 @@ void App::setup_overlay_callbacks() {
 		simulator_->simulate();
 		simulator_->report();
 
+		// Reset camera to default position when new config is loaded
+		if (renderer_) {
+			// Always switch to Orbit mode before resetting to ensure proper camera direction reset
+			renderer_->set_camera_mode(true); // true = Orbit mode
+			renderer_->reset_camera();
+
+			// Update the UI to reflect the mode change
+			if (overlay_) {
+				Settings& settings = overlay_->get_settings();
+				settings.camera_mode = CameraMode::Orbit;
+			}
+		}
+
 		// Re-enable UI
 		overlay_->set_ui_enabled(true);
 	});

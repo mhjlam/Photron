@@ -347,7 +347,7 @@ void Overlay::render_control_panel(Simulator* simulator) {
 					ImGui::Text("  Total photons:       %zu", simulator->get_paths().size());
 					ImGui::Text("  Photons entered:     %d", metrics.get_photons_entered());
 					ImGui::Text("  Scatter events:      %.0f", metrics.get_scatter_events());
-					ImGui::Text("  Total path length:   %7.6f", metrics.compute_path_length());
+					ImGui::Text("  Total path length:   %8.4f", metrics.compute_path_length());
 					ImGui::Text("  Average step size:   %.6f", metrics.compute_average_step_size());
 					ImGui::Text("  Diffusion distance:  %.6f", metrics.compute_diffusion_distance());
 					
