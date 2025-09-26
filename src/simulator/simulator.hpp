@@ -23,6 +23,34 @@
 // Forward declaration for Random class
 class Random;
 
+// Detailed photon tracking structure for comprehensive reporting
+struct DetailedPhotonData {
+	uint64_t id {0};
+	
+	// Entrance information
+	glm::dvec3 entrance_position {0.0};
+	glm::dvec3 entrance_direction {0.0};
+	
+	// Exit information (if photon exits)
+	bool has_exit {false};
+	glm::dvec3 exit_position {0.0};
+	glm::dvec3 exit_direction {0.0};
+	
+	// Termination information (final state when photon stops)
+	glm::dvec3 termination_position {0.0};
+	glm::dvec3 termination_direction {0.0};
+	
+	// Simulation statistics
+	uint32_t scatter_count {0};
+	double total_absorption_deposited {0.0};
+	double remaining_weight {0.0};
+	
+	// Additional tracking
+	double initial_weight {0.0};
+	bool exited_medium {false};
+	std::string termination_reason {"unknown"};
+};
+
 class Simulator
 {
 public:
@@ -44,6 +72,9 @@ public:
 	std::vector<Source> sources;
 	std::vector<std::shared_ptr<Emitter>> emitters;
 	std::vector<Medium> mediums;
+	
+	// Detailed photon tracking data for comprehensive reporting
+	std::vector<DetailedPhotonData> detailed_photon_data;
 
 	std::shared_ptr<Random> rng;
 	double mcml_weight_threshold;

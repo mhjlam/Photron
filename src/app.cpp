@@ -904,9 +904,6 @@ void App::run_simulation_with_progress() {
 	simulator_->simulate();
 	simulator_->report();
 	
-	std::cout << "=== Simulation Complete ===" << std::endl << std::endl;
-	std::cout << "Initializing GUI..." << std::endl;
-	
 	if (Config::get().log()) {
 		DebugLogger::instance().log_info("=== Simulation Complete ===");
 		DebugLogger::instance().log_info("Initializing GUI...");

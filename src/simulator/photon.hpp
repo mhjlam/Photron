@@ -97,6 +97,7 @@ public:
 	glm::dvec3 voxel_normal {0.0}; 		// voxel boundary intersection normal
 
 	bool scatters {false};         		// true if photon path scatters at least once
+	uint32_t scatter_count {0};			// total number of scattering events for this photon
 
 	// Exit classification (set when photon exits the medium)
 	enum class ExitType { NONE, REFLECTED, TRANSMITTED };

@@ -221,7 +221,7 @@ void Overlay::render_main_menu_bar(bool has_simulator) {
 void Overlay::render_control_panel(Simulator* simulator) {
 	// Set window position and size to be larger to accommodate more information
 	ImGui::SetNextWindowPos(ImVec2(10, 30), ImGuiCond_FirstUseEver);
-	ImGui::SetNextWindowSize(ImVec2(250, 480), ImGuiCond_Always); // Force size update every time
+	ImGui::SetNextWindowSize(ImVec2(240, 640), ImGuiCond_Always); // Force size update every time
 
 	// Create non-movable, non-resizable window like VolRec
 	ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;

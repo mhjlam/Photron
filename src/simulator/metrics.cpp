@@ -107,30 +107,6 @@ void Metrics::stop_clock() {
 	elapsed_time_ms_ = duration.count() / 1000.0; // Convert microseconds to milliseconds
 }
 
-void Metrics::write_to_file() {
-	std::ofstream out(App::get_output_path("experiment.out").c_str(), std::ios_base::app);
-	if (!out.good()) {
-		return;
-	}
-
-	out << "Path length        " << path_length_ << std::endl;
-	out << "Scatter events     " << scatter_events_ << std::endl;
-	out << "Average step size  " << average_step_size_ << std::endl;
-	out << "Diffusion distance " << diffusion_distance_ << std::endl;
-
-	out << "Total absorption   " << total_absorption_ << std::endl;
-	out << "Total reflection   " << total_reflection_ << std::endl;
-	out << "Total transmission " << total_transmission_ << std::endl;
-	out << "Total diffusion    " << total_diffusion_ << std::endl;
-
-	out << "Surface reflection " << surface_reflection_ << std::endl;
-	out << "Surface refraction " << surface_refraction_ << std::endl;
-
-	out << "Total time taken   " << elapsed_time_ms_ << " ms" << std::endl;
-
-	out << std::endl;
-}
-
 void Metrics::print_report(const class Simulator& simulator) {
 	std::cout << std::endl << "=== Monte Carlo Simulation Results ===" << std::endl << std::endl;
 	

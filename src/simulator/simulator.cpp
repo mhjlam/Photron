@@ -118,8 +118,8 @@ bool Simulator::initialize(std::string file) {
 	// Initialize debug logger (only in log mode)
 	if (Config::get().log()) {
 		DebugLogger::instance().initialize(
-			App::get_output_path("photon_trace_debug.csv"), 
-			App::get_output_path("simulation_debug.log"), 
+			App::get_output_path("trace.csv"), 
+			App::get_output_path("debug.log"), 
 			true
 		);
 		DebugLogger::instance().log_info("=== Photron Simulation Started ===");
@@ -308,8 +308,8 @@ void Simulator::simulate() {
 	// Normalize physical quantities
 	normalize();
 
-	// Output detailed voxel emittance summary to debug file
-	output_voxel_emittance_summary();
+	// NOTE: Voxel data output now handled by report() function
+	// output_voxel_emittance_summary();  // Commented out - superseded by report()
 
 	metrics.stop_clock();
 	
@@ -353,7 +353,6 @@ void Simulator::simulate() {
 	
 	metrics.collect_data(total_absorption, specular_reflection, diffuse_reflection,
 						 surface_refraction, specular_transmission, diffuse_transmission);
-	metrics.write_to_file();
 	metrics.print_report(*this);
 }
 
@@ -461,6 +460,27 @@ void Simulator::launch(Photon& photon, const Source& source) {
 	photon.total_energy_radiated = 0.0;
 	photon.total_energy_absorbed = 0.0;
 	photon.radiate_call_count = 0;
+	
+	// Initialize scatter count for detailed tracking
+	photon.scatter_count = 0;
+	photon.scatters = false;
+	
+	// Create detailed tracking data for this photon
+	DetailedPhotonData detailed_data;
+	detailed_data.id = photon.id;
+	detailed_data.entrance_position = source.origin;
+	detailed_data.entrance_direction = source.direction;
+	detailed_data.initial_weight = photon.weight;
+	detailed_data.remaining_weight = photon.weight;
+	detailed_data.has_exit = false;
+	detailed_data.exited_medium = false;
+	detailed_data.termination_reason = "initialized";
+	
+	// Ensure detailed_photon_data has enough space
+	if (detailed_photon_data.size() <= photon.id) {
+		detailed_photon_data.resize(photon.id + 1);
+	}
+	detailed_photon_data[photon.id] = detailed_data;
 	
 	// Copy source data directly into photon
 	photon.source.origin = source.origin;
@@ -2106,6 +2126,19 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 	auto emitter = std::make_shared<Emitter>(photon.id, photon.intersect, direction, weight, emitter_exit_type);
 	emitters.push_back(emitter);
 	
+	// Update detailed photon tracking data for exit
+	if (photon.id < detailed_photon_data.size()) {
+		DetailedPhotonData& detailed = detailed_photon_data[photon.id];
+		detailed.has_exit = true;
+		detailed.exit_position = photon.intersect;
+		detailed.exit_direction = direction;
+		detailed.exited_medium = true;
+		detailed.scatter_count = photon.scatter_count;
+		detailed.total_absorption_deposited = photon.total_energy_absorbed;
+		detailed.remaining_weight = weight;
+		detailed.termination_reason = (photon.exit_type == Photon::ExitType::REFLECTED) ? "reflected" : "transmitted";
+	}
+	
 	// Establish bidirectional connection between exit node and emitter
 	if (exit_node) {
 		exit_node->emitter = emitter;
@@ -2148,6 +2181,10 @@ void Simulator::scatter(Photon& photon) {
 
 	// Use MCML 3.0.0 scattering algorithm
 	scatter_photon(photon, *material_ptr);
+	
+	// Increment scatter count for this photon
+	photon.scatter_count++;
+	photon.scatters = true;  // Mark that this photon has scattered at least once
 
 	// normalize direction vector (safety check)
 	photon.direction = glm::normalize(photon.direction);
@@ -2399,7 +2436,7 @@ void Simulator::aggregate_voxel_data() {
 					if (voxel && voxel->material) {
 						// Only aggregate voxels that belong to this medium
 						// Check if voxel's material ID matches this medium's ID
-						if (voxel->material->id() - '0' == (&medium - &mediums[0])) {
+						if (voxel->material->id() == (&medium - &mediums[0])) {
 							// Aggregate absorption
 							medium.get_metrics().add_total_absorption(voxel->absorption);
 							
@@ -2421,17 +2458,25 @@ void Simulator::aggregate_voxel_data() {
  *	Write the resulting physical quantities to a file.
  ***********************************************************/
 void Simulator::report() {
-	std::string str_sim = App::get_output_path("simulation.out");
-	std::string str_abs = App::get_output_path("absorption.out");
-	std::string str_emi = App::get_output_path("emittance.out");
-	std::string str_ptd = App::get_output_path("photons.out");
+	std::string str_simulation = App::get_output_path("simulation.log");  // Changed to .log
+	std::string str_absorption = App::get_output_path("absorption.csv");  // Changed to .csv
+	std::string str_emi = App::get_output_path("emittance.out");   // Keep for legacy (unused)
+	std::string str_photons = App::get_output_path("photons.csv");     // Changed to .csv
+	
+	// NEW: Combined optical properties file (emittance + diffusion)
+	std::string str_optics = App::get_output_path("optics.csv");   // Changed to .csv
+	std::string str_voxels = App::get_output_path("voxels.csv");   // Combined voxels file as CSV
 
-	std::ofstream ofs_rep(str_sim.c_str(), std::ios_base::out); // simulation report
-	std::ofstream ofs_abs(str_abs.c_str(), std::ios_base::out); // absorption report
-	std::ofstream ofs_emi(str_emi.c_str(), std::ios_base::out); // emittance report
-	std::ofstream ofs_ptn(str_ptd.c_str(), std::ios_base::out); // photon exitance report
+	std::ofstream ofs_rep(str_simulation.c_str(), std::ios_base::out); // simulation report
+	std::ofstream ofs_abs(str_absorption.c_str(), std::ios_base::out); // absorption report
+	std::ofstream ofs_ptn(str_photons.c_str(), std::ios_base::out); // photon exitance report
+	
+	// NEW: Combined optical properties and per-voxel statistics
+	std::ofstream ofs_optical(str_optics.c_str(), std::ios_base::out); // optical properties (emittance + diffusion)
+	std::ofstream ofs_vox_stats(str_voxels.c_str(), std::ios_base::out); // per-voxel statistics
 
-	if (!ofs_rep.good() || !ofs_abs.good() || !ofs_emi.good() || !ofs_ptn.good()) {
+	if (!ofs_rep.good() || !ofs_abs.good() || !ofs_ptn.good() ||
+		!ofs_optical.good() || !ofs_vox_stats.good()) {
 		std::cerr << "Error: an output file could not be opened." << std::endl;
 		return;
 	}
@@ -2447,13 +2492,16 @@ void Simulator::report() {
 		ofs_rep << "Configuration" << std::endl;
 		ofs_rep << "################################################################" << std::endl;
 		ofs_rep << std::endl;
-		ofs_rep << "Number of photons: " << '\t' << Config::get().num_photons() << std::endl;
-		ofs_rep << "Number of layers:  " << '\t' << Config::get().num_layers() << std::endl;
-		ofs_rep << "Number of voxels:  " << '\t' << Config::get().num_voxels() << std::endl;
-		ofs_rep << "Grid dimensions:   " << '\t' << Config::get().nx() 
-				<< " x " << Config::get().ny() << " x " << Config::get().nz() << std::endl;
-		ofs_rep << "Voxel dimensions:  " << '\t' << Config::get().vox_size() << " x " << Config::get().vox_size() << " x "
-				<< Config::get().vox_size() << std::endl;
+		ofs_rep << "Number of photons:        " << Config::get().num_photons() << std::endl;
+		ofs_rep << "Number of layers:         " << Config::get().num_layers() << std::endl;
+		ofs_rep << "Number of voxels:         " << Config::get().num_voxels() << std::endl;
+		ofs_rep << "Grid dimensions:          " << Config::get().nx() 
+				<< " x " << Config::get().ny() 
+				<< " x " << Config::get().nz() << std::endl;
+		ofs_rep << "Voxel dimensions:         " << Config::get().vox_size() 
+				<< " x " << Config::get().vox_size() 
+				<< " x " << Config::get().vox_size() << std::endl;
+		ofs_rep << "Deterministic mode:       " << (Config::get().deterministic() ? "Yes" : "No") << std::endl;
 		ofs_rep << std::endl << std::endl;
 
 		// write recorded parameters: a, rs, rd, (ts, td) - aggregate across all mediums
@@ -2474,139 +2522,365 @@ void Simulator::report() {
 			specular_transmission += medium_metrics.get_specular_transmission();
 		}
 		
-		ofs_rep << "Total absorption:      " << '\t' << std::fixed << total_absorption << std::endl;
-		ofs_rep << "Surface reflection:    " << '\t' << std::fixed << specular_reflection << std::endl;
-		ofs_rep << "Surface refraction:    " << '\t' << std::fixed << surface_refraction << std::endl;
-		ofs_rep << "Diffuse reflection:    " << '\t' << std::fixed << diffuse_reflection << std::endl;
-		ofs_rep << "Diffuse transmission:  " << '\t' << std::fixed << diffuse_transmission << std::endl;
-		ofs_rep << "Specular transmission: " << '\t' << std::fixed << specular_transmission << std::endl;
+		ofs_rep << "Total absorption:        " << std::fixed << total_absorption << std::endl;
+		ofs_rep << "Surface reflection:      " << std::fixed << specular_reflection << std::endl;
+		ofs_rep << "Surface refraction:      " << std::fixed << surface_refraction << std::endl;
+		ofs_rep << "Diffuse reflection:      " << std::fixed << diffuse_reflection << std::endl;
+		ofs_rep << "Diffuse transmission:    " << std::fixed << diffuse_transmission << std::endl;
+		ofs_rep << "Specular transmission:   " << std::fixed << specular_transmission << std::endl;
 		ofs_rep << std::endl;
+		
+		// Add detailed per-medium statistics
+		ofs_rep << "Per-Medium Details" << std::endl;
+		ofs_rep << "################################################################" << std::endl;
+		
+		for (size_t i = 0; i < mediums.size(); ++i) {
+			const Medium& medium = mediums[i];
+			const auto& volume = medium.get_volume();
+			const auto& medium_metrics = medium.get_metrics();
+			
+			ofs_rep << "Medium " << (i + 1) << ":" << std::endl;
+			ofs_rep << "  Volume dimensions:      " 
+					<< volume.width() << " x " 
+					<< volume.height() << " x " 
+					<< volume.depth() << std::endl;
+			ofs_rep << "  Total voxels:           " << volume.size() << std::endl;
+			
+			// Count different types of voxels
+			size_t material_count = 0, surface_count = 0, boundary_count = 0;
+			for (const auto& voxel_ptr : volume) {
+				if (voxel_ptr->material) material_count++;
+				if (voxel_ptr->is_surface_voxel) surface_count++;
+				if (voxel_ptr->is_boundary_voxel) boundary_count++;
+			}
+			
+			ofs_rep << "  Material voxels:        " << material_count << std::endl;
+			ofs_rep << "  Surface voxels:         " << surface_count << std::endl;
+			ofs_rep << "  Boundary voxels:        " << boundary_count << std::endl;
+			ofs_rep << "  Photons entered:        " << medium_metrics.get_photons_entered() << std::endl;
+			ofs_rep << "  Total absorption:       " << std::fixed << medium_metrics.get_total_absorption() << std::endl;
+			ofs_rep << "  Surface reflection:     " << std::fixed << medium_metrics.get_surface_reflection() << std::endl;
+			ofs_rep << "  Surface refraction:     " << std::fixed << medium_metrics.get_surface_refraction() << std::endl;
+			ofs_rep << "  Diffuse reflection:     " << std::fixed << medium_metrics.get_diffuse_reflection() << std::endl;
+			ofs_rep << "  Diffuse transmission:   " << std::fixed << medium_metrics.get_diffuse_transmission() << std::endl;
+			ofs_rep << "  Specular transmission:  " << std::fixed << medium_metrics.get_specular_transmission() << std::endl;
+			ofs_rep << "  Scatter events:         " << static_cast<int>(medium_metrics.get_scatter_events()) << std::endl;
+			ofs_rep << std::endl;
+		}
 		ofs_rep.close();
 	}
 	else {
-		std::cerr << "Error: file " << str_sim << " could not be opened." << std::endl;
+		std::cerr << "Error: file " << str_simulation << " could not be opened." << std::endl;
 		ofs_rep.close();
 	}
 
-	// write voxel absorption (each 'block' is a slice)
+	// write voxel absorption as CSV
 	if (ofs_abs.good()) {
-		ofs_abs.precision(5);
-		ofs_abs << "################################################################" << std::endl;
-		ofs_abs << "# ABSORPTION REPORT" << std::endl;
-		ofs_abs << "################################################################" << std::endl;
-		ofs_abs << std::endl;
+		ofs_abs.precision(10); // Increased precision to see small values
+		
+		// CSV column headers
+		ofs_abs << "x,y,z,absorption_absolute,absorption_percentage" << std::endl;
 
-		// from rear to front
-		for (uint32_t iz = 0; iz < Config::get().nz(); ++iz) {
-			ofs_abs << "Slice " << iz + 1 << "/" << Config::get().nz();
-			if (iz == 0) {
-				ofs_abs << " (rear)";
-			}
-			if (iz == Config::get().nz() - 1) {
-				ofs_abs << " (front)";
-			}
-			ofs_abs << std::endl;
-
-			for (uint32_t iy = Config::get().ny() - 1; iy > 0; --iy) { // top to bottom
-				for (uint32_t ix = 0; ix < Config::get().nx(); ++ix) { // left to right
-					Voxel* voxel = voxel_at(glm::dvec3(
-						ix * Config::get().vox_size(),
-						iy * Config::get().vox_size(),
-						iz * Config::get().vox_size()
-					));
-					
-					if (voxel) {
-						ofs_abs << std::fixed << voxel->absorption << '\t';
-					}
-					else {
-						ofs_abs << std::fixed << 0.0 << '\t';
+		// Summary: Track non-zero absorption values for validation
+		int non_zero_count = 0;
+		double max_absorption = 0.0;
+		double total_raw_absorption = 0.0;
+		
+		// FIRST PASS: Calculate total absorption for percentage calculations
+		for (auto& medium : mediums) {
+			const auto& volume = medium.get_volume();
+			uint32_t nx = volume.width();
+			uint32_t ny = volume.height();
+			uint32_t nz = volume.depth();
+			
+			for (uint32_t ix = 0; ix < nx; ++ix) {
+				for (uint32_t iy = 0; iy < ny; ++iy) {
+					for (uint32_t iz = 0; iz < nz; ++iz) {
+						uint32_t linear_index = volume.calculate_index(ix, iy, iz);
+						const Voxel* voxel = volume.at(linear_index);
+						if (voxel) {
+							total_raw_absorption += voxel->absorption;
+						}
 					}
 				}
-				ofs_abs << std::endl;
 			}
-			ofs_abs << std::endl;
+		}
+		
+		// SECOND PASS: Write data with relative percentages
+		// FIXED: Iterate through actual medium voxels instead of generating coordinates
+		// This ensures we're accessing the same voxels that were used during simulation
+		for (auto& medium : mediums) {
+			const auto& volume = medium.get_volume();
+			uint32_t nx = volume.width();
+			uint32_t ny = volume.height();
+			uint32_t nz = volume.depth();
+			
+			// Iterate through the actual grid indices used by the medium
+			for (uint32_t ix = 0; ix < nx; ++ix) {
+				for (uint32_t iy = 0; iy < ny; ++iy) {
+					for (uint32_t iz = 0; iz < nz; ++iz) {
+						// Use the medium's internal coordinate system
+						uint32_t linear_index = volume.calculate_index(ix, iy, iz);
+						const Voxel* voxel = volume.at(linear_index);
+						
+						double absorption_value = 0.0;
+						if (voxel) {
+							absorption_value = voxel->absorption;
+							if (absorption_value > 0.0) {
+								non_zero_count++;
+								max_absorption = std::max(max_absorption, absorption_value);
+							}
+						}
+						
+						// Calculate relative percentage (percentage of total absorption)
+						double absorption_percentage = (total_raw_absorption > 0.0) ? 
+							(absorption_value / total_raw_absorption) * 100.0 : 0.0;
+						
+						// CSV format: comma-separated values
+						ofs_abs << ix << "," << iy << "," << iz << "," 
+							   << std::fixed << absorption_value << "," 
+							   << absorption_percentage << std::endl;
+					}
+				}
+			}
 		}
 		ofs_abs.close();
 	}
 	else {
-		std::cerr << "Error: file " << str_abs << " could not be opened." << std::endl;
+		std::cerr << "Error: file " << str_absorption << " could not be opened." << std::endl;
 		ofs_abs.close();
 	}
 
-	// write voxel emittance
-	if (ofs_emi.good()) {
-		ofs_emi.precision(5);
-		ofs_emi << "################################################################" << std::endl;
-		ofs_emi << "# EMITTANCE REPORT" << std::endl;
-		ofs_emi << "################################################################" << std::endl;
-		ofs_emi << std::endl;
+	// write optical properties as CSV
+	// Combined optical properties (emittance + diffusion) in CSV format
+	if (ofs_optical.good()) {
+		ofs_optical.precision(10); // Increased precision to see small values
+		
+		// CSV column headers
+		ofs_optical << "x,y,z,emittance_abs,emittance_%,diffuse_trans_abs,diffuse_trans_%,"
+				   << "diffuse_refl_abs,diffuse_refl_%,total_diffusion_abs,total_diffusion_%" << std::endl;
 
-		// rear to front
-		for (uint32_t iz = 0; iz < Config::get().nz(); ++iz) {
-			ofs_emi << "Slice " << iz + 1 << "/" << Config::get().nz();
-			if (iz == 0) {
-				ofs_emi << " (rear)";
-			}
-			if (iz == Config::get().nz() - 1) {
-				ofs_emi << " (front)";
-			}
-			ofs_emi << std::endl;
-
-			for (uint32_t iy = Config::get().ny() - 1; iy > 0; --iy) { // top to bottom
-				for (uint32_t ix = 0; ix < Config::get().nx(); ++ix) { // left to right
-					Voxel* voxel = voxel_at(glm::dvec3(
-						ix * Config::get().vox_size(),
-						iy * Config::get().vox_size(),
-						iz * Config::get().vox_size()
-					));
-
-					if (voxel) {
-						ofs_emi << std::fixed << voxel->emittance << '\t';
-					}
-					else {
-						ofs_emi << std::fixed << 0.0 << '\t';
+		// Summary: Track non-zero optical values for validation
+		int non_zero_emittance = 0;
+		int non_zero_diffuse = 0;
+		double max_emittance = 0.0;
+		double max_diffuse = 0.0;
+		
+		// FIRST PASS: Calculate totals for percentage calculations
+		double total_emittance = 0.0;
+		double total_diffuse_transmission = 0.0;
+		double total_diffuse_reflection = 0.0;
+		double total_diffusion = 0.0;
+		
+		for (auto& medium : mediums) {
+			const auto& volume = medium.get_volume();
+			uint32_t nx = volume.width();
+			uint32_t ny = volume.height();
+			uint32_t nz = volume.depth();
+			
+			for (uint32_t ix = 0; ix < nx; ++ix) {
+				for (uint32_t iy = 0; iy < ny; ++iy) {
+					for (uint32_t iz = 0; iz < nz; ++iz) {
+						uint32_t linear_index = volume.calculate_index(ix, iy, iz);
+						const Voxel* voxel = volume.at(linear_index);
+						if (voxel) {
+							total_emittance += voxel->emittance;
+							total_diffuse_transmission += voxel->diffuse_transmission;
+							total_diffuse_reflection += voxel->diffuse_reflection;
+							total_diffusion += (voxel->diffuse_transmission + voxel->diffuse_reflection);
+						}
 					}
 				}
-				ofs_emi << std::endl;
 			}
-			ofs_emi << std::endl;
 		}
-		ofs_emi.close();
+
+		// SECOND PASS: Write data with relative percentages
+		// FIXED: Iterate through actual medium voxels instead of generating coordinates
+		for (auto& medium : mediums) {
+			const auto& volume = medium.get_volume();
+			uint32_t nx = volume.width();
+			uint32_t ny = volume.height();
+			uint32_t nz = volume.depth();
+			
+			// Iterate through the actual grid indices used by the medium
+			for (uint32_t ix = 0; ix < nx; ++ix) {
+				for (uint32_t iy = 0; iy < ny; ++iy) {
+					for (uint32_t iz = 0; iz < nz; ++iz) {
+						// Use the medium's internal coordinate system
+						uint32_t linear_index = volume.calculate_index(ix, iy, iz);
+						const Voxel* voxel = volume.at(linear_index);
+						
+						double emittance = 0.0;
+						double diffuse_transmission = 0.0;
+						double diffuse_reflection = 0.0;
+						
+						if (voxel) {
+							emittance = voxel->emittance;
+							diffuse_transmission = voxel->diffuse_transmission;
+							diffuse_reflection = voxel->diffuse_reflection;
+							
+							// Track non-zero values for validation
+							if (emittance > 0.0) {
+								non_zero_emittance++;
+								max_emittance = std::max(max_emittance, emittance);
+							}
+							if (diffuse_transmission > 0.0 || diffuse_reflection > 0.0) {
+								non_zero_diffuse++;
+								max_diffuse = std::max(max_diffuse, diffuse_transmission + diffuse_reflection);
+							}
+						}
+						
+						double voxel_total_diffusion = diffuse_transmission + diffuse_reflection;
+						
+						// Calculate relative percentages (percentage of total for each property)
+						double emittance_pct = (total_emittance > 0.0) ? 
+							(emittance / total_emittance) * 100.0 : 0.0;
+						double diffuse_transmission_pct = (total_diffuse_transmission > 0.0) ? 
+							(diffuse_transmission / total_diffuse_transmission) * 100.0 : 0.0;
+						double diffuse_reflection_pct = (total_diffuse_reflection > 0.0) ? 
+							(diffuse_reflection / total_diffuse_reflection) * 100.0 : 0.0;
+						double total_diffusion_pct = (total_diffusion > 0.0) ? 
+							(voxel_total_diffusion / total_diffusion) * 100.0 : 0.0;
+						
+						// CSV format: comma-separated values
+						ofs_optical << ix << "," << iy << "," << iz << "," 
+								   << std::fixed << emittance << "," << emittance_pct << ","
+								   << diffuse_transmission << "," << diffuse_transmission_pct << ","
+								   << diffuse_reflection << "," << diffuse_reflection_pct << ","
+								   << voxel_total_diffusion << "," << total_diffusion_pct << std::endl;
+					}
+				}
+			}
+		}
+		
+		ofs_optical.close();
 	}
 	else {
-		std::cerr << "Error: file " << str_emi << " could not be opened." << std::endl;
-		ofs_emi.close();
+		std::cerr << "Error: file " << str_optics << " could not be opened." << std::endl;
+		ofs_optical.close();
 	}
 
-	// exiting photons (position, direction, weight)
+	// Comprehensive photon tracking report (entrance, exit, termination, scattering, absorption)
 	if (ofs_ptn.good()) {
 		ofs_ptn.precision(8);
-		ofs_ptn << "################################################################" << std::endl;
-		ofs_ptn << "# PHOTON REPORT" << std::endl;
-		ofs_ptn << "################################################################" << std::endl;
-		ofs_ptn << std::endl;
+		
+		// CSV column headers
+		ofs_ptn << "photon_id,entrance_x,entrance_y,entrance_z,entrance_dx,entrance_dy,entrance_dz,"
+				<< "exit_x,exit_y,exit_z,exit_dx,exit_dy,exit_dz,"
+				<< "termination_x,termination_y,termination_z,termination_dx,termination_dy,termination_dz,"
+				<< "scatter_count,initial_weight,final_weight,absorbed_weight,status" << std::endl;
 
-		if (emitters.empty()) {
-			ofs_ptn << "No photons exited the medium." << std::endl;
-		}
-
-		for (const auto& emitter : emitters) {
-			ofs_ptn << "Photon" << std::endl;
-			ofs_ptn << "{" << std::endl;
-			ofs_ptn << std::fixed << '\t' << "id  = " << emitter->id << std::endl;
-			ofs_ptn << std::fixed << '\t' << "position = " << emitter->position.x << ", " << emitter->position.y << ", "
-					<< emitter->position.z << std::endl;
-			ofs_ptn << std::fixed << '\t' << "direction = " << emitter->direction.x << ", " << emitter->direction.y
-					<< ", " << emitter->direction.z << std::endl;
-			ofs_ptn << std::fixed << '\t' << "val = " << emitter->weight << std::endl;
-			ofs_ptn << "}" << std::endl;
-			ofs_ptn << std::endl;
+		if (!detailed_photon_data.empty()) {
+			
+			for (size_t i = 0; i < detailed_photon_data.size(); ++i) {
+				const DetailedPhotonData& data = detailed_photon_data[i];
+				
+				// Skip uninitialized entries
+				if (data.initial_weight <= 0.0) {
+					continue;
+				}
+				
+				// CSV format: comma-separated values
+				ofs_ptn << std::fixed << data.id << ","
+					   << data.entrance_position.x << "," << data.entrance_position.y << "," << data.entrance_position.z << ","
+					   << data.entrance_direction.x << "," << data.entrance_direction.y << "," << data.entrance_direction.z << ",";
+				
+				// Exit information (if photon exited)
+				if (data.has_exit) {
+					ofs_ptn << data.exit_position.x << "," << data.exit_position.y << "," << data.exit_position.z << ","
+						   << data.exit_direction.x << "," << data.exit_direction.y << "," << data.exit_direction.z << ",";
+				} else {
+					ofs_ptn << ",,,,,,";  // Empty values for exit data
+				}
+				
+				// Termination information and statistics
+				ofs_ptn << data.termination_position.x << "," << data.termination_position.y << "," << data.termination_position.z << ","
+					   << data.termination_direction.x << "," << data.termination_direction.y << "," << data.termination_direction.z << ","
+					   << data.scatter_count << "," << data.initial_weight << "," 
+					   << data.remaining_weight << "," << data.total_absorption_deposited << ","
+					   << data.termination_reason << std::endl;
+			}
 		}
 		ofs_ptn.close();
 	}
 	else {
-		std::cerr << "Error: file " << str_ptd << " could not be opened." << std::endl;
+		std::cerr << "Error: file " << str_photons << " could not be opened." << std::endl;
 		ofs_ptn.close();
+	}
+
+
+
+	// NEW: Write comprehensive per-voxel statistics as CSV
+	if (ofs_vox_stats.good()) {
+		ofs_vox_stats.precision(6);
+		
+		// CSV column headers
+		ofs_vox_stats << "VoxelX,VoxelY,VoxelZ,WorldX,WorldY,WorldZ,HasMaterial,IsSurface,IsBoundary,"
+					  << "Absorption,Emittance,DiffuseTransmission,SpecularReflection,DiffuseReflection,"
+					  << "TotalEmittance,TotalEnergy,MaterialEta,MaterialMua,MaterialMus,MaterialG" << std::endl;
+				
+		// Write per-voxel data for all mediums
+		for (const auto& medium : mediums) {
+			const auto& volume = medium.get_volume();
+			const auto& bounds = medium.get_bounds();
+			double voxel_size = volume.voxel_size();
+			
+			for (const auto& voxel : volume) {
+				if (voxel) {
+					// Calculate world position
+					glm::dvec3 world_pos = bounds.min_bounds + glm::dvec3(
+						voxel->ix() * voxel_size,
+						voxel->iy() * voxel_size,
+						voxel->iz() * voxel_size
+					);
+					
+					double total_emittance = voxel->total_emittance();
+					double total_energy = voxel->absorption + total_emittance;
+					
+					// CSV format: comma-separated values
+					ofs_vox_stats << voxel->ix() << "," << voxel->iy() << "," << voxel->iz() << ","
+								 << std::fixed << world_pos.x << "," << world_pos.y << "," << world_pos.z << ","
+								 << (voxel->material ? "TRUE" : "FALSE") << ","
+								 << (voxel->is_surface_voxel ? "TRUE" : "FALSE") << ","
+								 << (voxel->is_boundary_voxel ? "TRUE" : "FALSE") << ","
+								 << voxel->absorption << "," << voxel->emittance << ","
+								 << voxel->diffuse_transmission << "," << voxel->specular_reflection << ","
+								 << voxel->diffuse_reflection << "," << total_emittance << "," << total_energy << ",";
+					
+					// Material properties (if available)
+					if (voxel->material) {
+						ofs_vox_stats << voxel->material->eta() << "," << voxel->material->mu_a() << ","
+									 << voxel->material->mu_s() << "," << voxel->material->g();
+					} else {
+						ofs_vox_stats << "0,0,0,0";
+					}
+					ofs_vox_stats << std::endl;
+				}
+			}
+		}
+		
+		ofs_vox_stats.close();
+	}
+	else {
+		std::cerr << "Error: file " << str_voxels << " could not be opened." << std::endl;
+		ofs_vox_stats.close();
+	}
+
+	// Report all generated files to console
+	std::cout << std::endl << "=== Generated output ===" << std::endl;
+	std::cout << "Simulation report: " << str_simulation << std::endl;
+	std::cout << "Absorption data:   " << str_absorption << std::endl;
+	std::cout << "Photon data:       " << str_photons << std::endl;
+	std::cout << "Optical data:      " << str_optics << std::endl;
+	std::cout << "Voxel data:        " << str_voxels << std::endl;
+	
+	if (Config::get().log()) {
+		DebugLogger::instance().log_info("All output files generated successfully");
+		DebugLogger::instance().log_info("  - " + str_simulation);
+		DebugLogger::instance().log_info("  - " + str_absorption);
+		DebugLogger::instance().log_info("  - " + str_photons);
+		DebugLogger::instance().log_info("  - " + str_optics);
+		DebugLogger::instance().log_info("  - " + str_voxels);
 	}
 }
 
@@ -3417,6 +3691,18 @@ void Simulator::terminate_photon_and_record_energy(Photon& photon, const std::st
 	
 	// Terminate the photon
 	photon.alive = false;
+	
+	// Update detailed photon tracking data
+	if (photon.id < detailed_photon_data.size()) {
+		DetailedPhotonData& detailed = detailed_photon_data[photon.id];
+		detailed.termination_position = photon.position;
+		detailed.termination_direction = photon.direction;
+		detailed.scatter_count = photon.scatter_count;
+		detailed.total_absorption_deposited = photon.total_energy_absorbed;
+		detailed.remaining_weight = photon.weight;
+		detailed.termination_reason = reason;
+	}
+	
 	photon.weight = 0.0; // Clear weight to prevent double-counting
 }
 
@@ -3801,7 +4087,7 @@ Medium* Simulator::find_medium_at_with_dda(const glm::dvec3& position) const {
  * Output comprehensive voxel emittance summary for debugging
  ***********************************************************/
 void Simulator::output_voxel_emittance_summary() {
-	std::ofstream file(App::get_output_path("voxel_summary.csv"));
+	std::ofstream file(App::get_output_path("voxels.csv"));
 	if (!file.is_open()) {
 		std::cerr << "Warning: Could not create voxel summary file" << std::endl;
 		return;
@@ -3903,9 +4189,9 @@ void Simulator::output_voxel_emittance_summary() {
 		", With emittance: " + std::to_string(voxels_with_emittance)
 	);
 	
-	std::cout << "Voxel summary written to " << App::get_output_path("voxel_summary.csv") << std::endl;
+	std::cout << "Voxel data (CSV): " << App::get_output_path("voxels.csv") << std::endl;
 	if (Config::get().log()) {
-		DebugLogger::instance().log_info("Voxel summary written to " + App::get_output_path("voxel_summary.csv"));
+		DebugLogger::instance().log_info("Voxel data (CSV): " + App::get_output_path("voxels.csv"));
 	}
 }
 
