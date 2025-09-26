@@ -1369,32 +1369,33 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 
 					// Add incident ray
 					glm::vec4 incident_color(1.0f, 1.0f, 1.0f, 1.0f);
-					cached_line_instances_.push_back({source_pos, surface_entry, incident_color});
+					cached_line_instances_.push_back({source_pos, surface_entry, incident_color, incident_color});
 
 					// Add refracted ray if needed
 					if (first_interaction.y < cached_surface_y_ - 0.001f) {
 						glm::vec4 refracted_color(0.9f, 0.9f, 1.0f, 0.8f);
-						cached_line_instances_.push_back({surface_entry, first_interaction, refracted_color});
+						cached_line_instances_.push_back({surface_entry, first_interaction, refracted_color, refracted_color});
 					}
 				}
 			}
 
 			while (current && next) {
-				// PERFORMANCE OPTIMIZATION: Single line segment instead of 10 gradient segments
+				// Use gradient colors for better energy visualization
 				float energy1 = static_cast<float>(current->value);
 				float energy2 = static_cast<float>(next->value);
-				float avg_energy = (energy1 + energy2) * 0.5f;
 
-				glm::vec4 line_color = adaptive_log_color(avg_energy);
-				line_color.a = 1.0f;
+				glm::vec4 start_color = adaptive_log_color(energy1);
+				glm::vec4 end_color = adaptive_log_color(energy2);
+				start_color.a = 1.0f;
+				end_color.a = 1.0f;
 
 				glm::vec3 start(static_cast<float>(current->position.x), static_cast<float>(current->position.y),
 								static_cast<float>(current->position.z));
 				glm::vec3 end(static_cast<float>(next->position.x), static_cast<float>(next->position.y),
 							  static_cast<float>(next->position.z));
 
-				// Single line segment per path segment (10x fewer instances!)
-				cached_line_instances_.push_back({start, end, line_color});
+				// Line segment with gradient colors
+				cached_line_instances_.push_back({start, end, start_color, end_color});
 
 				// Check for emitter connections at EVERY node during path traversal
 				// Check if current node has an emit connection (external vertex)
@@ -1414,10 +1415,10 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 					glm::vec4 exit_line_color = adaptive_log_color(exit_energy);
 					exit_line_color.a = 0.8f; // Slightly transparent to distinguish from main path
 					
-					cached_line_instances_.push_back({scatter_pos, exit_point, exit_line_color});
+					cached_line_instances_.push_back({scatter_pos, exit_point, exit_line_color, exit_line_color});
 				}
 				
-				// Also check direct emitter connection (fallback)
+				// Also check direct emitter connection (fallback) 
 				if (current->emitter) {
 					const auto emitter = current->emitter;
 					
@@ -1434,7 +1435,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 					glm::vec4 exit_line_color = adaptive_log_color(exit_energy);
 					exit_line_color.a = 0.8f; // Slightly transparent to distinguish from main path
 					
-					cached_line_instances_.push_back({scatter_pos, exit_point, exit_line_color});
+					cached_line_instances_.push_back({scatter_pos, exit_point, exit_line_color, exit_line_color});
 				}
 
 				// Move to next segment
@@ -1461,7 +1462,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 					glm::vec4 exit_line_color = adaptive_log_color(exit_energy);
 					exit_line_color.a = 0.8f; // Slightly transparent to distinguish from main path
 					
-					cached_line_instances_.push_back({last_scatter, exit_point, exit_line_color});
+					cached_line_instances_.push_back({last_scatter, exit_point, exit_line_color, exit_line_color});
 				}
 				
 				// Also check direct emitter connection (fallback) for final node
@@ -1481,7 +1482,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 					glm::vec4 exit_line_color = adaptive_log_color(exit_energy);
 					exit_line_color.a = 0.8f; // Slightly transparent to distinguish from main path
 					
-					cached_line_instances_.push_back({last_scatter, exit_point, exit_line_color});
+					cached_line_instances_.push_back({last_scatter, exit_point, exit_line_color, exit_line_color});
 				}
 			}
 		}
@@ -1539,7 +1540,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 				glm::vec4 direction_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
 				direction_color.a = 0.8f; // Slightly transparent for distinction
 				
-				cached_line_instances_.push_back({start_pos, end_pos, direction_color});
+				cached_line_instances_.push_back({start_pos, end_pos, direction_color, direction_color});
 			}
 		}
 
@@ -1589,7 +1590,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 				glm::vec4 specular_color = get_adaptive_energy_color(specular_energy, 0.0f, 1.0f);
 				specular_color.a = 1.0f; // Full opacity for better visibility
 				
-				cached_line_instances_.push_back({reflection_start, reflection_end, specular_color});
+				cached_line_instances_.push_back({reflection_start, reflection_end, specular_color, specular_color});
 			}
 		}
 
@@ -2693,8 +2694,9 @@ void Renderer::draw_labels(const Settings& settings) {
 }
 
 glm::vec4 Renderer::get_adaptive_energy_color(float energy, float min_energy, float max_energy) {
-	// Non-linear normalization to better visualize energy distribution
+	// Enhanced non-linear normalization with wider color range and better high-energy distinction
 	// Most voxels have very low energy, so we need to expand that range visually
+	// while providing clear distinction at high energies (80%-100%)
 
 	// Clamp energy to valid range
 	energy = std::clamp(energy, min_energy, max_energy);
@@ -2704,43 +2706,60 @@ glm::vec4 Renderer::get_adaptive_energy_color(float energy, float min_energy, fl
 	linear_normalized = std::clamp(linear_normalized, 0.0f, 1.0f);
 
 	// Apply power function to expand low-energy visualization
-	// Using power of 0.3 significantly expands the low-energy range
-	float normalized = std::pow(linear_normalized, 0.3f);
-
-	// Alternative: logarithmic mapping for even more low-energy expansion
-	// float normalized = std::log10(linear_normalized * 9.0f + 1.0f); // log10(1) to log10(10) = 0 to 1
-
+	// Using power of 0.25 for even better low-energy expansion
+	float normalized = std::pow(linear_normalized, 0.25f);
 	normalized = std::clamp(normalized, 0.0f, 1.0f);
 
-	// Create more distinct color zones with emphasis on lower energies
-	// Now the low energy ranges get much more visual space
-
-	if (normalized > 0.85f) {
-		// Very high energy: pure white (still top ~5% but harder to reach)
+	// Enhanced color zones with better high-energy distinction and clearer visual hierarchy
+	// Color progression: brilliant blue-white > white > bright yellow > yellow > orange > red > dark red
+	
+	if (normalized > 0.95f) {
+		// Very high energy (95-100%): brilliant white with slight blue tint
+		float t = (normalized - 0.95f) / 0.05f;
+		return glm::vec4(1.0f, 1.0f, 1.0f + t * 0.2f, 1.0f); // Slightly blue-white
+	}
+	else if (normalized > 0.90f) {
+		// High energy (90-95%): pure white
 		return glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
 	}
-	else if (normalized > 0.70f) {
-		// High energy: white to bright yellow with smooth transition
-		float t = (normalized - 0.70f) / 0.15f;
+	else if (normalized > 0.85f) {
+		// High-medium energy (85-90%): white to very bright yellow
+		float t = (normalized - 0.85f) / 0.05f;
 		float r = 1.0f;
 		float g = 1.0f;
-		float b = 1.0f - t * 0.2f; // From white (1.0) to bright yellow (0.8)
+		float b = 1.0f - t * 0.4f;  // From white (1.0) to very bright yellow (0.6)
+		return glm::vec4(r, g, b, 1.0f);
+	}
+	else if (normalized > 0.80f) {
+		// 80-85% energy: very bright yellow to bright yellow
+		float t = (normalized - 0.80f) / 0.05f;
+		float r = 1.0f;
+		float g = 1.0f;
+		float b = 0.6f - t * 0.2f;  // From very bright yellow (0.6) to bright yellow (0.4)
+		return glm::vec4(r, g, b, 1.0f);
+	}
+	else if (normalized > 0.70f) {
+		// 70-80% energy: bright yellow to yellow
+		float t = (normalized - 0.70f) / 0.10f;
+		float r = 1.0f;
+		float g = 1.0f;
+		float b = 0.4f - t * 0.2f;   // From bright yellow (0.4) to yellow (0.2)
 		return glm::vec4(r, g, b, 1.0f);
 	}
 	else if (normalized > 0.55f) {
-		// Medium-high energy: bright yellow to yellow
+		// Medium-high energy: yellow to warmer yellow  
 		float t = (normalized - 0.55f) / 0.15f;
 		float r = 1.0f;
 		float g = 1.0f;
-		float b = 0.8f - t * 0.3f; // From bright yellow (0.8) to yellow (0.5)
+		float b = 0.2f - t * 0.1f; // From yellow (0.2) to warmer yellow (0.1)
 		return glm::vec4(r, g, b, 1.0f);
 	}
 	else if (normalized > 0.40f) {
-		// Medium energy: yellow to orange
+		// Medium energy: warmer yellow to orange
 		float t = (normalized - 0.40f) / 0.15f;
 		float r = 1.0f;
 		float g = 1.0f - t * 0.3f; // From 1.0 (yellow) to 0.7 (orange)
-		float b = 0.5f - t * 0.5f; // From 0.5 (yellow) to 0.0 (orange)
+		float b = 0.1f - t * 0.1f; // From warmer yellow (0.1) to orange (0.0)
 		return glm::vec4(r, g, b, 1.0f);
 	}
 	else if (normalized > 0.25f) {
@@ -3377,10 +3396,15 @@ bool Renderer::setup_line_instanced_rendering() {
 	glEnableVertexAttribArray(2);
 	glVertexAttribDivisor(2, 1); // One per instance
 	
-	// Instance color (location 3)
-	glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(LineInstance), (void*)offsetof(LineInstance, color));
+	// Instance start color (location 3)
+	glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(LineInstance), (void*)offsetof(LineInstance, start_color));
 	glEnableVertexAttribArray(3);
 	glVertexAttribDivisor(3, 1); // One per instance
+	
+	// Instance end color (location 4)
+	glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(LineInstance), (void*)offsetof(LineInstance, end_color));
+	glEnableVertexAttribArray(4);
+	glVertexAttribDivisor(4, 1); // One per instance
 	
 	glBindVertexArray(0);
 	return true;

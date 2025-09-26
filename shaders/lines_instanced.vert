@@ -6,7 +6,8 @@ layout(location = 0) in vec3 aPosition;
 // Instance attributes (per line segment)
 layout(location = 1) in vec3 aInstanceStart;
 layout(location = 2) in vec3 aInstanceEnd;
-layout(location = 3) in vec4 aInstanceColor;
+layout(location = 3) in vec4 aInstanceStartColor;
+layout(location = 4) in vec4 aInstanceEndColor;
 
 // Uniforms
 uniform mat4 uMVP;
@@ -21,6 +22,6 @@ void main()
     vec3 worldPos = mix(aInstanceStart, aInstanceEnd, aPosition.x);
     gl_Position = uMVP * vec4(worldPos, 1.0);
     
-    // Pass color to fragment shader
-    vColor = aInstanceColor;
+    // Interpolate color based on position along line
+    vColor = mix(aInstanceStartColor, aInstanceEndColor, aPosition.x);
 }

@@ -174,12 +174,13 @@ private:
 		float depth{0.0f}; // For depth sorting
 	};
 
-	// Instance data structure for line rendering
+	// Instance data structure for line rendering with gradient support
 	struct LineInstance
 	{
 		glm::vec3 start{};
 		glm::vec3 end{};
-		glm::vec4 color{1.0f};
+		glm::vec4 start_color{1.0f};
+		glm::vec4 end_color{1.0f};
 	};
 
 	// Instance data structure for point rendering

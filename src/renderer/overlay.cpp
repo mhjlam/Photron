@@ -427,27 +427,6 @@ void Overlay::render_file_dialog() {
 
 		// Quick access buttons for common directories and files
 		if (file_dialog_mode_ == FileDialogMode::LoadConfig) {
-			ImGui::Text("Quick Select:");
-			if (ImGui::Button("config1.in")) {
-				file_path_ = "config/config1.in";
-				std::strncpy(file_path_buffer_, file_path_.c_str(), sizeof(file_path_buffer_) - 1);
-				file_path_buffer_[sizeof(file_path_buffer_) - 1] = '\0';
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("config2.in")) {
-				file_path_ = "config/config2.in";
-				std::strncpy(file_path_buffer_, file_path_.c_str(), sizeof(file_path_buffer_) - 1);
-				file_path_buffer_[sizeof(file_path_buffer_) - 1] = '\0';
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("multi-photon-100.in")) {
-				file_path_ = "config/multi-photon-100.in";
-				std::strncpy(file_path_buffer_, file_path_.c_str(), sizeof(file_path_buffer_) - 1);
-				file_path_buffer_[sizeof(file_path_buffer_) - 1] = '\0';
-			}
-
-			// List available config files
-			ImGui::Separator();
 			ImGui::Text("Available Config Files:");
 			ImGui::BeginChild("ConfigList", ImVec2(0, 200), true);
 
