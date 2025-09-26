@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <list>
 #include <map>
 #include <memory>
@@ -140,6 +141,11 @@ public:
 
 	// Path access for backward compatibility (creates PhotonPaths from photon data)
 	std::vector<Photon> get_paths() const;
+	
+	// Progress callback for UI updates
+	void set_progress_callback(std::function<void(uint64_t, uint64_t)> callback) {
+		progress_callback_ = callback;
+	}
 
 private:
 	// simulation subroutines
@@ -198,4 +204,7 @@ private:
 	// Helper methods that delegate to appropriate medium
 	Voxel* voxel_at(const glm::dvec3& position) const;
 	Cuboid voxel_corners(Voxel* voxel) const;
+	
+	// Progress callback member
+	std::function<void(uint64_t, uint64_t)> progress_callback_;
 };

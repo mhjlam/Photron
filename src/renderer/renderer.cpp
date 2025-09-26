@@ -138,19 +138,37 @@ void Renderer::update() {
 	// Apply smooth movement for FPS mode
 	if (!is_arc_camera_mode_) {
 		const float move_speed = 0.02f; // Reduced speed for smoother movement
+		bool camera_moved = false;
 
-		if (key_state_.w_pressed)
+		if (key_state_.w_pressed) {
 			camera_.move_forward(move_speed);
-		if (key_state_.s_pressed)
+			camera_moved = true;
+		}
+		if (key_state_.s_pressed) {
 			camera_.move_backward(move_speed);
-		if (key_state_.a_pressed)
+			camera_moved = true;
+		}
+		if (key_state_.a_pressed) {
 			camera_.move_left(move_speed);
-		if (key_state_.d_pressed)
+			camera_moved = true;
+		}
+		if (key_state_.d_pressed) {
 			camera_.move_right(move_speed);
-		if (key_state_.q_pressed)
-			camera_.move_down(move_speed);
-		if (key_state_.e_pressed)
+			camera_moved = true;
+		}
+		if (key_state_.space_pressed) {
 			camera_.move_up(move_speed);
+			camera_moved = true;
+		}
+		if (key_state_.shift_pressed) {
+			camera_.move_down(move_speed);
+			camera_moved = true;
+		}
+
+		// Mark camera state as changed if any movement occurred
+		if (camera_moved) {
+			camera_state_changed_ = true;
+		}
 	}
 }
 
@@ -432,10 +450,10 @@ void Renderer::handle_key_input(int key, int /*scancode*/, int action, int /*mod
 		key_state_.s_pressed = (action != GLFW_RELEASE);
 	if (key == GLFW_KEY_D)
 		key_state_.d_pressed = (action != GLFW_RELEASE);
-	if (key == GLFW_KEY_Q)
-		key_state_.q_pressed = (action != GLFW_RELEASE);
-	if (key == GLFW_KEY_E)
-		key_state_.e_pressed = (action != GLFW_RELEASE);
+	if (key == GLFW_KEY_SPACE)
+		key_state_.space_pressed = (action != GLFW_RELEASE);
+	if (key == GLFW_KEY_LEFT_SHIFT || key == GLFW_KEY_RIGHT_SHIFT)
+		key_state_.shift_pressed = (action != GLFW_RELEASE);
 }
 
 void Renderer::handle_mouse_move(float xpos, float ypos) {

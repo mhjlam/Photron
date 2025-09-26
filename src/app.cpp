@@ -2,15 +2,19 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <thread>
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_opengl3.h>
 #include <cxxopts.hpp>
 
 #include "simulator/debug_logger.hpp"
@@ -48,7 +52,8 @@ std::string App::get_output_path(const std::string& filename) {
 	return (out_dir / filename).string();
 }
 
-App::App() : window_(nullptr), window_width_(1200), window_height_(800), should_close_(false) {
+App::App() : window_(nullptr), window_width_(1200), window_height_(800), should_close_(false),
+              left_mouse_pressed_(false), mouse_press_x_(0.0), mouse_press_y_(0.0) {
 	app_instance = this;
 }
 
@@ -207,21 +212,14 @@ void App::setup_overlay_callbacks() {
 
 		// Create simulator if it doesn't exist
 		if (!simulator_) {
-			if (!initialize_simulator()) {
-				std::cerr << "Failed to initialize simulator" << std::endl;
-				overlay_->set_ui_enabled(true);
-				return;
-			}
+			// Create simulator without initializing it yet
+			simulator_ = std::make_unique<Simulator>();
 		}
 
-		// Load new configuration into simulator
+		// Load new configuration into simulator (only call this once)
 		simulator_->initialize(filepath.c_str());
 
 		// Run simulation immediately
-		std::cout << "Running simulation with config: " << filepath << std::endl;
-		if (Config::get().log()) {
-			DebugLogger::instance().log_info("Running simulation with config: " + filepath);
-		}
 		simulator_->simulate();
 		simulator_->report();
 
@@ -263,9 +261,9 @@ void App::setup_overlay_callbacks() {
 		overlay_->set_ui_enabled(false);
 
 		// Clear previous results and rerun simulation cleanly
-		std::cout << "Rerunning simulation (clearing previous results)..." << std::endl;
+		std::cout << "Rerunning simulation (clearing previous results)" << std::endl;
 		if (Config::get().log()) {
-			DebugLogger::instance().log_info("Rerunning simulation (clearing previous results)...");
+			DebugLogger::instance().log_info("Rerunning simulation (clearing previous results)");
 		}
 
 		// Re-initialize with the same config file to clear data
@@ -294,6 +292,22 @@ void App::setup_overlay_callbacks() {
 		}
 		else {
 			save_results_as_text(filepath);
+		}
+	});
+	
+	overlay_->set_direct_save_results_callback([this]() {
+		// Direct save to out directory
+		if (simulator_) {
+			// Show save progress feedback immediately with initial message
+			overlay_->show_save_feedback("Saving simulation results...");
+			
+			// Small delay to ensure the progress bar is visible
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			
+			simulator_->report(); // This generates all the CSV files and simulation.log
+			
+			// Update the message after save is complete
+			overlay_->show_save_feedback("Simulation results saved to out/ directory");
 		}
 	});
 
@@ -404,10 +418,13 @@ void App::key_callback(GLFWwindow* window, int key, int scancode, int action, in
 		}
 	}
 
-	// Always handle camera input for WASD even when ImGui has keyboard focus
-	// This allows smooth movement while interacting with UI elements
-	if (app_instance && app_instance->renderer_) {
-		app_instance->renderer_->handle_key_input(key, scancode, action, mods);
+	// Handle camera input for WASD only when file dialog is not open
+	// This allows smooth movement while interacting with UI elements but disables when dialog is open
+	if (app_instance && app_instance->renderer_ && app_instance->overlay_) {
+		// Don't handle camera input if file dialog is open
+		if (!app_instance->overlay_->is_file_dialog_open()) {
+			app_instance->renderer_->handle_key_input(key, scancode, action, mods);
+		}
 	}
 }
 
@@ -417,36 +434,82 @@ void App::cursor_pos_callback(GLFWwindow* window, double xpos, double ypos) {
 		return;
 	}
 
-	if (app_instance && app_instance->renderer_) {
-		app_instance->renderer_->handle_mouse_move(static_cast<float>(xpos), static_cast<float>(ypos));
-
-		// Handle mouse capture for FPS mode (but don't set cursor here - done in update loop)
-		bool should_capture = app_instance->renderer_->should_capture_mouse();
-		if (should_capture) {
-			int width, height;
-			glfwGetWindowSize(window, &width, &height);
-			float center_x = width / 2.0f;
-			float center_y = height / 2.0f;
-
-			// Set the center position for proper mouse handling
-			if (app_instance->renderer_) {
-				app_instance->renderer_->get_camera().set_mouse_center(center_x, center_y);
+	if (app_instance && app_instance->renderer_ && app_instance->overlay_) {
+		// Don't handle camera input if file dialog is open
+		if (!app_instance->overlay_->is_file_dialog_open()) {
+			
+			// Check if we're dragging in free camera mode - reset and switch to orbit immediately
+			if (app_instance->left_mouse_pressed_ && !app_instance->renderer_->is_arc_camera_mode()) {
+				double dx = xpos - app_instance->mouse_press_x_;
+				double dy = ypos - app_instance->mouse_press_y_;
+				double distance = std::sqrt(dx * dx + dy * dy);
+				
+				// If we've dragged beyond threshold, reset to orbit and continue dragging
+				if (distance >= app_instance->DRAG_THRESHOLD) {
+					app_instance->renderer_->set_camera_mode(true); // true = Orbit mode
+					app_instance->renderer_->reset_camera();
+					
+					// Update overlay settings to reflect the change
+					auto& settings = app_instance->overlay_->get_settings();
+					settings.camera_mode = CameraMode::Orbit;
+					
+					// Clear the pressed flag so we don't trigger this again
+					app_instance->left_mouse_pressed_ = false;
+					
+					// Continue processing the mouse movement for orbit camera
+				}
 			}
+			
+			app_instance->renderer_->handle_mouse_move(static_cast<float>(xpos), static_cast<float>(ypos));
 
-			// Center the cursor for FPS mode
-			glfwSetCursorPos(window, center_x, center_y);
+			// Handle mouse capture for FPS mode (but don't set cursor here - done in update loop)
+			bool should_capture = app_instance->renderer_->should_capture_mouse();
+			if (should_capture) {
+				int width, height;
+				glfwGetWindowSize(window, &width, &height);
+				float center_x = width / 2.0f;
+				float center_y = height / 2.0f;
+
+				// Set the center position for proper mouse handling
+				if (app_instance->renderer_) {
+					app_instance->renderer_->get_camera().set_mouse_center(center_x, center_y);
+				}
+
+				// Center the cursor for FPS mode
+				glfwSetCursorPos(window, center_x, center_y);
+			}
 		}
 	}
 }
 
-void App::mouse_button_callback(GLFWwindow*, int button, int action, int mods) {
+void App::mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
 	// Don't handle camera input if ImGui wants the mouse
 	if (ImGui::GetIO().WantCaptureMouse) {
 		return;
 	}
 
-	if (app_instance && app_instance->renderer_) {
-		app_instance->renderer_->handle_mouse_button(button, action, mods);
+	if (app_instance && app_instance->renderer_ && app_instance->overlay_) {
+		// Don't handle camera input if file dialog is open
+		if (!app_instance->overlay_->is_file_dialog_open()) {
+			
+			if (button == GLFW_MOUSE_BUTTON_LEFT) {
+				if (action == GLFW_PRESS) {
+					// Record mouse press position for drag detection
+					double xpos, ypos;
+					glfwGetCursorPos(window, &xpos, &ypos);
+					app_instance->left_mouse_pressed_ = true;
+					app_instance->mouse_press_x_ = xpos;
+					app_instance->mouse_press_y_ = ypos;
+				}
+				else if (action == GLFW_RELEASE) {
+					// Clear the pressed flag on release
+					app_instance->left_mouse_pressed_ = false;
+				}
+			}
+			
+			// Always pass through to normal mouse handling
+			app_instance->renderer_->handle_mouse_button(button, action, mods);
+		}
 	}
 }
 
@@ -678,9 +741,9 @@ void App::save_results_as_json(const std::string& filepath) {
 	file << "}\n";
 
 	file.close();
-	std::cout << "Results saved successfully to " << filepath << std::endl;
+	std::cout << "Results successfully to " << filepath << std::endl;
 	if (Config::get().log()) {
-		DebugLogger::instance().log_info("Results saved successfully to " + filepath);
+		DebugLogger::instance().log_info("Results successfully to " + filepath);
 	}
 }
 
@@ -797,15 +860,17 @@ void App::save_results_as_text(const std::string& filepath) {
 	}
 
 	file.close();
-	std::cout << "Results saved successfully to " << filepath << std::endl;
+	std::cout << "Results successfully to " << filepath << std::endl;
 	if (Config::get().log()) {
-		DebugLogger::instance().log_info("Results saved successfully to " + filepath);
+		DebugLogger::instance().log_info("Results successfully to " + filepath);
 	}
 }
 
 bool App::initialize_simulator() {
 	// Initialize simulator (Config should already be initialized by this point)
 	simulator_ = std::make_unique<Simulator>();
+	
+	// No progress callbacks needed - simulation runs optimally without GUI interference
 	
 	if (!simulator_->initialize(config_file_.c_str())) {
 		return false;
@@ -894,6 +959,9 @@ void App::run_simulation_with_progress() {
 	std::cout << "Number of photons: " << Config::get().num_photons() << std::endl;
 	std::cout << std::endl;
 	
+	// NOTE: Don't show simulation progress overlay here - this is for headless mode
+	// Progress bar is only shown when simulation is triggered from GUI
+	
 	if (Config::get().log()) {
 		DebugLogger::instance().log_info("=== Starting Monte Carlo Simulation ===");
 		DebugLogger::instance().log_info("Configuration: " + config_file_);
@@ -903,6 +971,8 @@ void App::run_simulation_with_progress() {
 	// Run simulation
 	simulator_->simulate();
 	simulator_->report();
+	
+	// NOTE: Don't hide simulation progress overlay here - it wasn't shown
 	
 	if (Config::get().log()) {
 		DebugLogger::instance().log_info("=== Simulation Complete ===");

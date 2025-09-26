@@ -69,10 +69,7 @@ bool Simulator::initialize(std::string file) {
 		return false;
 	}
 	
-	std::cout << "Initializing Photron" << std::endl;
-	if (Config::get().log()) {
-		// Detailed logging will be done after logger initialization
-	}
+	std::cout << "Loading configuration: " << file << std::endl << std::endl;
 
 	// Configure random number generator based on deterministic setting
 	if (Config::get().deterministic()) {
@@ -298,6 +295,11 @@ void Simulator::simulate() {
 				double progress_percent = ((double)(p + 1) / photons.size()) * 100.0;
 				std::cout << "\rProgress: " << (p + 1) << "/" << Config::get().num_photons() 
 						  << " (" << std::fixed << std::setprecision(1) << progress_percent << "%)" << std::flush;
+				
+				// Call GUI progress callback to allow GUI updates
+				if (progress_callback_) {
+					progress_callback_(p + 1, Config::get().num_photons());
+				}
 			}
 		}
 	}
@@ -2530,6 +2532,47 @@ void Simulator::report() {
 		ofs_rep << "Specular transmission:   " << std::fixed << specular_transmission << std::endl;
 		ofs_rep << std::endl;
 		
+		// Calculate and display energy conservation percentages (matching overlay calculation)
+		ofs_rep << "Energy Conservation Percentages" << std::endl;
+		ofs_rep << "################################################################" << std::endl;
+		
+		// Use the same calculation as the overlay - call calculate_energy_conservation()
+		auto energy = calculate_energy_conservation();
+		
+		if (energy.surface_refraction > 0) {
+			// Use TOTAL initial energy as baseline (specular reflection + refracted energy)
+			double baseline_energy = energy.surface_reflection + energy.surface_refraction;
+			
+			// Calculate percentages relative to total initial energy (same as overlay)
+			double surface_reflection_percent = (energy.surface_reflection / baseline_energy) * 100.0;
+			double absorption_percent = (energy.total_absorption / baseline_energy) * 100.0;
+			double reflection_percent = (energy.total_reflection / baseline_energy) * 100.0;
+			double transmission_percent = (energy.total_transmission / baseline_energy) * 100.0;
+			
+			// Total should equal baseline_energy for perfect conservation
+			double total_accounted = energy.surface_reflection + energy.total_absorption + 
+			                        energy.total_reflection + energy.total_transmission;
+			double total_percent = (total_accounted / baseline_energy) * 100.0;
+			
+			ofs_rep << "Specular reflection:     " << std::fixed << std::setprecision(1) 
+					<< surface_reflection_percent << "%" << std::endl;
+			ofs_rep << "Absorption:              " << std::fixed << std::setprecision(1) 
+					<< absorption_percent << "%" << std::endl;
+			ofs_rep << "Reflection:              " << std::fixed << std::setprecision(1) 
+					<< reflection_percent << "%" << std::endl;
+			ofs_rep << "Transmission:            " << std::fixed << std::setprecision(1) 
+					<< transmission_percent << "%" << std::endl;
+			ofs_rep << "Total:                   " << std::fixed << std::setprecision(1) 
+					<< total_percent << "%" << std::endl;
+		} else {
+			ofs_rep << "Specular reflection:     0.0%" << std::endl;
+			ofs_rep << "Absorption:              0.0%" << std::endl;
+			ofs_rep << "Reflection:              0.0%" << std::endl;
+			ofs_rep << "Transmission:            0.0%" << std::endl;
+			ofs_rep << "Total:                   0.0%" << std::endl;
+		}
+		ofs_rep << std::endl;
+		
 		// Add detailed per-medium statistics
 		ofs_rep << "Per-Medium Details" << std::endl;
 		ofs_rep << "################################################################" << std::endl;
@@ -2873,6 +2916,8 @@ void Simulator::report() {
 	std::cout << "Photon data:       " << str_photons << std::endl;
 	std::cout << "Optical data:      " << str_optics << std::endl;
 	std::cout << "Voxel data:        " << str_voxels << std::endl;
+
+	std::cout << "======================================" << std::endl << std::endl;
 	
 	if (Config::get().log()) {
 		DebugLogger::instance().log_info("All output files generated successfully");

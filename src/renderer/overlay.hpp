@@ -48,6 +48,9 @@ public:
 	void set_save_results_callback(std::function<void(const std::string&)> callback) {
 		save_results_callback_ = callback;
 	}
+	void set_direct_save_results_callback(std::function<void()> callback) {
+		direct_save_results_callback_ = callback;
+	}
 	void set_reset_view_callback(std::function<void()> callback) { reset_view_callback_ = callback; }
 	void set_camera_mode_changed_callback(std::function<void(bool)> callback) {
 		camera_mode_changed_callback_ = callback;
@@ -56,21 +59,33 @@ public:
 	// Enable/disable UI (for simulation running)
 	void set_ui_enabled(bool enabled) { ui_enabled_ = enabled; }
 	bool is_ui_enabled() const { return ui_enabled_; }
+	
+	// Check if file dialog is currently open
+	bool is_file_dialog_open() const { return show_file_dialog_; }
 
 	// Text overlay system for 3D world text rendering
 	void add_world_text(const std::string& text, float screen_x, float screen_y, const glm::vec4& color);
 	void clear_world_text();
+	
+	// Save feedback system
+	void show_save_feedback(const std::string& message);
 
 private:
 	void render_main_menu_bar(bool has_simulator = true);
 	void render_control_panel(Simulator* simulator = nullptr);
 	void render_file_dialog();
 	void render_world_text_overlays();
+	void render_save_feedback();
 	void handle_keyboard_shortcuts();
 
 	Settings settings_;
 	bool ui_enabled_;
 
+	// Save feedback
+	bool show_save_feedback_;
+	std::string save_feedback_message_;
+	float save_feedback_timer_;
+	
 	// File dialog state
 	bool show_file_dialog_;
 	FileDialogMode file_dialog_mode_;
@@ -83,6 +98,7 @@ private:
 	std::function<void()> run_simulation_callback_;
 	std::function<void()> rerun_simulation_callback_;
 	std::function<void(const std::string&)> save_results_callback_;
+	std::function<void()> direct_save_results_callback_;
 	std::function<void()> reset_view_callback_;
 	std::function<void(bool)> camera_mode_changed_callback_;
 	std::vector<WorldText> world_text_queue_;

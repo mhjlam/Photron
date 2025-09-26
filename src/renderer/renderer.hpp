@@ -44,6 +44,7 @@ public:
 	// Camera control
 	void reset_camera();
 	void set_camera_mode(bool is_arc_mode);
+	bool is_arc_camera_mode() const { return is_arc_camera_mode_; }
 	bool should_capture_mouse() const;
 	Camera& get_camera() { return camera_; }
 
@@ -301,8 +302,8 @@ private:
 		bool a_pressed {false};
 		bool s_pressed {false};
 		bool d_pressed {false};
-		bool q_pressed {false};
-		bool e_pressed {false};
+		bool space_pressed {false};
+		bool shift_pressed {false};
 	} key_state_;
 
 	// Callback for camera mode changes

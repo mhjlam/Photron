@@ -25,7 +25,8 @@ static void HelpMarker(const char* desc) {
 
 Overlay::Overlay() :
 	ui_enabled_(true), show_file_dialog_(false), 
-	file_dialog_mode_(FileDialogMode::LoadConfig), current_directory_("config/") {
+	file_dialog_mode_(FileDialogMode::LoadConfig), current_directory_("config/"),
+	show_save_feedback_(false), save_feedback_timer_(0.0f) {
 	std::fill(std::begin(file_path_buffer_), std::end(file_path_buffer_), '\0');
 	file_path_.clear();
 }
@@ -100,10 +101,11 @@ void Overlay::handle_keyboard_shortcuts() {
 		}
 	}
 
-	// Ctrl+S: Save Results
+	// Ctrl+S: Save Results (direct save to out directory)
 	if (ctrl_pressed && ImGui::IsKeyPressed(ImGuiKey_S)) {
-		show_file_dialog_ = true;
-		file_dialog_mode_ = FileDialogMode::SaveResults;
+		if (direct_save_results_callback_) {
+			direct_save_results_callback_();
+		}
 	}
 }
 
@@ -123,6 +125,9 @@ void Overlay::render() {
 	if (show_file_dialog_) {
 		render_file_dialog();
 	}
+	
+	// Render save feedback if needed
+	render_save_feedback();
 
 	// Rendering
 	ImGui::Render();
@@ -148,6 +153,9 @@ void Overlay::render_with_simulator(Simulator& simulator) {
 	if (show_file_dialog_) {
 		render_file_dialog();
 	}
+	
+	// Render save feedback if needed
+	render_save_feedback();
 
 	// Rendering
 	ImGui::Render();
@@ -176,7 +184,7 @@ void Overlay::render_main_menu_bar(bool has_simulator) {
 			ImGui::EndMenu();
 		}
 		if (ImGui::BeginMenu("Simulation")) {
-			if (ImGui::MenuItem("Add Photon", "P", false, ui_enabled_ && has_simulator)) {
+			if (ImGui::MenuItem("Add Photon", "R", false, ui_enabled_ && has_simulator)) {
 				if (run_simulation_callback_) {
 					run_simulation_callback_();
 				}
@@ -187,9 +195,10 @@ void Overlay::render_main_menu_bar(bool has_simulator) {
 				}
 			}
 			ImGui::Separator();
-			if (ImGui::MenuItem("Save Results...", "Ctrl+S", false, ui_enabled_ && has_simulator)) {
-				show_file_dialog_ = true;
-				file_dialog_mode_ = FileDialogMode::SaveResults;
+			if (ImGui::MenuItem("Save Results", "Ctrl+S", false, ui_enabled_ && has_simulator)) {
+				if (direct_save_results_callback_) {
+					direct_save_results_callback_();
+				}
 			}
 			ImGui::EndMenu();
 		}
@@ -209,7 +218,7 @@ void Overlay::render_main_menu_bar(bool has_simulator) {
 			ImGui::BulletText("Scroll Wheel: Move along the medium layers");
 			ImGui::Text("Free Mode:");
 			ImGui::BulletText("WASD: Move forward/back/left/right");
-			ImGui::BulletText("QE: Move up/down");
+			ImGui::BulletText("Space/Shift: Move up/down");
 			ImGui::BulletText("Right Mouse: Hold to look around");
 			ImGui::EndTooltip();
 		}
@@ -279,7 +288,7 @@ void Overlay::render_control_panel(Simulator* simulator) {
 			ImGui::SameLine();
 			HelpMarker(
 				"Orbit: Traditional orbit camera that rotates around the scene center.\nFree: FPS-style camera with "
-				"WASD movement and mouse look.");
+				"WASD movement, Space/Shift for up/down, and mouse look.");
 		}
 
 		// Voxel mode (disabled when voxels are not drawn)
@@ -552,6 +561,52 @@ void Overlay::render_world_text_overlays() {
 			// Main text
 			draw_list->AddText(text_pos, color, world_text.text.c_str());
 		}
+	}
+	ImGui::End();
+}
+
+void Overlay::show_save_feedback(const std::string& message) {
+	save_feedback_message_ = message;
+	show_save_feedback_ = true;
+	save_feedback_timer_ = 3.0f; // Show for 3 seconds
+}
+
+void Overlay::render_save_feedback() {
+	if (!show_save_feedback_) return;
+	
+	// Update timer
+	ImGuiIO& io = ImGui::GetIO();
+	save_feedback_timer_ -= io.DeltaTime;
+	
+	if (save_feedback_timer_ <= 0.0f) {
+		show_save_feedback_ = false;
+		return;
+	}
+	
+	// Render feedback popup in center of screen
+	ImGuiViewport* viewport = ImGui::GetMainViewport();
+	ImVec2 center = viewport->GetCenter();
+	ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+	
+	ImGui::SetNextWindowBgAlpha(0.9f);
+	if (ImGui::Begin("Save Status", nullptr, 
+		ImGuiWindowFlags_AlwaysAutoResize | 
+		ImGuiWindowFlags_NoDecoration | 
+		ImGuiWindowFlags_NoMove)) {
+		
+		// White text
+		ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "%s", save_feedback_message_.c_str());
+		
+		// Calculate text width to make progress bar match
+		float text_width = ImGui::CalcTextSize(save_feedback_message_.c_str()).x;
+		
+		// Progress bar showing completion (0% to 100%)
+		float progress = 1.0f - (save_feedback_timer_ / 3.0f);
+		
+		// Set nice pastel blue color for progress bar
+		ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.6f, 0.8f, 1.0f, 0.8f)); // Pastel blue
+		ImGui::ProgressBar(progress, ImVec2(text_width, 0.0f));
+		ImGui::PopStyleColor();
 	}
 	ImGui::End();
 }

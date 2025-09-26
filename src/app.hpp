@@ -78,6 +78,11 @@ private:
 	bool should_close_;
 	std::string config_file_;
 	
+	// Mouse tracking for click vs drag detection
+	bool left_mouse_pressed_;
+	double mouse_press_x_, mouse_press_y_;
+	static constexpr double DRAG_THRESHOLD = 5.0; // pixels
+	
 private:
 	static std::string executable_directory_;
 };
