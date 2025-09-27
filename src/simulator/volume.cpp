@@ -318,6 +318,7 @@ VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_
 	// Step 3: Determine which layer(s) contain the voxel and assign correct material
 	bool voxel_intersects_geometry = false;
 	uint32_t correct_tissue_id = 0;
+	uint8_t correct_layer_id = 0;
 	bool found_containing_layer = false;
 	
 	// Check if voxel center is inside any layer - assign material from the containing layer
@@ -326,6 +327,7 @@ VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_
 		if (layer.contains_point(voxel_center)) {
 			voxel_intersects_geometry = true;
 			correct_tissue_id = layer.tissue_id;
+			correct_layer_id = layer.id;
 			found_containing_layer = true;
 			if (is_debug_voxel) {
 				std::ostringstream debug_msg;
@@ -346,6 +348,7 @@ VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_
 		// For boundary voxels not containing center, use closest layer material
 		if (!found_containing_layer) {
 			correct_tissue_id = layers[closest_layer_id].tissue_id;
+			correct_layer_id = layers[closest_layer_id].id;
 		}
 	}
 	
@@ -368,6 +371,7 @@ VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_
 	// Step 4: Compute volume fraction and surface classification for intersecting voxels
 	result.is_inside_geometry = true;
 	result.dominant_tissue_id = correct_tissue_id; // Use material from containing layer, not closest surface
+	result.dominant_layer_id = correct_layer_id;   // Use layer ID for rendering
 	
 	// IMPROVED Boundary voxel detection: Check if surface passes through voxel volume
 	// Method 1: Center-based detection (existing)

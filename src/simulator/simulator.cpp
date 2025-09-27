@@ -14,11 +14,11 @@
 #include <sstream>
 #include <iterator>
 
+#include "app.hpp" // For output path utilities
 #include "math/math.hpp"
 #include "math/random.hpp"
 #include "math/ray.hpp"
 #include "math/voxel_dda3d.hpp"
-#include "../app.hpp" // For output path utilities
 
 /***********************************************************
  * Simulator constructor.
@@ -1507,15 +1507,13 @@ void Simulator::cross(Photon& photon) {
 				     << " new_tissue=" << (newvox->material ? "yes" : "no");
 				DebugLogger::instance().log_debug(oss0.str());
 				
-				if (current_voxel->material && newvox->material) {
-					bool same_optical = current_voxel->material->has_same_optical_properties(*newvox->material);
-					
-					std::ostringstream oss1;
-					oss1 << "  current_tissue_id=" << static_cast<int>(current_voxel->material->id())
-					     << " new_tissue_id=" << static_cast<int>(newvox->material->id());
-					DebugLogger::instance().log_debug(oss1.str());
-					
-					std::ostringstream oss2;
+			if (current_voxel->material && newvox->material) {
+				bool same_optical = current_voxel->material->has_same_optical_properties(*newvox->material);
+				
+				std::ostringstream oss1;
+				oss1 << "  current_material_hash=" << current_voxel->material->get_optical_properties_hash()
+				     << " new_material_hash=" << newvox->material->get_optical_properties_hash();
+				DebugLogger::instance().log_debug(oss1.str());					std::ostringstream oss2;
 					oss2 << "  current_properties: eta=" << current_voxel->material->eta()
 					     << " mua=" << current_voxel->material->mu_a()
 					     << " mus=" << current_voxel->material->mu_s()  
@@ -2438,19 +2436,16 @@ void Simulator::aggregate_voxel_data() {
 				for (uint32_t x = 0; x < volume.width(); ++x) {
 					Voxel* voxel = volume.at(x, y, z);
 					if (voxel && voxel->material) {
-						// Only aggregate voxels that belong to this medium
-						// Check if voxel's material ID matches this medium's ID
-						if (voxel->material->id() == (&medium - &mediums[0])) {
-							// Aggregate absorption
-							medium.get_metrics().add_total_absorption(voxel->absorption);
-							
-							// Aggregate emittance by direction classification
-							medium.get_metrics().add_diffuse_reflection(voxel->specular_reflection);
-							medium.get_metrics().add_diffuse_transmission(voxel->diffuse_transmission);
-							
-							// Note: surface_refraction and specular_reflection handled separately
-							// Note: specular_transmission currently unused
-						}
+						// All voxels in this medium's volume belong to this medium
+						// Aggregate absorption
+						medium.get_metrics().add_total_absorption(voxel->absorption);
+						
+						// Aggregate emittance by direction classification
+						medium.get_metrics().add_diffuse_reflection(voxel->specular_reflection);
+						medium.get_metrics().add_diffuse_transmission(voxel->diffuse_transmission);
+						
+						// Note: surface_refraction and specular_reflection handled separately
+						// Note: specular_transmission currently unused
 					}
 				}
 			}
@@ -3427,10 +3422,10 @@ std::vector<Material> Simulator::get_all_tissues() const {
 	for (const auto& medium : mediums) {
 		const auto& medium_tissues = medium.get_tissues();
 		for (const auto& material : medium_tissues) {
-			// Add unique tissues from each medium
+			// Add unique tissues from each medium based on optical properties
 			bool found = false;
 			for (const auto& existing : all_tissues) {
-				if (existing.id() == material.id()) {
+				if (existing.has_same_optical_properties(material)) {
 					found = true;
 					break;
 				}

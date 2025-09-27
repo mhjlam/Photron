@@ -14,8 +14,7 @@
 class Material
 {
 private:
-	uint8_t id_ {0};        ///< Material identifier
-	double g_ {0.00};       ///< Anisotropy coefficient (Henyey-Greenstein parameter)
+	double g_ {0.00};       ///< Anisotropy coefficient (Henyey-Greenberg parameter)
 	double eta_ {1.37};     ///< Refractive index
 	double mu_a_ {1.00};    ///< Absorption coefficient (mm^-1)
 	double mu_s_ {10.00};   ///< Scattering coefficient (mm^-1)
@@ -31,7 +30,7 @@ public:
 	Material();
 
 	/// Explicit constructor with all optical properties
-	explicit Material(uint8_t id, double g_val, double eta_val, double mu_a_val, double mu_s_val) noexcept;
+	explicit Material(double g_val, double eta_val, double mu_a_val, double mu_s_val) noexcept;
 
 	/// Copy constructor
 	Material(const Material& other) = default;
@@ -49,14 +48,13 @@ public:
 	~Material() = default;
 
 	// Getters for read access
-	uint8_t id() const noexcept { return id_; }
 	double g() const noexcept { return g_; }
 	double eta() const noexcept { return eta_; }
 	double mu_a() const noexcept { return mu_a_; }
 	double mu_s() const noexcept { return mu_s_; }
 
-	/// Equality operator based on material ID
-	bool operator==(const Material& other) const noexcept { return other.id_ == id_; }
+	/// Equality operator based on optical properties hash
+	bool operator==(const Material& other) const noexcept { return has_same_optical_properties(other); }
 
 	/// Inequality operator
 	bool operator!=(const Material& other) const noexcept { return !(*this == other); }
@@ -75,5 +73,4 @@ public:
 	void set_mu_a(double value) noexcept;
 	void set_mu_s(double value) noexcept;
 	void set_g(double value) noexcept;
-	void set_id(uint8_t value) noexcept; ///< ID doesn't affect optical hash
 };

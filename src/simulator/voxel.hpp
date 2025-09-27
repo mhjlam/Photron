@@ -18,6 +18,7 @@ public:
 	double absorption;
 	double emittance;
 	Material* material;
+	uint8_t layer_id {0};               // ID of the layer this voxel belongs to
 
 	// Voxel classification flags
 	bool is_boundary_voxel;         // True if voxel intersects geometry boundary

@@ -728,7 +728,8 @@ void App::save_results_as_json(const std::string& filepath) {
 		for (size_t j = 0; j < tissues.size(); ++j) {
 			const auto& material = tissues[j];
 			file << "        {\n";
-			file << "          \"id\": " << material.id() << ",\n";
+			file << "          \"index\": " << j << ",\n";
+			file << "          \"hash\": " << material.get_optical_properties_hash() << ",\n";
 			file << "          \"eta\": " << material.eta() << ",\n";
 			file << "          \"mua\": " << material.mu_a() << ",\n";
 			file << "          \"mus\": " << material.mu_s() << ",\n";
@@ -847,8 +848,9 @@ void App::save_results_as_text(const std::string& filepath) {
 		// Add material properties for this medium
 		file << "\nTissue Properties\n";
 		auto& tissues = medium.get_tissues();
-		for (const auto& material : tissues) {
-			file << "  material " << material.id() << ":\n";
+		for (size_t idx = 0; idx < tissues.size(); ++idx) {
+			const auto& material = tissues[idx];
+			file << "  material " << idx << " (hash: " << material.get_optical_properties_hash() << "):\n";
 			file << "    Refractive Index (eta): " << material.eta() << "\n";
 			file << "    Absorption Coefficient (mua): " << material.mu_a() << " cm^-1\n";
 			file << "    Scattering Coefficient (mus): " << material.mu_s() << " cm^-1\n";

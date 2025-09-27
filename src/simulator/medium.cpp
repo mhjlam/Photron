@@ -252,6 +252,7 @@ bool Medium::voxelize_layers() {
 					
 					// Assign material from dominant layer
 					voxel->material = &tissues_[classification.dominant_tissue_id];
+					voxel->layer_id = classification.dominant_layer_id;
 					voxel->volume_fraction_inside = classification.volume_fraction;
 					voxel->volume_fraction_outside = 1.0 - classification.volume_fraction;
 					voxel->is_boundary_voxel = classification.is_boundary_voxel;

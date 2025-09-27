@@ -107,7 +107,7 @@ public:
 
 	// Adaptive color mapping helper
 	glm::vec4 get_adaptive_energy_color(float energy, float min_energy, float max_energy);
-	glm::vec4 get_layer_specific_energy_color(float energy, float min_energy, float max_energy, uint8_t tissue_id);
+	glm::vec4 get_layer_specific_energy_color(float energy, float min_energy, float max_energy, uint8_t layer_id);
 
 private:
 	void setup_opengl();

@@ -288,16 +288,15 @@ bool Config::parse_layer_configs(const toml::table& config) {
 		layer.validate_and_fix_normals();
 
 		// Create material
-		uint8_t material_id = static_cast<uint8_t>(tissues_.size());
-		Material material(material_id, ani, eta, mua, mus);
+		Material material(ani, eta, mua, mus);
 		tissues_.push_back(std::move(material));
 
-		// Assign material to layer
-		layer.tissue_id = material_id;
+		// Assign material to layer (use index as tissue_id)
+		layer.tissue_id = static_cast<uint8_t>(tissues_.size() - 1);
 
 		if (log_) {
 			std::ostringstream debug_msg;
-			debug_msg << "Created material " << (int)material_id 
+			debug_msg << "Created material " << (int)layer.tissue_id 
 			          << " for layer " << (int)layer.id
 			          << " (eta=" << eta << ", mua=" << mua << ", mus=" << mus << ", ani=" << ani << ")";
 			DebugLogger::instance().log_info(debug_msg.str());

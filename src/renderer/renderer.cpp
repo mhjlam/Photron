@@ -726,7 +726,7 @@ void Renderer::draw_voxels(const Settings& settings) {
 									// Match the appearance of Absorption mode when there's no absorption
 									// Use the same energy and alpha values as "no energy" voxels in absorption mode
 									color = get_layer_specific_energy_color(1e-8f, min_energy, max_energy,
-																			voxel->material->id());
+																			voxel->layer_id);
 									color.a = 0.05f; // Same very faint alpha as no-absorption voxels
 								}
 							}
@@ -762,13 +762,13 @@ void Renderer::draw_voxels(const Settings& settings) {
 								// Use layer-specific energy color mapping with dynamic range
 								if (total_energy > 1e-8f) { // Lower threshold
 									color = get_layer_specific_energy_color(total_energy, min_energy, max_energy,
-																			voxel->material->id());
+																			voxel->layer_id);
 									color.a = alpha;
 								}
 								else if (voxel->material != nullptr) {
 									// Voxel in medium but no recorded energy: very faint material-colored hint
 									color = get_layer_specific_energy_color(1e-8f, min_energy, max_energy,
-																			voxel->material->id());
+																			voxel->layer_id);
 									color.a = 0.05f; // Slightly more visible
 								}
 							}
@@ -993,7 +993,7 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 						if (voxel->material != nullptr) {
 							// Match the appearance of Absorption mode when there's no absorption
 							// Use the same energy and alpha values as "no energy" voxels in absorption mode
-							color = get_layer_specific_energy_color(1e-8f, cached_min_energy_, cached_max_energy_, voxel->material->id());
+							color = get_layer_specific_energy_color(1e-8f, cached_min_energy_, cached_max_energy_, voxel->layer_id);
 							color.a = 0.05f; // Same very faint alpha as no-absorption voxels
 						}
 					} else {
@@ -1033,12 +1033,12 @@ void Renderer::draw_voxels_instanced(const Settings& settings) {
 
 						// Use layer-specific energy color mapping with dynamic range
 						if (total_energy > 1e-8f) { // Lower threshold
-							color = get_layer_specific_energy_color(total_energy, cached_min_energy_, cached_max_energy_, voxel->material->id());
+							color = get_layer_specific_energy_color(total_energy, cached_min_energy_, cached_max_energy_, voxel->layer_id);
 							color.a = alpha;
 						}
 						else if (voxel->material != nullptr) {
 							// Voxel in medium but no recorded energy: very faint material-colored hint
-							color = get_layer_specific_energy_color(1e-8f, cached_min_energy_, cached_max_energy_, voxel->material->id());
+							color = get_layer_specific_energy_color(1e-8f, cached_min_energy_, cached_max_energy_, voxel->layer_id);
 							color.a = 0.05f; // Slightly more visible
 						}
 					}
@@ -2827,7 +2827,7 @@ glm::vec4 Renderer::get_adaptive_energy_color(float energy, float min_energy, fl
 }
 
 glm::vec4 Renderer::get_layer_specific_energy_color(float energy, float min_energy, float max_energy,
-													uint8_t tissue_id) {
+											uint8_t layer_id) {
 	// Clamp and normalize energy like the original function
 	energy = std::clamp(energy, min_energy, max_energy);
 	float linear_normalized = (energy - min_energy) / (max_energy - min_energy);
@@ -2837,17 +2837,15 @@ glm::vec4 Renderer::get_layer_specific_energy_color(float energy, float min_ener
 
 	// Define base colors for different material types
 	glm::vec3 base_colors[6] = {
-		glm::vec3(1.0f, 0.4f, 0.4f), // Red theme for material 0
-		glm::vec3(0.4f, 0.4f, 1.0f), // Blue theme for material 1
-		glm::vec3(0.4f, 1.0f, 0.4f), // Green theme for material 2
-		glm::vec3(1.0f, 0.4f, 1.0f), // Magenta theme for material 3
-		glm::vec3(1.0f, 1.0f, 0.4f), // Yellow theme for material 4
-		glm::vec3(0.4f, 1.0f, 1.0f), // Cyan theme for material 5
+		glm::vec3(1.0f, 0.4f, 0.4f), // Red theme for layer 0
+		glm::vec3(0.4f, 0.4f, 1.0f), // Blue theme for layer 1
+		glm::vec3(0.4f, 1.0f, 0.4f), // Green theme for layer 2
+		glm::vec3(1.0f, 0.4f, 1.0f), // Magenta theme for layer 3
+		glm::vec3(1.0f, 1.0f, 0.4f), // Yellow theme for layer 4
+		glm::vec3(0.4f, 1.0f, 1.0f), // Cyan theme for layer 5
 	};
 
-	glm::vec3 base_color = base_colors[tissue_id % 6];
-
-	// Create energy gradient within the material's color theme
+	glm::vec3 base_color = base_colors[layer_id % 6];	// Create energy gradient within the material's color theme
 	if (normalized > 0.85f) {
 		// Very high energy: brighten to near white
 		return glm::vec4(glm::mix(base_color, glm::vec3(1.0f), 0.6f), 1.0f);

@@ -4,8 +4,8 @@ Material::Material() {
 	compute_optical_hash();
 }
 
-Material::Material(uint8_t id, double g_val, double eta_val, double mu_a_val, double mu_s_val) noexcept
-	: id_(id), g_(g_val), eta_(eta_val), mu_a_(mu_a_val), mu_s_(mu_s_val) {
+Material::Material(double g_val, double eta_val, double mu_a_val, double mu_s_val) noexcept
+	: g_(g_val), eta_(eta_val), mu_a_(mu_a_val), mu_s_(mu_s_val) {
 	compute_optical_hash();
 }
 
@@ -43,10 +43,6 @@ void Material::set_mu_s(double value) noexcept {
 void Material::set_g(double value) noexcept {
 	g_ = value;
 	compute_optical_hash();
-}
-
-void Material::set_id(uint8_t value) noexcept {
-	id_ = value; // ID doesn't affect optical hash
 }
 
 void Material::compute_optical_hash() noexcept {

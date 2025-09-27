@@ -123,16 +123,6 @@ public:
 	};
 	EnergyConservation calculate_energy_conservation() const;
 	
-	// Compatibility properties for existing code
-	[[deprecated("Use get_all_tissues() instead")]] 
-	std::vector<Material> tissues() const { return get_all_tissues(); }
-	
-	[[deprecated("Use get_all_layers() instead")]]
-	const std::vector<Layer>& layers() const { return get_all_layers(); }
-	
-	[[deprecated("Use get_combined_bounds() instead")]]
-	Range3 bounds() const { return get_combined_bounds(); }
-	
 	// Geometry queries (needed by renderer)
 	bool is_point_inside_geometry(const glm::dvec3& position) const;
 	
