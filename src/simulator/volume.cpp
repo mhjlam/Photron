@@ -9,7 +9,7 @@
 
 #include "math/random.hpp"
 #include "simulator/simulator.hpp"
-#include "debug_logger.hpp"
+#include "logger.hpp"
 
 // Default constructor
 Volume::Volume() : dimensions_ {0, 0, 0}, total_voxels_ {0}, voxel_size_ {0.0} {
@@ -283,7 +283,7 @@ VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_
 				  << voxel_center.x << ", " 
 				  << voxel_center.y << ", " 
 				  << voxel_center.z << ")";
-		DebugLogger::instance().log_debug(debug_msg.str());
+		Logger::instance().log_debug(debug_msg.str());
 		
 		std::ostringstream bounds_msg;
 		bounds_msg << "  Bounds: [" << voxel_min.x << "," 
@@ -292,7 +292,7 @@ VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_
 				  << voxel_max.y << "] [" 
 				  << voxel_min.z << "," 
 				  << voxel_max.z << "]";
-		DebugLogger::instance().log_debug(bounds_msg.str());
+		Logger::instance().log_debug(bounds_msg.str());
 	}
 	
 	// Step 1: Compute signed distance from voxel center to mesh surface
@@ -332,14 +332,14 @@ VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_
 			if (is_debug_voxel) {
 				std::ostringstream debug_msg;
 				debug_msg << "  Center inside layer " << layer.id << " (material " << layer.tissue_id << ")";
-				DebugLogger::instance().log_debug(debug_msg.str());
+				Logger::instance().log_debug(debug_msg.str());
 			}
 			// Continue checking other layers to allow inner layers to override outer layers
 		}
 	}
 	
 	if (is_debug_voxel && !found_containing_layer) {
-		DebugLogger::instance().log_debug("  Center not inside any layer");
+		Logger::instance().log_debug("  Center not inside any layer");
 	}
 	
 	// Also check if surface passes through voxel (distance < half voxel size)
@@ -365,7 +365,7 @@ VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_
 				  << ", material=" << correct_tissue_id 
 				  << ", boundary=" << (std::abs(min_distance) <= SURFACE_THRESHOLD)
 				  << ", min_dist=" << min_distance;
-		DebugLogger::instance().log_debug(debug_msg.str());
+		Logger::instance().log_debug(debug_msg.str());
 	}
 	
 	// Step 4: Compute volume fraction and surface classification for intersecting voxels
@@ -421,7 +421,7 @@ VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_
 				  << ", surface_intersects=" << surface_intersects_volume
 				  << ", samples=" << inside_samples << "/" << total_samples
 				  << ", final_boundary=" << result.is_boundary_voxel;
-		DebugLogger::instance().log_debug(debug_msg.str());
+		Logger::instance().log_debug(debug_msg.str());
 	}
 	
 	if (result.is_boundary_voxel) {

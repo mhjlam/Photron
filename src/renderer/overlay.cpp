@@ -375,31 +375,21 @@ void Overlay::render_control_panel(Simulator* simulator) {
 					
 					// Energy Conservation
 					ImGui::Text("Energy Conservation");
-					if (energy.surface_refraction > 0) {
-						// Use TOTAL initial energy as baseline (specular reflection + refracted energy)
-						double baseline_energy = energy.surface_reflection + energy.surface_refraction;
-						
-						// Calculate percentages relative to total initial energy
-						double surface_reflection_percent = (energy.surface_reflection / baseline_energy) * 100.0;
-						double absorption_percent = (energy.total_absorption / baseline_energy) * 100.0;
-						double reflection_percent = (energy.total_reflection / baseline_energy) * 100.0;
-						double transmission_percent = (energy.total_transmission / baseline_energy) * 100.0;
-						
-						// Total should equal baseline_energy for perfect conservation
-						double total_accounted = energy.surface_reflection + energy.total_absorption + 
-						                        energy.total_reflection + energy.total_transmission;
-						double total_percent = (total_accounted / baseline_energy) * 100.0;
-
+					
+					// Use consolidated percentage calculation from Metrics
+					auto percentages = simulator->calculate_energy_percentages();
+					
+					if (percentages.baseline_energy > 0) {
 						// Energy conservation total as percentage with color coding
-						ImVec4 total_color = (std::abs(total_percent - 100.0) > 5.0) ? 
+						ImVec4 total_color = !percentages.is_conserved ? 
 							ImVec4(1.0f, 0.3f, 0.3f, 1.0f) :  // Red if not conserved
 							ImVec4(0.3f, 1.0f, 0.3f, 1.0f);   // Green if conserved
 
-						ImGui::Text("  Specular reflection: %7.1f%%", surface_reflection_percent);
-						ImGui::Text("  Absorption:          %7.1f%%", absorption_percent);
-						ImGui::Text("  Reflection:          %7.1f%%", reflection_percent);
-						ImGui::Text("  Transmission:        %7.1f%%", transmission_percent);
-						ImGui::TextColored(total_color, "  Total:               %7.1f%%", total_percent);
+						ImGui::Text("  Specular reflection: %7.1f%%", percentages.surface_reflection_percent);
+						ImGui::Text("  Absorption:          %7.1f%%", percentages.absorption_percent);
+						ImGui::Text("  Reflection:          %7.1f%%", percentages.reflection_percent);
+						ImGui::Text("  Transmission:        %7.1f%%", percentages.transmission_percent);
+						ImGui::TextColored(total_color, "  Total:               %7.1f%%", percentages.total_percent);
 					}
 					else {
 						ImGui::Text("  Specular reflection: 0.0%%");

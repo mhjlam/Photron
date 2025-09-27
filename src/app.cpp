@@ -17,7 +17,7 @@
 #include <imgui_impl_opengl3.h>
 #include <cxxopts.hpp>
 
-#include "simulator/debug_logger.hpp"
+#include "simulator/logger.hpp"
 
 #include "renderer/overlay.hpp"
 #include "renderer/renderer.hpp"
@@ -53,7 +53,8 @@ std::string App::get_output_path(const std::string& filename) {
 }
 
 App::App() : window_(nullptr), window_width_(1200), window_height_(800), should_close_(false),
-              gui_mode_(true), left_mouse_pressed_(false), mouse_press_x_(0.0), mouse_press_y_(0.0) {
+              gui_mode_(true), force_csv_output_(false), first_simulation_run_(true), 
+              left_mouse_pressed_(false), mouse_press_x_(0.0), mouse_press_y_(0.0) {
 	app_instance = this;
 }
 
@@ -73,7 +74,8 @@ bool App::initialize(int argc, char* argv[]) {
 	
 	options.add_options()
 		("c,config", "Configuration file path (optional for GUI mode)", cxxopts::value<std::string>())
-		("headless", "Run simulation without GUI")
+		("headless", "Run simulation without GUI and generate output")
+		("o,out", "Generate output files in GUI mode (first run only)")
 		("l,log", "Enable debug logging messages")
 		("h,help", "Show help message");
 
@@ -98,7 +100,11 @@ bool App::initialize(int argc, char* argv[]) {
 		}
 		bool log_mode = result.count("log") > 0;
 		bool headless_mode = result.count("headless") > 0;
+		bool force_csv = result.count("out") > 0;
+
 		gui_mode_ = !headless_mode; // Set GUI mode (opposite of headless)
+		force_csv_output_ = force_csv;
+		first_simulation_run_ = true;
 
 		// If headless mode is requested without a config file, that's an error
 		if (headless_mode && !has_config_file) {
@@ -222,7 +228,9 @@ void App::setup_overlay_callbacks() {
 
 		// Run simulation immediately
 		simulator_->simulate();
-		simulator_->report(!gui_mode_); // Only generate CSV in headless mode
+		bool generate_csv = !gui_mode_ || (force_csv_output_ && first_simulation_run_);
+		simulator_->report(generate_csv);
+		if (first_simulation_run_) first_simulation_run_ = false; // Mark first run as complete
 
 		// Reset camera to default position when new config is loaded
 		if (renderer_) {
@@ -264,14 +272,14 @@ void App::setup_overlay_callbacks() {
 		// Clear previous results and rerun simulation cleanly
 		std::cout << "Rerunning simulation (clearing previous results)" << std::endl;
 		if (Config::get().log()) {
-			DebugLogger::instance().log_info("Rerunning simulation (clearing previous results)");
+			Logger::instance().log_info("Rerunning simulation (clearing previous results)");
 		}
 
 		// Re-initialize with the same config file to clear data
 		if (!config_file_.empty()) {
 			simulator_->initialize(config_file_.c_str());
 			simulator_->simulate();
-			simulator_->report(!gui_mode_); // Only generate CSV in headless mode
+			simulator_->report(!gui_mode_); // Only generate CSV in headless mode (no CSV for GUI restarts)
 		}
 		else {
 			std::cout << "No config file loaded. Please load a configuration first." << std::endl;
@@ -525,129 +533,7 @@ void App::scroll_callback(GLFWwindow*, double xoffset, double yoffset) {
 	}
 }
 
-// Helper methods to aggregate metrics from all mediums
-double App::aggregate_path_length() const {
-	if (!simulator_) return 0.0;
-	
-	double total_path_length = 0.0;
-	const auto& mediums = simulator_->mediums;
-	for (const auto& medium : mediums) {
-		const auto& metrics = medium.get_metrics();
-		total_path_length += metrics.compute_path_length();
-	}
-	return total_path_length;
-}
 
-double App::aggregate_scatter_events() const {
-	if (!simulator_) return 0.0;
-	
-	double total_scatter_events = 0.0;
-	const auto& mediums = simulator_->mediums;
-	for (const auto& medium : mediums) {
-		const auto& metrics = medium.get_metrics();
-		total_scatter_events += metrics.get_scatter_events();
-	}
-	return total_scatter_events;
-}
-
-double App::aggregate_average_step_size() const {
-	if (!simulator_) return 0.0;
-	
-	double total_step_size = 0.0;
-	double total_steps = 0.0;
-	const auto& mediums = simulator_->mediums;
-	
-	for (const auto& medium : mediums) {
-		const auto& metrics = medium.get_metrics();
-		double step_size = metrics.compute_average_step_size();
-		if (step_size > 0.0) {
-			// Weight by number of steps (path vertices - 1)
-			size_t num_vertices = metrics.get_path_vertices().size();
-			if (num_vertices > 1) {
-				double num_steps = static_cast<double>(num_vertices - 1);
-				total_step_size += step_size * num_steps;
-				total_steps += num_steps;
-			}
-		}
-	}
-	
-	return (total_steps > 0.0) ? (total_step_size / total_steps) : 0.0;
-}
-
-double App::aggregate_diffusion_distance() const {
-	if (!simulator_) return 0.0;
-	
-	// For diffusion distance, we'll take the maximum across all mediums
-	// since it represents the overall extent of photon travel
-	double max_diffusion_distance = 0.0;
-	const auto& mediums = simulator_->mediums;
-	for (const auto& medium : mediums) {
-		const auto& metrics = medium.get_metrics();
-		double diffusion_distance = metrics.compute_diffusion_distance();
-		max_diffusion_distance = std::max(max_diffusion_distance, diffusion_distance);
-	}
-	return max_diffusion_distance;
-}
-
-// Helper methods to aggregate energy conservation values from all mediums
-double App::aggregate_total_absorption() const {
-	if (!simulator_) return 0.0;
-	
-	double total_absorption = 0.0;
-	const auto& mediums = simulator_->mediums;
-	for (const auto& medium : mediums) {
-		total_absorption += medium.get_metrics().get_total_absorption();
-	}
-	return total_absorption;
-}
-
-double App::aggregate_total_reflection() const {
-	if (!simulator_) return 0.0;
-	
-	double total_reflection = 0.0;
-	const auto& mediums = simulator_->mediums;
-	for (const auto& medium : mediums) {
-		total_reflection += medium.get_metrics().get_diffuse_reflection();
-	}
-	return total_reflection;
-}
-
-double App::aggregate_total_transmission() const {
-	if (!simulator_) return 0.0;
-	
-	double total_transmission = 0.0;
-	const auto& mediums = simulator_->mediums;
-	for (const auto& medium : mediums) {
-		total_transmission += medium.get_metrics().get_diffuse_transmission();
-	}
-	return total_transmission;
-}
-
-double App::aggregate_total_diffusion() const {
-	return aggregate_total_reflection() + aggregate_total_transmission();
-}
-
-double App::aggregate_surface_reflection() const {
-	if (!simulator_) return 0.0;
-	
-	double surface_reflection = 0.0;
-	const auto& mediums = simulator_->mediums;
-	for (const auto& medium : mediums) {
-		surface_reflection += medium.get_metrics().get_surface_reflection();
-	}
-	return surface_reflection;
-}
-
-double App::aggregate_surface_refraction() const {
-	if (!simulator_) return 0.0;
-	
-	double surface_refraction = 0.0;
-	const auto& mediums = simulator_->mediums;
-	for (const auto& medium : mediums) {
-		surface_refraction += medium.get_metrics().get_surface_refraction();
-	}
-	return surface_refraction;
-}
 
 void App::save_results_as_json(const std::string& filepath) {
 	if (!simulator_) {
@@ -745,7 +631,7 @@ void App::save_results_as_json(const std::string& filepath) {
 	file.close();
 	std::cout << "Results successfully to " << filepath << std::endl;
 	if (Config::get().log()) {
-		DebugLogger::instance().log_info("Results successfully to " + filepath);
+		Logger::instance().log_info("Results successfully to " + filepath);
 	}
 }
 
@@ -816,26 +702,20 @@ void App::save_results_as_text(const std::string& filepath) {
 		file << "    Transmission:      " << std::fixed << std::setprecision(6) << energy.total_transmission << "\n";
 		
 		file << "\nEnergy Conservation\n";
-		if (energy.surface_refraction > 0) {
-			// Use TOTAL initial energy as baseline (specular reflection + refracted energy)
-			double baseline_energy = energy.surface_reflection + energy.surface_refraction;
+		
+		// Use consolidated percentage calculation from Metrics
+		auto percentages = simulator_->calculate_energy_percentages();
+		
+		if (percentages.baseline_energy > 0) {
+			file << "  Surface reflection:  " << std::fixed << std::setprecision(1) << percentages.surface_reflection_percent << "%\n";
+			file << "  Absorption:          " << std::fixed << std::setprecision(1) << percentages.absorption_percent << "%\n";
+			file << "  Reflection:          " << std::fixed << std::setprecision(1) << percentages.reflection_percent << "%\n";
+			file << "  Transmission:        " << std::fixed << std::setprecision(1) << percentages.transmission_percent << "%\n";
+			file << "  Total:               " << std::fixed << std::setprecision(1) << percentages.total_percent << "%\n";
 			
-			// Calculate percentages relative to total initial energy
-			double surface_reflection_percent = (energy.surface_reflection / baseline_energy) * 100.0;
-			double absorption_percent = (energy.total_absorption / baseline_energy) * 100.0;
-			double reflection_percent = (energy.total_reflection / baseline_energy) * 100.0;
-			double transmission_percent = (energy.total_transmission / baseline_energy) * 100.0;
-			
-			// Total should equal baseline_energy for perfect conservation
-			double total_accounted = energy.surface_reflection + energy.total_absorption + 
-									energy.total_reflection + energy.total_transmission;
-			double total_percent = (total_accounted / baseline_energy) * 100.0;
-			
-			file << "  Surface reflection:  " << std::fixed << std::setprecision(1) << surface_reflection_percent << "%\n";
-			file << "  Absorption:          " << std::fixed << std::setprecision(1) << absorption_percent << "%\n";
-			file << "  Reflection:  		" << std::fixed << std::setprecision(1) << reflection_percent << "%\n";
-			file << "  Transmission:        " << std::fixed << std::setprecision(1) << transmission_percent << "%\n";
-			file << "  Total:               " << std::fixed << std::setprecision(1) << total_percent << "%\n";
+			if (!percentages.is_conserved) {
+				file << "  WARNING: Energy not conserved!\n";
+			}
 		}
 		else {
 			file << "  Surface reflection:  0.0%\n";
@@ -865,7 +745,7 @@ void App::save_results_as_text(const std::string& filepath) {
 	file.close();
 	std::cout << "Results successfully to " << filepath << std::endl;
 	if (Config::get().log()) {
-		DebugLogger::instance().log_info("Results successfully to " + filepath);
+		Logger::instance().log_info("Results successfully to " + filepath);
 	}
 }
 
@@ -966,19 +846,21 @@ void App::run_simulation_with_progress() {
 	// Progress bar is only shown when simulation is triggered from GUI
 	
 	if (Config::get().log()) {
-		DebugLogger::instance().log_info("=== Starting Monte Carlo Simulation ===");
-		DebugLogger::instance().log_info("Configuration: " + config_file_);
-		DebugLogger::instance().log_info("Number of photons: " + std::to_string(Config::get().num_photons()));
+		Logger::instance().log_info("=== Starting Monte Carlo Simulation ===");
+		Logger::instance().log_info("Configuration: " + config_file_);
+		Logger::instance().log_info("Number of photons: " + std::to_string(Config::get().num_photons()));
 	}
 	
 	// Run simulation
 	simulator_->simulate();
-	simulator_->report(!gui_mode_); // Generate CSV in headless mode
+	bool generate_csv = !gui_mode_ || (force_csv_output_ && first_simulation_run_);
+	simulator_->report(generate_csv);
+	if (first_simulation_run_) first_simulation_run_ = false; // Mark first run as complete
 	
 	// NOTE: Don't hide simulation progress overlay here - it wasn't shown
 	
 	if (Config::get().log()) {
-		DebugLogger::instance().log_info("=== Simulation Complete ===");
-		DebugLogger::instance().log_info("Initializing GUI...");
+		Logger::instance().log_info("=== Simulation Complete ===");
+		Logger::instance().log_info("Initializing GUI...");
 	}
 }

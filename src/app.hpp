@@ -46,20 +46,6 @@ private:
 	void save_results_as_json(const std::string& filepath);
 	void save_results_as_text(const std::string& filepath);
 
-	// Helper methods to aggregate metrics from all mediums
-	double aggregate_path_length() const;
-	double aggregate_scatter_events() const;
-	double aggregate_average_step_size() const;
-	double aggregate_diffusion_distance() const;
-	
-	// Helper methods to aggregate energy conservation values from all mediums
-	double aggregate_total_absorption() const;
-	double aggregate_total_reflection() const;
-	double aggregate_total_transmission() const;
-	double aggregate_total_diffusion() const;
-	double aggregate_surface_reflection() const;
-	double aggregate_surface_refraction() const;
-
 	// GLFW callbacks
 	static void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 	static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
@@ -78,6 +64,8 @@ private:
 	bool should_close_;
 	std::string config_file_;
 	bool gui_mode_; // Track if running in GUI mode (vs headless)
+	bool force_csv_output_; // Force CSV output even in GUI mode (from command line)
+	bool first_simulation_run_; // Track if this is the first simulation run
 	
 	// Mouse tracking for click vs drag detection
 	bool left_mouse_pressed_;

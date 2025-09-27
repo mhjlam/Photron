@@ -8,7 +8,7 @@
 #include <toml++/toml.h>
 
 #include "math/triangle.hpp"
-#include "debug_logger.hpp"
+#include "logger.hpp"
 
 // Static member definitions
 std::unique_ptr<Config> Config::instance_ = nullptr;
@@ -299,7 +299,7 @@ bool Config::parse_layer_configs(const toml::table& config) {
 			debug_msg << "Created material " << (int)layer.tissue_id 
 			          << " for layer " << (int)layer.id
 			          << " (eta=" << eta << ", mua=" << mua << ", mus=" << mus << ", ani=" << ani << ")";
-			DebugLogger::instance().log_info(debug_msg.str());
+			Logger::instance().log_info(debug_msg.str());
 		}
 
 		layers_.push_back(std::move(layer));

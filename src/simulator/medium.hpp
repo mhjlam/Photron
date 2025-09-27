@@ -34,12 +34,6 @@ public:
     // Voxelize the layers into the volume
     bool voxelize_layers();
     
-    // Phase 2: Disambiguate surface voxels (remove false positives)
-    void disambiguate_surface_voxels();
-    
-    // Identify surface voxels
-    void identify_surface_voxels();
-    
     // Reset simulation data
     void reset_simulation_data();
     

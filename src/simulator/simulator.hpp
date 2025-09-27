@@ -12,7 +12,7 @@
 #include "math/triangle.hpp"
 #include "math/voxel_dda3d.hpp"
 #include "simulator/config.hpp"
-#include "simulator/debug_logger.hpp"
+#include "simulator/logger.hpp"
 #include "simulator/layer.hpp"
 #include "simulator/metrics.hpp"
 #include "simulator/photon.hpp"
@@ -100,7 +100,7 @@ public:
 	size_t get_total_voxel_count() const;
 	Range3 get_combined_bounds() const;
 	
-	// Combined metrics access methods (replacement for get_combined_record)
+	// Combined metrics access methods (delegated to Metrics)
 	double get_combined_total_absorption() const;
 	double get_combined_diffuse_reflection() const;
 	double get_combined_specular_reflection() const; 
@@ -111,17 +111,16 @@ public:
 	int get_combined_total_steps() const;
 	int get_combined_photons_entered() const;
 	
-	// Energy conservation calculation (shared between console and overlay)
-	struct EnergyConservation {
-		double total_absorption = 0.0;
-		double total_reflection = 0.0; 
-		double total_transmission = 0.0;
-		double surface_reflection = 0.0;
-		double surface_refraction = 0.0;
-		double total_energy = 0.0;
-		double total_diffusion = 0.0;
-	};
-	EnergyConservation calculate_energy_conservation() const;
+	// Energy statistics management (delegated to Metrics)
+	Metrics::EnergyConservation calculate_energy_conservation() const;
+	Metrics::EnergyConservationPercentages calculate_energy_percentages() const;
+	Metrics::MediumEnergyData aggregate_medium_energy_data() const;
+	
+	// Shared metrics instance for energy statistics
+	std::shared_ptr<Metrics> shared_metrics_;
+	
+	// Initialize shared metrics (called after constructor)
+	void initialize_shared_metrics();
 	
 	// Geometry queries (needed by renderer)
 	bool is_point_inside_geometry(const glm::dvec3& position) const;
@@ -164,11 +163,6 @@ private:
 	glm::dvec3 move(glm::dvec3& position, glm::dvec3& direction, double d);
 	glm::dvec3 move_delta(glm::dvec3& position, glm::dvec3& direction);
 
-	// MCML algorithms
-	void generate_step_size(Photon& photon);
-	void scatter_photon(Photon& photon, const Material& tissue);
-	void roulette_photon(Photon& photon);
-
 	// file parsing
 	bool parse(const std::string& fconfig);
 
@@ -177,7 +171,6 @@ private:
 
 	// data management
 	void reset_simulation_data();
-	void output_voxel_emittance_summary();
 
 	// medium context management
 	Medium* find_medium_at(const glm::dvec3& position) const;

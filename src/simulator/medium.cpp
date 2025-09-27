@@ -8,10 +8,10 @@
 #include <map>
 #include <sstream>
 
-#include "math/ray.hpp"
+#include "app.hpp" // For output path utilities
 #include "voxel.hpp"
-#include "../app.hpp" // For output path utilities
-#include "debug_logger.hpp"
+#include "logger.hpp"
+#include "math/ray.hpp"
 
 Medium::Medium(Config& config) : config_(config) {
 	// Reserve space for common use cases
@@ -41,7 +41,7 @@ bool Medium::initialize() {
 	if (config_.log()) {
 		// Log to debug file only in log mode
 		if (Config::get().log()) {
-			DebugLogger::instance().log_info("Voxel grid initialized successfully.");
+			Logger::instance().log_info("Voxel grid initialized successfully.");
 		}
 	}
 
@@ -53,7 +53,7 @@ bool Medium::initialize() {
 	if (config_.log()) {
 		// Log to debug file only in log mode
 		if (Config::get().log()) {
-			DebugLogger::instance().log_info("Layers initialized successfully.");
+			Logger::instance().log_info("Layers initialized successfully.");
 		}
 	}
 
@@ -61,7 +61,7 @@ bool Medium::initialize() {
 	reset_simulation_data();
 	if (config_.log()) {
 		std::cout << "Simulation data reset completed." << std::endl;
-		DebugLogger::instance().log_info("Simulation data reset completed.");
+		Logger::instance().log_info("Simulation data reset completed.");
 	}
 
 	// voxelize the geometry
@@ -71,21 +71,7 @@ bool Medium::initialize() {
 	}
 	if (config_.log()) {
 		std::cout << "Geometry voxelization completed successfully." << std::endl;
-		DebugLogger::instance().log_info("Geometry voxelization completed successfully.");
-	}
-
-	// PHASE 2: Skip old surface detection - Distance Field Based voxelization already set correct surface flags
-	// disambiguate_surface_voxels();  // DISABLED: SDF voxelization is already accurate
-	if (config_.log()) {
-		std::cout << "Surface voxel disambiguation skipped (using SDF results)." << std::endl;
-		DebugLogger::instance().log_info("Surface voxel disambiguation skipped (using SDF results).");
-	}
-
-	// Identify surface voxels - DISABLED: SDF already set is_surface_voxel correctly
-	// identify_surface_voxels();  // DISABLED: Trust SDF voxelization results
-	if (config_.log()) {
-		std::cout << "Surface voxel identification skipped (using SDF results)." << std::endl;
-		DebugLogger::instance().log_info("Surface voxel identification skipped (using SDF results).");
+		Logger::instance().log_info("Geometry voxelization completed successfully.");
 	}
 
 	return true;
@@ -205,7 +191,7 @@ bool Medium::voxelize_layers() {
 
 	if (config_.log()) {
 		std::cout << "Voxelizing geometry..." << std::endl;
-		DebugLogger::instance().log_info("Voxelizing geometry...");
+		Logger::instance().log_info("Voxelizing geometry...");
 		std::cout << "Grid dimensions: " 
 		          << nx << "x" << ny << "x" << nz 
 				  << " (total " << (nx * ny * nz) 
@@ -214,7 +200,7 @@ bool Medium::voxelize_layers() {
 		std::stringstream dim_msg;
 		dim_msg << "Grid dimensions: " << nx << "x" << ny << "x" << nz 
 		        << " (total " << (nx * ny * nz) << " voxels, size: " << vox_size << ")";
-		DebugLogger::instance().log_info(dim_msg.str());
+		Logger::instance().log_info(dim_msg.str());
 		std::cout << "Grid bounds: min(" 
 		          << bounds_.min_bounds.x << "," 
 		          << bounds_.min_bounds.y << "," 
@@ -228,7 +214,7 @@ bool Medium::voxelize_layers() {
 		           << bounds_.min_bounds.y << "," << bounds_.min_bounds.z << ") max(" 
 		           << bounds_.max_bounds.x << "," << bounds_.max_bounds.y << "," 
 		           << bounds_.max_bounds.z << ")";
-		DebugLogger::instance().log_info(bounds_msg.str());
+		Logger::instance().log_info(bounds_msg.str());
 	}
 
 	int total_voxels_assigned = 0;
@@ -273,178 +259,13 @@ bool Medium::voxelize_layers() {
 		std::stringstream voxel_msg;
 		voxel_msg << "Point-containment voxelization completed. Assigned material to " << total_voxels_assigned 
 		          << " voxels (" << partial_voxels << " partial).";
-		DebugLogger::instance().log_info(voxel_msg.str());
+		Logger::instance().log_info(voxel_msg.str());
 	}
 
 	// PHASE 2: Detect external surface voxels (voxels adjacent to ambient)
 	detect_external_surface_voxels();
 	
 	return true;
-}
-
-void Medium::disambiguate_surface_voxels() {
-	const glm::uvec3& dimensions = volume_.dimensions();
-	int false_positives_removed = 0;
-	
-	DebugLogger::instance().log_debug("Starting surface disambiguation for boundary voxels...");
-	
-	// Debug: Check specific problematic voxels first
-	int problematic_coords[][3] = {{20, 7, 2}, {19, 9, 5}, {13, 8, 12}};
-	for (int i = 0; i < 3; i++) {
-		int x = problematic_coords[i][0], y = problematic_coords[i][1], z = problematic_coords[i][2];
-		if (x < (int)dimensions.x && y < (int)dimensions.y && z < (int)dimensions.z) {
-			Voxel* voxel = volume_.at(x, y, z);
-			std::ostringstream debug_msg;
-			debug_msg << "DEBUG: Problematic voxel (" << x << "," << y << "," << z 
-					  << ") - material=" << (voxel->material ? "YES" : "NO")
-					  << " boundary=" << (voxel->is_boundary_voxel ? "YES" : "NO")
-					  << " surface=" << (voxel->is_surface_voxel ? "YES" : "NO")
-					  << " volume_fraction=" << voxel->volume_fraction_inside;
-			DebugLogger::instance().log_debug(debug_msg.str());
-		}
-	}
-	
-	// Check all voxels with material for potential false positives (not just boundary voxels)
-	for (uint32_t z = 0; z < dimensions.z; z++) {
-		for (uint32_t y = 0; y < dimensions.y; y++) {
-			for (uint32_t x = 0; x < dimensions.x; x++) {
-				Voxel* voxel = volume_.at(x, y, z);
-				
-				// Only process voxels that have material
-				if (!voxel->material) {
-					continue;
-				}
-				
-				// Debug output for specific problematic voxels
-				bool is_problematic = (x == 20 && y == 7 && z == 2) || (x == 19 && y == 9 && z == 5) || (x == 13 && y == 8 && z == 12);
-				if (is_problematic) {
-					std::ostringstream debug_msg;
-					debug_msg << "DEBUG: Processing boundary voxel (" << x << "," << y << "," << z 
-							  << ") with volume_inside=" << voxel->volume_fraction_inside;
-					DebugLogger::instance().log_debug(debug_msg.str());
-				}
-				
-				// Check 6-connected neighbors (faces only, not edges/corners)
-				// These are the potential "opposing" voxels across a surface
-				struct FaceOffset { int dx, dy, dz; };
-				std::vector<FaceOffset> face_neighbors = {
-					{-1, 0, 0}, {1, 0, 0},   // left, right
-					{0, -1, 0}, {0, 1, 0},   // down, up  
-					{0, 0, -1}, {0, 0, 1}    // back, front
-				};
-				
-				bool should_remove_tissue = false;
-				
-				for (const auto& offset : face_neighbors) {
-					int dx = offset.dx, dy = offset.dy, dz = offset.dz;
-					int nx = (int)x + dx;
-					int ny = (int)y + dy; 
-					int nz = (int)z + dz;
-					
-					// Check bounds
-					if (nx < 0 || ny < 0 || nz < 0 
-					|| 	nx >= (int)dimensions.x
-					|| 	ny >= (int)dimensions.y 
-					|| 	nz >= (int)dimensions.z) {
-						continue;
-					}
-					
-					Voxel* neighbor = volume_.at(nx, ny, nz);
-					
-					// If neighbor is also a boundary voxel with material,
-					// check if it has significantly more volume inside
-					if (neighbor->material && neighbor->is_boundary_voxel) {
-						// Surface disambiguation: if neighbor has much more volume inside,
-						// then current voxel is likely a false positive
-						double volume_difference = neighbor->volume_fraction_inside - voxel->volume_fraction_inside;
-						
-						if (volume_difference > 0.3) { // Neighbor has 30%+ more volume inside
-							should_remove_tissue = true;
-							break;
-						}
-					}
-				}
-				
-				// Remove material from false positive voxels
-				if (should_remove_tissue) {
-					voxel->material = nullptr;
-					voxel->is_boundary_voxel = false; // No longer a boundary since no material
-					false_positives_removed++;
-				}
-			}
-		}
-	}
-	
-	if (config_.log()) {
-		std::cout << "Surface disambiguation removed " << false_positives_removed << " false positive voxels." << std::endl;
-	}
-}
-
-void Medium::identify_surface_voxels() {
-	int surface_voxel_count = 0;
-	const glm::uvec3& dimensions = volume_.dimensions();
-	
-	for (uint32_t z = 0; z < dimensions.z; z++) {
-		for (uint32_t y = 0; y < dimensions.y; y++) {
-			for (uint32_t x = 0; x < dimensions.x; x++) {
-				Voxel* voxel = volume_.at(x, y, z);
-				
-				// SIMPLE SURFACE DETECTION: A voxel is surface if:
-				// 1. It has material (part of medium)
-				// 2. It's a boundary voxel (intersects geometry boundary)
-				// 3. OR it has an empty neighbor (adjacent to outside)
-				
-				bool is_surface = false;
-				
-				if (voxel->material) {
-					// Method 1: Boundary voxel (intersects geometry surface)
-					if (voxel->is_boundary_voxel) {
-						is_surface = true;
-					}
-					
-					// Method 2: Has empty neighbors (traditional surface detection)
-					if (!is_surface) {
-						for (int dz = -1; dz <= 1 && !is_surface; dz++) {
-							for (int dy = -1; dy <= 1 && !is_surface; dy++) {
-								for (int dx = -1; dx <= 1 && !is_surface; dx++) {
-									if (dx == 0 && dy == 0 && dz == 0) continue; // Skip self
-									
-									int nx = (int)x + dx;
-									int ny = (int)y + dy;
-									int nz = (int)z + dz;
-									
-									// Check bounds - if neighbor is outside grid, this is surface
-									if (nx < 0 || ny < 0 || nz < 0 
-									|| 	nx >= (int)dimensions.x
-									|| 	ny >= (int)dimensions.y 
-									|| 	nz >= (int)dimensions.z) {
-										is_surface = true;
-										break;
-									}
-									
-									// Check if neighbor has material
-									Voxel* neighbor = volume_.at(nx, ny, nz);
-									if (!neighbor->material) {
-										is_surface = true;
-										break;
-									}
-								}
-							}
-						}
-					}
-				}
-				
-				voxel->is_surface_voxel = is_surface;
-				if (is_surface) {
-					surface_voxel_count++;
-				}
-			}
-		}
-	}
-	
-	if (config_.log()) {
-		std::cout << "Identified " << surface_voxel_count << " surface voxels." << std::endl;
-	}
 }
 
 void Medium::reset_simulation_data() {
@@ -701,7 +522,7 @@ void Medium::detect_external_surface_voxels() {
 	
 	if (config_.log()) {
 		std::cout << "Detecting external surface voxels..." << std::endl;
-		DebugLogger::instance().log_info("Detecting external surface voxels...");
+		Logger::instance().log_info("Detecting external surface voxels...");
 	}
 	
 	// For each voxel with material, check if it has neighbors without material
@@ -759,6 +580,6 @@ void Medium::detect_external_surface_voxels() {
 		std::cout << "External surface detection completed. Found " << surface_voxel_count << " surface voxels." << std::endl;
 		std::stringstream surface_msg;
 		surface_msg << "External surface detection completed. Found " << surface_voxel_count << " surface voxels.";
-		DebugLogger::instance().log_info(surface_msg.str());
+		Logger::instance().log_info(surface_msg.str());
 	}
 }

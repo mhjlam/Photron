@@ -21,7 +21,7 @@ Photon::Photon(uint64_t i, const glm::dvec3& src_origin, const glm::dvec3& src_d
 }
 
 // Path management methods (integrated from PhotonPath)
-void Photon::add_internal_vertex(std::shared_ptr<Node> vert) noexcept 
+void Photon::add_internal_vertex(std::shared_ptr<PhotonNode> vert) noexcept 
 {
 	if (!path_head) {
 		path_head = vert;
@@ -34,7 +34,7 @@ void Photon::add_internal_vertex(std::shared_ptr<Node> vert) noexcept
 	++num_seg_int;
 }
 
-void Photon::add_external_vertex(std::shared_ptr<Node> vert) noexcept 
+void Photon::add_external_vertex(std::shared_ptr<PhotonNode> vert) noexcept 
 {
 	if (path_last) {
 		path_last->emit = vert;
@@ -45,14 +45,14 @@ void Photon::add_external_vertex(std::shared_ptr<Node> vert) noexcept
 
 void Photon::initialize_path(const glm::dvec3& start_pos, double path_weight) 
 {
-	path_head = std::make_shared<Node>(start_pos, path_weight);
+	path_head = std::make_shared<PhotonNode>(start_pos, path_weight);
 	path_last = path_head;
 	num_seg_int = 1;
 	num_seg_ext = 1;
 }
 
 // Source methods
-void Photon::set_source_data(const SourceData& src_data) 
+void Photon::set_source_data(const Source& src_data) 
 {
 	source = src_data;
 }

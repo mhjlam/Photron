@@ -39,6 +39,14 @@ Simulator::Simulator() : rng(std::make_shared<Random>()), mcml_weight_threshold(
 }
 
 /***********************************************************
+ * Initialize shared metrics for energy statistics
+ ***********************************************************/
+void Simulator::initialize_shared_metrics() {
+	// Create shared metrics instance that can be used for energy statistics
+	shared_metrics_ = std::make_shared<Metrics>();
+}
+
+/***********************************************************
  * Simulator destructor.
  ***********************************************************/
 Simulator::~Simulator() {
@@ -78,7 +86,7 @@ bool Simulator::initialize(std::string file) {
 		rng->seed(deterministic_seed);
 		if (Config::get().log()) {
 			std::cout << "Deterministic mode enabled: Using fixed seed " << deterministic_seed << std::endl;
-			DebugLogger::instance().log_info("Deterministic mode enabled: Using fixed seed " + std::to_string(deterministic_seed));
+			Logger::instance().log_info("Deterministic mode enabled: Using fixed seed " + std::to_string(deterministic_seed));
 		}
 	} else {
 		// Use time-based seed for stochastic behavior
@@ -86,7 +94,7 @@ bool Simulator::initialize(std::string file) {
 		rng->seed(time_seed);
 		if (Config::get().log()) {
 			std::cout << "Stochastic mode: Using time-based seed " << time_seed << std::endl;
-			DebugLogger::instance().log_info("Stochastic mode: Using time-based seed " + std::to_string(time_seed));
+			Logger::instance().log_info("Stochastic mode: Using time-based seed " + std::to_string(time_seed));
 		}
 	}
 
@@ -96,12 +104,12 @@ bool Simulator::initialize(std::string file) {
 	for (auto& medium : mediums) {
 		if (!medium.initialize()) {
 			std::cerr << "An error occurred while initializing the medium." << std::endl;
-			DebugLogger::instance().log_error("Failed to initialize medium");
+			Logger::instance().log_error("Failed to initialize medium");
 			return false;
 		}
 		if (Config::get().log()) {
 			// Log initialization success to file only
-			DebugLogger::instance().log_info("Medium initialized successfully.");
+			Logger::instance().log_info("Medium initialized successfully.");
 		}
 	}
 
@@ -109,44 +117,48 @@ bool Simulator::initialize(std::string file) {
 	initialize_dda_instances();
 	if (Config::get().log()) {
 		// Log DDA initialization to file only  
-		DebugLogger::instance().log_info("3D DDA voxel traversal initialized successfully.");
+		Logger::instance().log_info("3D DDA voxel traversal initialized successfully.");
 	}
 
 	// Initialize debug logger (only in log mode)
 	if (Config::get().log()) {
-		DebugLogger::instance().initialize(
+		Logger::instance().initialize(
 			App::get_output_path("trace.csv"), 
 			App::get_output_path("debug.log"), 
 			true
 		);
-		DebugLogger::instance().log_info("=== Photron Simulation Started ===");
-		DebugLogger::instance().log_info("Initializing Photron");
-		DebugLogger::instance().log_info("Configuration parsed successfully.");
+		Logger::instance().log_info("=== Photron Simulation Started ===");
+		Logger::instance().log_info("Initializing Photron");
+		Logger::instance().log_info("Configuration parsed successfully.");
 		std::cout << "Debug logger initialized for photon tracing." << std::endl;
-		DebugLogger::instance().log_info("Debug logger initialized for photon tracing.");
+		Logger::instance().log_info("Debug logger initialized for photon tracing.");
 	} else {
-		DebugLogger::instance().initialize("", "", false);  // Disable logging
+		Logger::instance().initialize("", "", false);  // Disable logging
 	}
 
 	// Initialize light sources
 	if (!initialize_sources()) {
 		std::cerr << "An error occurred while initializing the data structures." << std::endl;
-		DebugLogger::instance().log_error("Failed to initialize light sources");
+		Logger::instance().log_error("Failed to initialize light sources");
 		return false;
 	}
 	if (Config::get().log()) {
 		// Log light source initialization to file only
-		DebugLogger::instance().log_info("Light sources initialized successfully.");
+		Logger::instance().log_info("Light sources initialized successfully.");
 	}
 
 	// Initialize photons
 	for (uint64_t i = 0; i < Config::get().num_photons(); ++i) {
 		photons.emplace_back(i);
 	}
+	
+	// Initialize energy statistics manager after all components are ready
+	initialize_shared_metrics();
+	
 	if (Config::get().log()) {
 		// Simple confirmation message for console
 		std::cout << "Photron simulation initialized successfully." << std::endl;
-		DebugLogger::instance().log_info("Photron simulation initialized successfully.");
+		Logger::instance().log_info("Photron simulation initialized successfully.");
 	}
 	
 	return true;
@@ -228,7 +240,7 @@ bool Simulator::initialize_sources() {
 void Simulator::simulate() {
 	if (Config::get().log()) {
 		std::cout << "Running Monte Carlo simulation" << std::endl;
-		DebugLogger::instance().log_info("Running Monte Carlo simulation");
+		Logger::instance().log_info("Running Monte Carlo simulation");
 	}
 
 	metrics.start_clock();
@@ -311,50 +323,23 @@ void Simulator::simulate() {
 	normalize();
 
 	// NOTE: Voxel data output now handled by report() function
-	// output_voxel_emittance_summary();  // Commented out - superseded by report()
 
 	metrics.stop_clock();
 	
 	// Increment simulation version since data has changed
 	increment_simulation_version();
 	
-	// Aggregate record data across all mediums for metrics collection
-	double total_absorption = 0.0, specular_reflection = 0.0, diffuse_reflection = 0.0;
-	double surface_refraction = 0.0, specular_transmission = 0.0, diffuse_transmission = 0.0;
-	
-	// Variables were used for voxel-based energy accounting but are now obsolete
-	// All energy calculations use medium metrics to avoid double-counting
-	
-	for (const auto& medium : mediums) {
-		const auto& medium_metrics = medium.get_metrics();
-		// Use medium records for all energy calculations - these maintain proper conservation
-		specular_reflection += medium_metrics.get_surface_reflection();
-		surface_refraction += medium_metrics.get_surface_refraction();
-		total_absorption += medium_metrics.get_total_absorption();
-		diffuse_reflection += medium_metrics.get_diffuse_reflection();
-		specular_transmission += medium_metrics.get_specular_transmission();
-		diffuse_transmission += medium_metrics.get_diffuse_transmission();
-	}
-	
-	// Use medium metrics for energy conservation (not voxel totals to avoid double-counting)
-	// Voxel totals are used only for rendering and include specular reflection for visualization
-	
 	// Aggregate voxel data to medium records before calculating final metrics
 	aggregate_voxel_data();
 	
-	// Also aggregate transport metrics (path length, step sizes, scatter events)
-	// Aggregate scatter events from mediums 
-	double combined_scatter_events = 0.0;
-	for (const auto& medium : mediums) {
-		const auto& medium_metrics = medium.get_metrics();
-		combined_scatter_events += medium_metrics.get_scatter_events();
-	}
+	// Use consolidated energy aggregation method
+	auto energy_data = aggregate_medium_energy_data();
 	
 	// Set only the scatter events in the main simulator metrics (path data is now handled by medium metrics)
-	metrics.set_scatter_events(combined_scatter_events);
+	metrics.set_scatter_events(energy_data.scatter_events);
 	
-	metrics.collect_data(total_absorption, specular_reflection, diffuse_reflection,
-						 surface_refraction, specular_transmission, diffuse_transmission);
+	metrics.collect_data(energy_data.total_absorption, energy_data.specular_reflection, energy_data.diffuse_reflection,
+						 energy_data.surface_refraction, energy_data.specular_transmission, energy_data.diffuse_transmission);
 	metrics.print_report(*this);
 }
 
@@ -409,31 +394,14 @@ void Simulator::simulate_single_photon() {
 	// This ensures diffuse_reflection and diffuse_transmission are updated for the overlay
 	aggregate_voxel_data();
 	
-	// Recalculate metrics to include the new photon
-	double total_absorption = 0.0, specular_reflection = 0.0, diffuse_reflection = 0.0;
-	double surface_refraction = 0.0, specular_transmission = 0.0, diffuse_transmission = 0.0;
-	
-	// Aggregate data from all mediums
-	double combined_scatter_events = 0.0;
-	
-	for (auto& medium : mediums) {
-		const auto& medium_metrics = medium.get_metrics();
-		total_absorption += medium_metrics.get_total_absorption();
-		specular_reflection += medium_metrics.get_surface_reflection();
-		diffuse_reflection += medium_metrics.get_diffuse_reflection();
-		surface_refraction += medium_metrics.get_surface_refraction();
-		specular_transmission += medium_metrics.get_specular_transmission();
-		diffuse_transmission += medium_metrics.get_diffuse_transmission();
-		
-		// Get scatter events from this medium
-		combined_scatter_events += medium_metrics.get_scatter_events();
-	}
+	// Use consolidated energy aggregation method
+	auto energy_data = aggregate_medium_energy_data();
 	
 	// Set only the scatter events in the main simulator metrics (path data is now handled by medium metrics)
-	metrics.set_scatter_events(combined_scatter_events);
+	metrics.set_scatter_events(energy_data.scatter_events);
 	
-	metrics.collect_data(total_absorption, specular_reflection, diffuse_reflection,
-						 surface_refraction, specular_transmission, diffuse_transmission);
+	metrics.collect_data(energy_data.total_absorption, energy_data.specular_reflection, energy_data.diffuse_reflection,
+						 energy_data.surface_refraction, energy_data.specular_transmission, energy_data.diffuse_transmission);
 	
 	// Increment simulation version since data has changed
 	increment_simulation_version();
@@ -498,7 +466,7 @@ void Simulator::launch(Photon& photon, const Source& source) {
 	// Log photon launch
 	glm::ivec3 voxel_coords = photon.voxel ? 
 		glm::ivec3(photon.voxel->ix(), photon.voxel->iy(), photon.voxel->iz()) : glm::ivec3(-1);
-	DebugLogger::instance().log_photon_event(
+	Logger::instance().log_photon_event(
 		static_cast<int>(photon.id), "LAUNCH", photon.position, photon.direction, 
 		photon.weight, voxel_coords, 0, 0.0,
 		"Photon launched into medium"
@@ -540,9 +508,9 @@ void Simulator::launch(Photon& photon, const Source& source) {
 	}
 
 	// create vertices for new light path
-	auto light = std::make_shared<Photon::Node>(photon.source.origin, photon.weight);
-	auto intersection = std::make_shared<Photon::Node>(photon.source.intersect, photon.weight);
-	auto reflection = std::make_shared<Photon::Node>(move(photon.source.intersect, photon.source.specular_direction, 0.1),
+	auto light = std::make_shared<PhotonNode>(photon.source.origin, photon.weight);
+	auto intersection = std::make_shared<PhotonNode>(photon.source.intersect, photon.weight);
+	auto reflection = std::make_shared<PhotonNode>(move(photon.source.intersect, photon.source.specular_direction, 0.1),
 												   start_medium->get_metrics().get_surface_reflection());
 
 	light->next = intersection;      // intersection vertex/node
@@ -583,7 +551,20 @@ void Simulator::step_size(Photon& photon) {
 		}
 	}
 	
-	generate_step_size(photon);
+	// Modern Beer-Lambert law implementation with improved numerical stability
+	if (photon.step < 1e-12) { // Higher precision threshold
+		double rnd;
+		// More robust zero-avoidance for random number generation
+		// Use std::numeric_limits for better precision handling
+		constexpr double min_random = std::numeric_limits<double>::epsilon();
+		do {
+			rnd = rng->next();
+		}
+		while (rnd <= min_random);
+
+		// Use high-precision logarithm for step size calculation
+		photon.step = -std::log(rnd);
+	}
 	
 	// Add step size to metrics of the current medium
 	// CRITICAL FIX: Prevent division by zero for non-scattering media
@@ -740,7 +721,7 @@ void Simulator::transfer(Photon& photon) {
 			    << " weight=" << photon.weight << " step=" << photon.step 
 			    << " pos=(" << photon.position.x << "," << photon.position.y << "," << photon.position.z << ")"
 			    << " alive=" << (photon.alive ? "yes" : "no");
-			DebugLogger::instance().log_debug(oss.str());
+			Logger::instance().log_debug(oss.str());
 		}
 		
 		if (substep_counter > max_substeps) {
@@ -784,7 +765,7 @@ void Simulator::transfer(Photon& photon) {
 		glm::ivec3 last_voxel_coords = photon.voxel ? 
 			glm::ivec3(photon.voxel->ix(), photon.voxel->iy(), photon.voxel->iz()) : glm::ivec3(-1);
 		
-		DebugLogger::instance().log_photon_event(
+		Logger::instance().log_photon_event(
 			static_cast<int>(photon.id), "EXIT", photon.position, photon.direction, 
 			photon.weight, last_voxel_coords, -1, photon.weight,
 			"Photon exiting medium - calling radiate"
@@ -814,7 +795,7 @@ void Simulator::transfer(Photon& photon) {
 				// Photon has truly exited the medium - proceed with exit logic
 				
 				glm::ivec3 last_voxel_coords(-1);
-				DebugLogger::instance().log_photon_event(
+				Logger::instance().log_photon_event(
 					static_cast<int>(photon.id), "EXIT", photon.position, photon.direction, 
 					photon.weight, last_voxel_coords, -1, photon.weight,
 					"Photon moved to invalid voxel - calling radiate"
@@ -832,7 +813,7 @@ void Simulator::transfer(Photon& photon) {
 			// Photon has no previous material voxel - this is an error state
 			
 			glm::ivec3 last_voxel_coords(-1);
-			DebugLogger::instance().log_photon_event(
+			Logger::instance().log_photon_event(
 				static_cast<int>(photon.id), "EXIT", photon.position, photon.direction, 
 				photon.weight, last_voxel_coords, -1, photon.weight,
 				"Photon has no material voxel - calling radiate"
@@ -953,7 +934,7 @@ void Simulator::sub_step(Photon& photon) {
 		adjusted_position.y < box.min_point().y || adjusted_position.y > box.max_point().y ||
 		adjusted_position.z < box.min_point().z || adjusted_position.z > box.max_point().z) {
 		if (Config::get().log()) {
-			DebugLogger::instance().log_warning("Adjusted position outside voxel bounds. Using fallback.");
+			Logger::instance().log_warning("Adjusted position outside voxel bounds. Using fallback.");
 		}
 		// Fallback: place photon at voxel center
 		adjusted_position = glm::dvec3(
@@ -1226,7 +1207,7 @@ void Simulator::deposit(Photon& photon) {
 		oss << "DEPOSIT: Photon " << photon.id << " weight=" << photon.weight 
 		    << " mu_a=" << photon.mu_a() << " sub_step=" << photon.sub_step 
 		    << " deltaw=" << deltaw << " effective_volume=" << effective_volume_fraction;
-		DebugLogger::instance().log_debug(oss.str());
+		Logger::instance().log_debug(oss.str());
 		deposit_debug_count++;
 	}
 
@@ -1244,7 +1225,7 @@ void Simulator::deposit(Photon& photon) {
 			    << ", used=" << energy_already_used 
 			    << " (radiated=" << photon.total_energy_radiated 
 			    << ", absorbed=" << photon.total_energy_absorbed << ")";
-			DebugLogger::instance().log_warning(oss.str());
+			Logger::instance().log_warning(oss.str());
 		}
 		energy_available = 0.0;
 	}
@@ -1259,7 +1240,7 @@ void Simulator::deposit(Photon& photon) {
 		    << ", actual=" << actual_absorbed_weight 
 		    << ", current_weight=" << photon.weight 
 		    << ", after_weight=" << (photon.weight - actual_absorbed_weight);
-		DebugLogger::instance().log_debug(oss.str());
+		Logger::instance().log_debug(oss.str());
 	}
 	
 	// Update photon energy tracking
@@ -1273,7 +1254,7 @@ void Simulator::deposit(Photon& photon) {
 		if (Config::get().log()) {
 			std::ostringstream debug_msg;
 			debug_msg << "WARNING: Photon weight became negative (" << photon.weight << "), setting to 0";
-			DebugLogger::instance().log_warning(debug_msg.str());
+			Logger::instance().log_warning(debug_msg.str());
 		}
 		photon.weight = 0.0;
 	}
@@ -1313,14 +1294,14 @@ void Simulator::cross(Photon& photon) {
 		debug_msg << "=== BOUNDARY CROSSING === Photon " << photon.id << " at pos=(" 
 		          << photon.position.x << "," << photon.position.y << "," << photon.position.z 
 		          << ") weight=" << photon.weight;
-		DebugLogger::instance().log_debug(debug_msg.str());
+		Logger::instance().log_debug(debug_msg.str());
 		crossing_count++;
 	}
 	
 	// Safety check - ensure photon has valid voxel and material
 	if (!photon.voxel || !photon.voxel->material) {
 		if (Config::get().log()) {
-			DebugLogger::instance().log_debug("  -> Outside medium, recording transmission");
+			Logger::instance().log_debug("  -> Outside medium, recording transmission");
 		}
 		// Photon is outside medium - record as transmission
 		photon.alive = false;
@@ -1488,24 +1469,24 @@ void Simulator::cross(Photon& photon) {
 		oss << "Checking layer boundary - current_medium=" << (current_medium ? "yes" : "no") 
 		    << " new_medium=" << (new_medium ? "yes" : "no") 
 		    << " same=" << (current_medium == new_medium ? "yes" : "no");
-		DebugLogger::instance().log_debug(oss.str());
+		Logger::instance().log_debug(oss.str());
 	}
 	
 	if (current_medium && new_medium && current_medium == new_medium) {
 		Voxel* current_voxel = photon.voxel;
 		
 		if (Config::get().log()) {
-			DebugLogger::instance().log_debug("Same medium detected - checking voxels");
+			Logger::instance().log_debug("Same medium detected - checking voxels");
 			std::ostringstream oss;
 			oss << "  current_voxel=" << (current_voxel ? "yes" : "no")
 			    << " newvox=" << (newvox ? "yes" : "no");
-			DebugLogger::instance().log_debug(oss.str());
+			Logger::instance().log_debug(oss.str());
 			
 			if (current_voxel && newvox) {
 				std::ostringstream oss0;
 				oss0 << "  current_tissue=" << (current_voxel->material ? "yes" : "no")
 				     << " new_tissue=" << (newvox->material ? "yes" : "no");
-				DebugLogger::instance().log_debug(oss0.str());
+				Logger::instance().log_debug(oss0.str());
 				
 			if (current_voxel->material && newvox->material) {
 				bool same_optical = current_voxel->material->has_same_optical_properties(*newvox->material);
@@ -1513,13 +1494,13 @@ void Simulator::cross(Photon& photon) {
 				std::ostringstream oss1;
 				oss1 << "  current_material_hash=" << current_voxel->material->get_optical_properties_hash()
 				     << " new_material_hash=" << newvox->material->get_optical_properties_hash();
-				DebugLogger::instance().log_debug(oss1.str());					std::ostringstream oss2;
+				Logger::instance().log_debug(oss1.str());					std::ostringstream oss2;
 					oss2 << "  current_properties: eta=" << current_voxel->material->eta()
 					     << " mua=" << current_voxel->material->mu_a()
 					     << " mus=" << current_voxel->material->mu_s()  
 					     << " g=" << current_voxel->material->g() 
 					     << " hash=" << current_voxel->material->get_optical_properties_hash();
-					DebugLogger::instance().log_debug(oss2.str());
+					Logger::instance().log_debug(oss2.str());
 					
 					std::ostringstream oss3;
 					oss3 << "  new_properties: eta=" << newvox->material->eta()
@@ -1527,11 +1508,11 @@ void Simulator::cross(Photon& photon) {
 					     << " mus=" << newvox->material->mu_s()
 					     << " g=" << newvox->material->g()
 					     << " hash=" << newvox->material->get_optical_properties_hash();
-					DebugLogger::instance().log_debug(oss3.str());
+					Logger::instance().log_debug(oss3.str());
 					
 					std::ostringstream oss4;
 					oss4 << "  optical_properties_same=" << (same_optical ? "yes" : "no");
-					DebugLogger::instance().log_debug(oss4.str());
+					Logger::instance().log_debug(oss4.str());
 				}
 			}
 		}
@@ -1561,7 +1542,7 @@ void Simulator::cross(Photon& photon) {
 				if (Config::get().log()) {
 					std::ostringstream debug_msg;
 					debug_msg << "  -> TOTAL INTERNAL REFLECTION: n1=" << n1 << ", n2=" << n2;
-					DebugLogger::instance().log_debug(debug_msg.str());
+					Logger::instance().log_debug(debug_msg.str());
 				}
 				return; // Photon reflects back, no interface crossing
 			}
@@ -1616,7 +1597,7 @@ void Simulator::cross(Photon& photon) {
 				debug_msg << "  -> INTERFACE ENERGY SPLITTING: n1=" << n1 << ", n2=" << n2 
 				          << ", R=" << R_fresnel << ", T=" << T_fresnel
 				          << ", reflected=" << reflected_energy << ", transmitted=" << transmitted_energy;
-				DebugLogger::instance().log_debug(debug_msg.str());
+				Logger::instance().log_debug(debug_msg.str());
 			}
 		}
 	}
@@ -1685,32 +1666,32 @@ void Simulator::cross(Photon& photon) {
 			if (Config::get().log()) {
 				if (position_outside_geometry) {
 					// Photon position is legitimately outside - voxelization error
-					DebugLogger::instance().log_error("VOXELIZATION ERROR: Photon at position outside geometry but voxel marked as interior!");
-					DebugLogger::instance().log_error("Voxel (" 
+					Logger::instance().log_error("VOXELIZATION ERROR: Photon at position outside geometry but voxel marked as interior!");
+					Logger::instance().log_error("Voxel (" 
 						+ std::to_string(photon.voxel->ix()) + ", " 
 						+ std::to_string(photon.voxel->iy()) + ", " 
 						+ std::to_string(photon.voxel->iz()) + ") should be surface but isn't.");
 				}
 				else {
 					// Photon position is inside geometry - transport/exit detection issue
-					DebugLogger::instance().log_warning("TRANSPORT ISSUE: Photon trying to exit from position still inside geometry!");
-					DebugLogger::instance().log_warning("Position (" 
+					Logger::instance().log_warning("TRANSPORT ISSUE: Photon trying to exit from position still inside geometry!");
+					Logger::instance().log_warning("Position (" 
 						+ std::to_string(photon.position.x) + ", " 
 						+ std::to_string(photon.position.y) + ", " 
 						+ std::to_string(photon.position.z) + ") is inside medium but exit attempted.");
 				}
 				
-				DebugLogger::instance().log_warning("Warning: Photon attempting to exit from interior voxel at (" 
+				Logger::instance().log_warning("Warning: Photon attempting to exit from interior voxel at (" 
 					+ std::to_string(photon.voxel->ix()) + ", " 
 					+ std::to_string(photon.voxel->iy()) + ", " 
 					+ std::to_string(photon.voxel->iz()) + ") to ambient medium!");
 				
-				DebugLogger::instance().log_warning("New position: (" 
+				Logger::instance().log_warning("New position: (" 
 					+ std::to_string(newpos.x) + ", " 
 					+ std::to_string(newpos.y) + ", " 
 					+ std::to_string(newpos.z) + ")");
 				
-				DebugLogger::instance().log_warning("Direction: (" 
+				Logger::instance().log_warning("Direction: (" 
 					+ std::to_string(transmittance.x) + ", " 
 					+ std::to_string(transmittance.y) + ", " 
 					+ std::to_string(transmittance.z) + ")");
@@ -1904,7 +1885,7 @@ Voxel* Simulator::find_last_surface_voxel_with_dda(const Photon& photon, const g
 	// Find the last surface voxel in the traversal
 	Voxel* last_surface_voxel = nullptr;
 	
-	DebugLogger::instance().log_photon_event(
+	Logger::instance().log_photon_event(
 		static_cast<int>(photon.id), "DDA_SEARCH", photon.position, direction, 
 		0.0, glm::ivec3(-1), -1, total_distance,
 		"Starting DDA traversal for last surface voxel, found " + std::to_string(result.voxels.size()) + " voxels"
@@ -1920,7 +1901,7 @@ Voxel* Simulator::find_last_surface_voxel_with_dda(const Photon& photon, const g
 			glm::ivec3 voxel_coords = glm::ivec3(voxel->ix(), voxel->iy(), voxel->iz());
 			bool is_surface = voxel->is_surface_voxel; // ONLY true external surface voxels
 			
-			DebugLogger::instance().log_photon_event(
+			Logger::instance().log_photon_event(
 				static_cast<int>(photon.id), "DDA_VOXEL", step.world_position, direction, 
 				0.0, voxel_coords, static_cast<int>(i), step.distance_traveled,
 				"Voxel " + std::to_string(i) + "/" + std::to_string(result.voxels.size()) + 
@@ -1938,13 +1919,13 @@ Voxel* Simulator::find_last_surface_voxel_with_dda(const Photon& photon, const g
 	
 	if (selected_voxel) {
 		glm::ivec3 selected_coords = glm::ivec3(selected_voxel->ix(), selected_voxel->iy(), selected_voxel->iz());
-		DebugLogger::instance().log_photon_event(
+		Logger::instance().log_photon_event(
 			static_cast<int>(photon.id), "DDA_RESULT", photon.position, direction, 
 			0.0, selected_coords, -1, 0.0,
 			"Selected voxel: " + (last_surface_voxel ? std::string("DDA_FOUND") : std::string("FALLBACK_TO_CURRENT"))
 		);
 	} else {
-		DebugLogger::instance().log_photon_event(
+		Logger::instance().log_photon_event(
 			static_cast<int>(photon.id), "DDA_ERROR", photon.position, direction, 
 			0.0, glm::ivec3(-1), -1, 0.0,
 			"No voxel selected - both DDA and fallback failed"
@@ -2052,7 +2033,7 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 	glm::ivec3 surface_coords = glm::ivec3(exit_voxel->ix(), exit_voxel->iy(), exit_voxel->iz());
 	
 	// Log the radiate event with the determined exit voxel
-	DebugLogger::instance().log_photon_event(
+	Logger::instance().log_photon_event(
 		static_cast<int>(photon.id), "RADIATE", photon.position, direction, 
 		weight, surface_coords, -1, weight,
 		"Using robust last material voxel selection"
@@ -2073,7 +2054,7 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 	exit_voxel->emittance += weight;
 	
 	// Log voxel emittance recording
-	DebugLogger::instance().log_voxel_emittance(
+	Logger::instance().log_voxel_emittance(
 		static_cast<int>(photon.id), photon.position, direction, weight, surface_coords, weight, "Surface voxel emittance"
 	);
 	
@@ -2083,7 +2064,7 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 		// Exit on same side as entry - classify as diffuse reflection (not specular)
 		exit_voxel->diffuse_reflection += weight;
 		photon.exit_type = Photon::ExitType::REFLECTED;
-		DebugLogger::instance().log_photon_event(
+		Logger::instance().log_photon_event(
 			static_cast<int>(photon.id), "REFLECT", photon.position, direction, 
 			weight, surface_coords, -1, weight,
 			"Photon classified as reflection"
@@ -2092,7 +2073,7 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 		// Exit on opposite side from entry - classify as transmission  
 		exit_voxel->diffuse_transmission += weight;
 		photon.exit_type = Photon::ExitType::TRANSMITTED;
-		DebugLogger::instance().log_photon_event(
+		Logger::instance().log_photon_event(
 			static_cast<int>(photon.id), "TRANSMIT", photon.position, direction, 
 			weight, surface_coords, -1, weight,
 			"Photon classified as transmission"
@@ -2109,10 +2090,10 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 	}
 	
 	// Add external vertex to the current photon path
-	std::shared_ptr<Photon::Node> exit_node = nullptr;
+	std::shared_ptr<PhotonNode> exit_node = nullptr;
 	if (photon.path_last) {
-		exit_node = std::make_shared<Photon::Node>(photon.intersect, weight, 
-			static_cast<Photon::Node::ExitType>(node_exit_type));
+		exit_node = std::make_shared<PhotonNode>(photon.intersect, weight, 
+			static_cast<PhotonNode::ExitType>(node_exit_type));
 		photon.add_external_vertex(exit_node);
 	}
 	
@@ -2151,8 +2132,46 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
  * Determine the survivability of a given photon using MCML 3.0.0 algorithm.
  ***********************************************************/
 void Simulator::roulette(Photon& photon) {
-	// Use MCML 3.0.0 Russian roulette
-	roulette_photon(photon);
+	// CRITICAL FIX: Never apply Russian Roulette to negative weights
+	if (photon.weight < 0.0) {
+		if (Config::get().log()) {
+			std::ostringstream debug_msg;
+			debug_msg << "ERROR: Attempted Russian Roulette on negative weight (" << photon.weight << "), terminating photon";
+			Logger::instance().log_error(debug_msg.str());
+		}
+		terminate_photon_and_record_energy(photon, "negative_weight");
+		return;
+	}
+	
+	// Modernized Russian roulette with adaptive threshold and survival probability
+	if (photon.weight < mcml_weight_threshold) {
+		// Use weight-dependent survival probability for better variance reduction
+		double survival_probability = std::max(0.1, photon.weight / mcml_weight_threshold);
+		survival_probability = std::min(survival_probability, 0.5); // Cap at 50% for stability
+
+		if (rng->next() <= survival_probability) {
+			// ENERGY CONSERVATION FIX: Proper Russian Roulette
+			
+			// Survive with proper weight normalization
+			double old_weight = photon.weight;
+			photon.weight /= survival_probability;
+			
+			// CRITICAL FIX: Update energy budget to match new weight
+			// Russian Roulette increases the weight, so budget must increase proportionally
+			photon.total_energy_budget = photon.weight;
+			
+			if (Config::get().log()) {
+				std::ostringstream oss;
+				oss << "ROULETTE: weight " << old_weight << " -> " << photon.weight 
+				    << " (survival_prob=" << survival_probability << ", new_budget=" << photon.total_energy_budget << ")";
+				Logger::instance().log_debug(oss.str());
+			}
+		}
+		else {
+			// Use centralized termination for consistency
+			terminate_photon_and_record_energy(photon, "roulette");
+		}
+	}
 }
 
 /***********************************************************
@@ -2173,16 +2192,64 @@ void Simulator::scatter(Photon& photon) {
 		return;
 	}
 	
-	Material* material_ptr = photon.voxel->material;
-	if (!material_ptr) {
+	Material* material = photon.voxel->material;
+	if (!material) {
 		// Record as transmission - photon cannot scatter without material
 		photon.alive = false;
 		radiate(photon, photon.direction, photon.weight);
 		return;
 	}
 
-	// Use MCML 3.0.0 scattering algorithm
-	scatter_photon(photon, *material_ptr);
+	// Modern numerically stable Henyey-Greenstein phase function implementation
+	double cos_theta, sin_theta, cos_phi, sin_phi;
+	double g = material->g(); // anisotropy factor
+	double rnd = rng->next();
+
+	// More numerically stable Henyey-Greenstein sampling
+	if (std::abs(g) > 1e-12) {
+		// Use improved numerical stability for extreme anisotropy values
+		double g2 = g * g;
+		double one_minus_g2 = 1.0 - g2;
+		double temp = one_minus_g2 / (1.0 - g + 2.0 * g * rnd);
+		cos_theta = (1.0 + g2 - temp * temp) / (2.0 * g);
+
+		// Robust clamping with higher precision threshold
+		cos_theta = std::clamp(cos_theta, -1.0, 1.0);
+	}
+	else {
+		// Isotropic scattering for negligible anisotropy
+		cos_theta = 2.0 * rnd - 1.0;
+	}
+
+	// More robust trigonometric calculation with numerical safety
+	sin_theta = std::sqrt(std::max(0.0, 1.0 - cos_theta * cos_theta));
+
+	// Uniform azimuthal angle sampling with better numerical properties
+	rnd = rng->next();
+	double phi = MathConstants::TWO_PI * rnd;
+	cos_phi = std::cos(phi);
+	sin_phi = std::sin(phi);
+
+	// Modernized direction update using GLM vector operations and rotation matrices
+	// This replaces the manual coordinate transformation with more robust methods
+	glm::dvec3 old_direction = photon.direction;
+
+	// Use Rodrigues' rotation formula for more stable direction update
+	if (std::abs(old_direction.z) > 0.99999) {
+		// Special case: nearly aligned with z-axis - use direct coordinate assignment
+		photon.direction =
+			glm::dvec3(sin_theta * cos_phi, sin_theta * sin_phi, cos_theta * (old_direction.z > 0 ? 1.0 : -1.0));
+	}
+	else {
+		// General case: Use stable rotation about axis perpendicular to incident direction
+		// Create orthonormal basis vectors
+		glm::dvec3 w = old_direction; // incident direction
+		glm::dvec3 u = glm::normalize(glm::cross(std::abs(w.z) < 0.9 ? glm::dvec3(0, 0, 1) : glm::dvec3(1, 0, 0), w));
+		glm::dvec3 v = glm::cross(w, u);
+
+		// Construct scattered direction in local coordinate system
+		photon.direction = sin_theta * cos_phi * u + sin_theta * sin_phi * v + cos_theta * w;
+	}
 	
 	// Increment scatter count for this photon
 	photon.scatter_count++;
@@ -2202,7 +2269,7 @@ void Simulator::scatter(Photon& photon) {
 	current_medium->get_metrics().increment_scatters();
 
 	// add new internal position to path
-	photon.add_internal_vertex(std::make_shared<Photon::Node>(photon.position, photon.weight));
+	photon.add_internal_vertex(std::make_shared<PhotonNode>(photon.position, photon.weight));
 }
 
 /***********************************************************
@@ -2456,589 +2523,24 @@ void Simulator::aggregate_voxel_data() {
 /***********************************************************
  *	Write the resulting physical quantities to a file.
  ***********************************************************/
+/***********************************************************
+ *	Write the resulting physical quantities to a file.
+ *	Now uses Metrics class for unified statistics and export functionality.
+ ***********************************************************/
 void Simulator::report(bool generate_csv) {
-	std::string str_simulation = App::get_output_path("simulation.log");  // Always generate .log file
-	
-	std::ofstream ofs_rep(str_simulation.c_str(), std::ios_base::out); // simulation report
-	
-	// CSV files are optional based on generate_csv parameter
-	std::ofstream ofs_abs, ofs_ptn, ofs_optical, ofs_vox_stats;
-	std::string str_absorption, str_photons, str_optics, str_voxels;
-	
-	if (generate_csv) {
-		str_absorption = App::get_output_path("absorption.csv");  // Changed to .csv
-		str_photons = App::get_output_path("photons.csv");       // Changed to .csv
-		str_optics = App::get_output_path("optics.csv");         // Changed to .csv
-		str_voxels = App::get_output_path("voxels.csv");         // Combined voxels file as CSV
-		
-		ofs_abs.open(str_absorption.c_str(), std::ios_base::out); // absorption report
-		ofs_ptn.open(str_photons.c_str(), std::ios_base::out);   // photon exitance report
-		ofs_optical.open(str_optics.c_str(), std::ios_base::out); // optical properties (emittance + diffusion)
-		ofs_vox_stats.open(str_voxels.c_str(), std::ios_base::out); // per-voxel statistics
-	}
-
-	if (!ofs_rep.good()) {
-		std::cerr << "Error: simulation.log file could not be opened." << std::endl;
-		return;
-	}
-	
-	if (generate_csv && (!ofs_abs.good() || !ofs_ptn.good() ||
-		!ofs_optical.good() || !ofs_vox_stats.good())) {
-		std::cerr << "Error: one or more CSV files could not be opened." << std::endl;
-		return;
-	}
-
-	if (ofs_rep.good()) {
-		ofs_rep.precision(8);
-		ofs_rep << "################################################################" << std::endl;
-		ofs_rep << "# SIMULATION REPORT" << std::endl;
-		ofs_rep << "################################################################" << std::endl;
-		ofs_rep << std::endl;
-
-		// write input configuration
-		ofs_rep << "Configuration" << std::endl;
-		ofs_rep << "################################################################" << std::endl;
-		ofs_rep << std::endl;
-		ofs_rep << "Number of photons:        " << Config::get().num_photons() << std::endl;
-		ofs_rep << "Number of layers:         " << Config::get().num_layers() << std::endl;
-		ofs_rep << "Number of voxels:         " << Config::get().num_voxels() << std::endl;
-		ofs_rep << "Grid dimensions:          " << Config::get().nx() 
-				<< " x " << Config::get().ny() 
-				<< " x " << Config::get().nz() << std::endl;
-		ofs_rep << "Voxel dimensions:         " << Config::get().vox_size() 
-				<< " x " << Config::get().vox_size() 
-				<< " x " << Config::get().vox_size() << std::endl;
-		ofs_rep << "Deterministic mode:       " << (Config::get().deterministic() ? "Yes" : "No") << std::endl;
-		ofs_rep << std::endl << std::endl;
-
-		// write recorded parameters: a, rs, rd, (ts, td) - aggregate across all mediums
-		ofs_rep << "Recorded parameters" << std::endl;
-		ofs_rep << "################################################################" << std::endl;
-		
-		// Aggregate values across all mediums
-		double total_absorption = 0.0, diffuse_reflection = 0.0, specular_reflection = 0.0;
-		double surface_refraction = 0.0, diffuse_transmission = 0.0, specular_transmission = 0.0;
-		
-		for (const auto& medium : mediums) {
-			const auto& medium_metrics = medium.get_metrics();
-			total_absorption += medium_metrics.get_total_absorption();
-			diffuse_reflection += medium_metrics.get_diffuse_reflection();
-			specular_reflection += medium_metrics.get_surface_reflection();
-			surface_refraction += medium_metrics.get_surface_refraction();
-			diffuse_transmission += medium_metrics.get_diffuse_transmission();
-			specular_transmission += medium_metrics.get_specular_transmission();
-		}
-		
-		ofs_rep << "Total absorption:        " << std::fixed << total_absorption << std::endl;
-		ofs_rep << "Surface reflection:      " << std::fixed << specular_reflection << std::endl;
-		ofs_rep << "Surface refraction:      " << std::fixed << surface_refraction << std::endl;
-		ofs_rep << "Diffuse reflection:      " << std::fixed << diffuse_reflection << std::endl;
-		ofs_rep << "Diffuse transmission:    " << std::fixed << diffuse_transmission << std::endl;
-		ofs_rep << "Specular transmission:   " << std::fixed << specular_transmission << std::endl;
-		ofs_rep << std::endl;
-		
-		// Calculate and display energy conservation percentages (matching overlay calculation)
-		ofs_rep << "Energy Conservation Percentages" << std::endl;
-		ofs_rep << "################################################################" << std::endl;
-		
-		// Use the same calculation as the overlay - call calculate_energy_conservation()
-		auto energy = calculate_energy_conservation();
-		
-		if (energy.surface_refraction > 0) {
-			// Use TOTAL initial energy as baseline (specular reflection + refracted energy)
-			double baseline_energy = energy.surface_reflection + energy.surface_refraction;
-			
-			// Calculate percentages relative to total initial energy (same as overlay)
-			double surface_reflection_percent = (energy.surface_reflection / baseline_energy) * 100.0;
-			double absorption_percent = (energy.total_absorption / baseline_energy) * 100.0;
-			double reflection_percent = (energy.total_reflection / baseline_energy) * 100.0;
-			double transmission_percent = (energy.total_transmission / baseline_energy) * 100.0;
-			
-			// Total should equal baseline_energy for perfect conservation
-			double total_accounted = energy.surface_reflection + energy.total_absorption + 
-			                        energy.total_reflection + energy.total_transmission;
-			double total_percent = (total_accounted / baseline_energy) * 100.0;
-			
-			ofs_rep << "Specular reflection:     " << std::fixed << std::setprecision(1) 
-					<< surface_reflection_percent << "%" << std::endl;
-			ofs_rep << "Absorption:              " << std::fixed << std::setprecision(1) 
-					<< absorption_percent << "%" << std::endl;
-			ofs_rep << "Reflection:              " << std::fixed << std::setprecision(1) 
-					<< reflection_percent << "%" << std::endl;
-			ofs_rep << "Transmission:            " << std::fixed << std::setprecision(1) 
-					<< transmission_percent << "%" << std::endl;
-			ofs_rep << "Total:                   " << std::fixed << std::setprecision(1) 
-					<< total_percent << "%" << std::endl;
-		} else {
-			ofs_rep << "Specular reflection:     0.0%" << std::endl;
-			ofs_rep << "Absorption:              0.0%" << std::endl;
-			ofs_rep << "Reflection:              0.0%" << std::endl;
-			ofs_rep << "Transmission:            0.0%" << std::endl;
-			ofs_rep << "Total:                   0.0%" << std::endl;
-		}
-		ofs_rep << std::endl;
-		
-		// Add detailed per-medium statistics
-		ofs_rep << "Per-Medium Details" << std::endl;
-		ofs_rep << "################################################################" << std::endl;
-		
-		for (size_t i = 0; i < mediums.size(); ++i) {
-			const Medium& medium = mediums[i];
-			const auto& volume = medium.get_volume();
-			const auto& medium_metrics = medium.get_metrics();
-			
-			ofs_rep << "Medium " << (i + 1) << ":" << std::endl;
-			ofs_rep << "  Volume dimensions:      " 
-					<< volume.width() << " x " 
-					<< volume.height() << " x " 
-					<< volume.depth() << std::endl;
-			ofs_rep << "  Total voxels:           " << volume.size() << std::endl;
-			
-			// Count different types of voxels
-			size_t material_count = 0, surface_count = 0, boundary_count = 0;
-			for (const auto& voxel_ptr : volume) {
-				if (voxel_ptr->material) material_count++;
-				if (voxel_ptr->is_surface_voxel) surface_count++;
-				if (voxel_ptr->is_boundary_voxel) boundary_count++;
-			}
-			
-			ofs_rep << "  Material voxels:        " << material_count << std::endl;
-			ofs_rep << "  Surface voxels:         " << surface_count << std::endl;
-			ofs_rep << "  Boundary voxels:        " << boundary_count << std::endl;
-			ofs_rep << "  Photons entered:        " << medium_metrics.get_photons_entered() << std::endl;
-			ofs_rep << "  Total absorption:       " << std::fixed << medium_metrics.get_total_absorption() << std::endl;
-			ofs_rep << "  Surface reflection:     " << std::fixed << medium_metrics.get_surface_reflection() << std::endl;
-			ofs_rep << "  Surface refraction:     " << std::fixed << medium_metrics.get_surface_refraction() << std::endl;
-			ofs_rep << "  Diffuse reflection:     " << std::fixed << medium_metrics.get_diffuse_reflection() << std::endl;
-			ofs_rep << "  Diffuse transmission:   " << std::fixed << medium_metrics.get_diffuse_transmission() << std::endl;
-			ofs_rep << "  Specular transmission:  " << std::fixed << medium_metrics.get_specular_transmission() << std::endl;
-			ofs_rep << "  Scatter events:         " << static_cast<int>(medium_metrics.get_scatter_events()) << std::endl;
-			ofs_rep << std::endl;
-		}
-		ofs_rep.close();
-	}
-
-	// write voxel absorption as CSV (only if generate_csv is true)
-	if (generate_csv && ofs_abs.good()) {
-		ofs_abs.precision(10); // Increased precision to see small values
-		
-		// CSV column headers
-		ofs_abs << "x,y,z,absorption_absolute,absorption_percentage" << std::endl;
-
-		// Summary: Track non-zero absorption values for validation
-		int non_zero_count = 0;
-		double max_absorption = 0.0;
-		double total_raw_absorption = 0.0;
-		
-		// FIRST PASS: Calculate total absorption for percentage calculations
-		for (auto& medium : mediums) {
-			const auto& volume = medium.get_volume();
-			uint32_t nx = volume.width();
-			uint32_t ny = volume.height();
-			uint32_t nz = volume.depth();
-			
-			for (uint32_t ix = 0; ix < nx; ++ix) {
-				for (uint32_t iy = 0; iy < ny; ++iy) {
-					for (uint32_t iz = 0; iz < nz; ++iz) {
-						uint32_t linear_index = volume.calculate_index(ix, iy, iz);
-						const Voxel* voxel = volume.at(linear_index);
-						if (voxel) {
-							total_raw_absorption += voxel->absorption;
-						}
-					}
-				}
-			}
-		}
-		
-		// SECOND PASS: Write data with relative percentages
-		// FIXED: Iterate through actual medium voxels instead of generating coordinates
-		// This ensures we're accessing the same voxels that were used during simulation
-		for (auto& medium : mediums) {
-			const auto& volume = medium.get_volume();
-			uint32_t nx = volume.width();
-			uint32_t ny = volume.height();
-			uint32_t nz = volume.depth();
-			
-			// Iterate through the actual grid indices used by the medium
-			for (uint32_t ix = 0; ix < nx; ++ix) {
-				for (uint32_t iy = 0; iy < ny; ++iy) {
-					for (uint32_t iz = 0; iz < nz; ++iz) {
-						// Use the medium's internal coordinate system
-						uint32_t linear_index = volume.calculate_index(ix, iy, iz);
-						const Voxel* voxel = volume.at(linear_index);
-						
-						double absorption_value = 0.0;
-						if (voxel) {
-							absorption_value = voxel->absorption;
-							if (absorption_value > 0.0) {
-								non_zero_count++;
-								max_absorption = std::max(max_absorption, absorption_value);
-							}
-						}
-						
-						// Calculate relative percentage (percentage of total absorption)
-						double absorption_percentage = (total_raw_absorption > 0.0) ? 
-							(absorption_value / total_raw_absorption) * 100.0 : 0.0;
-						
-						// CSV format: comma-separated values
-						ofs_abs << ix << "," << iy << "," << iz << "," 
-							   << std::fixed << absorption_value << "," 
-							   << absorption_percentage << std::endl;
-					}
-				}
-			}
-		}
-		ofs_abs.close();
-	}
-
-	// write optical properties as CSV (only if generate_csv is true)
-	// Combined optical properties (emittance + diffusion) in CSV format
-	if (generate_csv && ofs_optical.good()) {
-		ofs_optical.precision(10); // Increased precision to see small values
-		
-		// CSV column headers
-		ofs_optical << "x,y,z,emittance_abs,emittance_%,diffuse_trans_abs,diffuse_trans_%,"
-				   << "diffuse_refl_abs,diffuse_refl_%,total_diffusion_abs,total_diffusion_%" << std::endl;
-
-		// Summary: Track non-zero optical values for validation
-		int non_zero_emittance = 0;
-		int non_zero_diffuse = 0;
-		double max_emittance = 0.0;
-		double max_diffuse = 0.0;
-		
-		// FIRST PASS: Calculate totals for percentage calculations
-		double total_emittance = 0.0;
-		double total_diffuse_transmission = 0.0;
-		double total_diffuse_reflection = 0.0;
-		double total_diffusion = 0.0;
-		
-		for (auto& medium : mediums) {
-			const auto& volume = medium.get_volume();
-			uint32_t nx = volume.width();
-			uint32_t ny = volume.height();
-			uint32_t nz = volume.depth();
-			
-			for (uint32_t ix = 0; ix < nx; ++ix) {
-				for (uint32_t iy = 0; iy < ny; ++iy) {
-					for (uint32_t iz = 0; iz < nz; ++iz) {
-						uint32_t linear_index = volume.calculate_index(ix, iy, iz);
-						const Voxel* voxel = volume.at(linear_index);
-						if (voxel) {
-							total_emittance += voxel->emittance;
-							total_diffuse_transmission += voxel->diffuse_transmission;
-							total_diffuse_reflection += voxel->diffuse_reflection;
-							total_diffusion += (voxel->diffuse_transmission + voxel->diffuse_reflection);
-						}
-					}
-				}
-			}
-		}
-
-		// SECOND PASS: Write data with relative percentages
-		// FIXED: Iterate through actual medium voxels instead of generating coordinates
-		for (auto& medium : mediums) {
-			const auto& volume = medium.get_volume();
-			uint32_t nx = volume.width();
-			uint32_t ny = volume.height();
-			uint32_t nz = volume.depth();
-			
-			// Iterate through the actual grid indices used by the medium
-			for (uint32_t ix = 0; ix < nx; ++ix) {
-				for (uint32_t iy = 0; iy < ny; ++iy) {
-					for (uint32_t iz = 0; iz < nz; ++iz) {
-						// Use the medium's internal coordinate system
-						uint32_t linear_index = volume.calculate_index(ix, iy, iz);
-						const Voxel* voxel = volume.at(linear_index);
-						
-						double emittance = 0.0;
-						double diffuse_transmission = 0.0;
-						double diffuse_reflection = 0.0;
-						
-						if (voxel) {
-							emittance = voxel->emittance;
-							diffuse_transmission = voxel->diffuse_transmission;
-							diffuse_reflection = voxel->diffuse_reflection;
-							
-							// Track non-zero values for validation
-							if (emittance > 0.0) {
-								non_zero_emittance++;
-								max_emittance = std::max(max_emittance, emittance);
-							}
-							if (diffuse_transmission > 0.0 || diffuse_reflection > 0.0) {
-								non_zero_diffuse++;
-								max_diffuse = std::max(max_diffuse, diffuse_transmission + diffuse_reflection);
-							}
-						}
-						
-						double voxel_total_diffusion = diffuse_transmission + diffuse_reflection;
-						
-						// Calculate relative percentages (percentage of total for each property)
-						double emittance_pct = (total_emittance > 0.0) ? 
-							(emittance / total_emittance) * 100.0 : 0.0;
-						double diffuse_transmission_pct = (total_diffuse_transmission > 0.0) ? 
-							(diffuse_transmission / total_diffuse_transmission) * 100.0 : 0.0;
-						double diffuse_reflection_pct = (total_diffuse_reflection > 0.0) ? 
-							(diffuse_reflection / total_diffuse_reflection) * 100.0 : 0.0;
-						double total_diffusion_pct = (total_diffusion > 0.0) ? 
-							(voxel_total_diffusion / total_diffusion) * 100.0 : 0.0;
-						
-						// CSV format: comma-separated values
-						ofs_optical << ix << "," << iy << "," << iz << "," 
-								   << std::fixed << emittance << "," << emittance_pct << ","
-								   << diffuse_transmission << "," << diffuse_transmission_pct << ","
-								   << diffuse_reflection << "," << diffuse_reflection_pct << ","
-								   << voxel_total_diffusion << "," << total_diffusion_pct << std::endl;
-					}
-				}
-			}
-		}
-		
-		ofs_optical.close();
-	}
-
-	// Comprehensive photon tracking report (entrance, exit, termination, scattering, absorption)
-	if (generate_csv && ofs_ptn.good()) {
-		ofs_ptn.precision(8);
-		
-		// CSV column headers
-		ofs_ptn << "photon_id,entrance_x,entrance_y,entrance_z,entrance_dx,entrance_dy,entrance_dz,"
-				<< "exit_x,exit_y,exit_z,exit_dx,exit_dy,exit_dz,"
-				<< "termination_x,termination_y,termination_z,termination_dx,termination_dy,termination_dz,"
-				<< "scatter_count,initial_weight,final_weight,absorbed_weight,status" << std::endl;
-
-		if (!detailed_photon_data.empty()) {
-			
-			for (size_t i = 0; i < detailed_photon_data.size(); ++i) {
-				const DetailedPhotonData& data = detailed_photon_data[i];
-				
-				// Skip uninitialized entries
-				if (data.initial_weight <= 0.0) {
-					continue;
-				}
-				
-				// CSV format: comma-separated values
-				ofs_ptn << std::fixed << data.id << ","
-					   << data.entrance_position.x << "," << data.entrance_position.y << "," << data.entrance_position.z << ","
-					   << data.entrance_direction.x << "," << data.entrance_direction.y << "," << data.entrance_direction.z << ",";
-				
-				// Exit information (if photon exited)
-				if (data.has_exit) {
-					ofs_ptn << data.exit_position.x << "," << data.exit_position.y << "," << data.exit_position.z << ","
-						   << data.exit_direction.x << "," << data.exit_direction.y << "," << data.exit_direction.z << ",";
-				} else {
-					ofs_ptn << ",,,,,,";  // Empty values for exit data
-				}
-				
-				// Termination information and statistics
-				ofs_ptn << data.termination_position.x << "," << data.termination_position.y << "," << data.termination_position.z << ","
-					   << data.termination_direction.x << "," << data.termination_direction.y << "," << data.termination_direction.z << ","
-					   << data.scatter_count << "," << data.initial_weight << "," 
-					   << data.remaining_weight << "," << data.total_absorption_deposited << ","
-					   << data.termination_reason << std::endl;
-			}
-		}
-		ofs_ptn.close();
-	}
-
-
-
-	// NEW: Write comprehensive per-voxel statistics as CSV (only if generate_csv is true)
-	if (generate_csv && ofs_vox_stats.good()) {
-		ofs_vox_stats.precision(6);
-		
-		// CSV column headers
-		ofs_vox_stats << "VoxelX,VoxelY,VoxelZ,WorldX,WorldY,WorldZ,HasMaterial,IsSurface,IsBoundary,"
-					  << "Absorption,Emittance,DiffuseTransmission,SpecularReflection,DiffuseReflection,"
-					  << "TotalEmittance,TotalEnergy,MaterialEta,MaterialMua,MaterialMus,MaterialG" << std::endl;
-				
-		// Write per-voxel data for all mediums
-		for (const auto& medium : mediums) {
-			const auto& volume = medium.get_volume();
-			const auto& bounds = medium.get_bounds();
-			double voxel_size = volume.voxel_size();
-			
-			for (const auto& voxel : volume) {
-				if (voxel) {
-					// Calculate world position
-					glm::dvec3 world_pos = bounds.min_bounds + glm::dvec3(
-						voxel->ix() * voxel_size,
-						voxel->iy() * voxel_size,
-						voxel->iz() * voxel_size
-					);
-					
-					double total_emittance = voxel->total_emittance();
-					double total_energy = voxel->absorption + total_emittance;
-					
-					// CSV format: comma-separated values
-					ofs_vox_stats << voxel->ix() << "," << voxel->iy() << "," << voxel->iz() << ","
-								 << std::fixed << world_pos.x << "," << world_pos.y << "," << world_pos.z << ","
-								 << (voxel->material ? "TRUE" : "FALSE") << ","
-								 << (voxel->is_surface_voxel ? "TRUE" : "FALSE") << ","
-								 << (voxel->is_boundary_voxel ? "TRUE" : "FALSE") << ","
-								 << voxel->absorption << "," << voxel->emittance << ","
-								 << voxel->diffuse_transmission << "," << voxel->specular_reflection << ","
-								 << voxel->diffuse_reflection << "," << total_emittance << "," << total_energy << ",";
-					
-					// Material properties (if available)
-					if (voxel->material) {
-						ofs_vox_stats << voxel->material->eta() << "," << voxel->material->mu_a() << ","
-									 << voxel->material->mu_s() << "," << voxel->material->g();
-					} else {
-						ofs_vox_stats << "0,0,0,0";
-					}
-					ofs_vox_stats << std::endl;
-				}
-			}
-		}
-		
-		ofs_vox_stats.close();
-	}
-
-	// Report all generated files to console
-	std::cout << std::endl << "=== Generated output ===" << std::endl;
-	std::cout << "Simulation report: " << str_simulation << std::endl;
-	if (generate_csv) {
-		std::cout << "Absorption data:   " << str_absorption << std::endl;
-		std::cout << "Photon data:       " << str_photons << std::endl;
-		std::cout << "Optical data:      " << str_optics << std::endl;
-		std::cout << "Voxel data:        " << str_voxels << std::endl;
-	}
-
-	std::cout << "======================================" << std::endl << std::endl;
-	
-	if (Config::get().log()) {
-		DebugLogger::instance().log_info("All output files generated successfully");
-		DebugLogger::instance().log_info("  - " + str_simulation);
-		DebugLogger::instance().log_info("  - " + str_absorption);
-		DebugLogger::instance().log_info("  - " + str_photons);
-		DebugLogger::instance().log_info("  - " + str_optics);
-		DebugLogger::instance().log_info("  - " + str_voxels);
+	if (shared_metrics_) {
+		shared_metrics_->export_results(*this, generate_csv);
+	} else {
+		std::cerr << "Error: shared_metrics_ not initialized." << std::endl;
 	}
 }
 
 /***********************************************************
- * MCML 3.0.0 Monte Carlo Methods - Integrated Implementation
+ * Check if point is inside any medium.
  ***********************************************************/
-
-void Simulator::generate_step_size(Photon& photon) {
-	// Modern Beer-Lambert law implementation with improved numerical stability
-	if (photon.step < 1e-12) { // Higher precision threshold
-		double rnd;
-		// More robust zero-avoidance for random number generation
-		// Use std::numeric_limits for better precision handling
-		constexpr double min_random = std::numeric_limits<double>::epsilon();
-		do {
-			rnd = rng->next();
-		}
-		while (rnd <= min_random);
-
-		// Use high-precision logarithm for step size calculation
-		photon.step = -std::log(rnd);
-	}
+bool Simulator::is_inside_any_medium(const glm::dvec3& position) const {
+	return find_medium_at(position) != nullptr;
 }
-
-void Simulator::scatter_photon(Photon& photon, const Material& material) {
-	// Modern numerically stable Henyey-Greenstein phase function implementation
-	double cos_theta, sin_theta, cos_phi, sin_phi;
-	double g = material.g(); // anisotropy factor
-	double rnd = rng->next();
-
-	// More numerically stable Henyey-Greenstein sampling
-	if (std::abs(g) > 1e-12) {
-		// Use improved numerical stability for extreme anisotropy values
-		double g2 = g * g;
-		double one_minus_g2 = 1.0 - g2;
-		double temp = one_minus_g2 / (1.0 - g + 2.0 * g * rnd);
-		cos_theta = (1.0 + g2 - temp * temp) / (2.0 * g);
-
-		// Robust clamping with higher precision threshold
-		cos_theta = std::clamp(cos_theta, -1.0, 1.0);
-	}
-	else {
-		// Isotropic scattering for negligible anisotropy
-		cos_theta = 2.0 * rnd - 1.0;
-	}
-
-	// More robust trigonometric calculation with numerical safety
-	sin_theta = std::sqrt(std::max(0.0, 1.0 - cos_theta * cos_theta));
-
-	// Uniform azimuthal angle sampling with better numerical properties
-	rnd = rng->next();
-	double phi = MathConstants::TWO_PI * rnd;
-	cos_phi = std::cos(phi);
-	sin_phi = std::sin(phi);
-
-	// Modernized direction update using GLM vector operations and rotation matrices
-	// This replaces the manual coordinate transformation with more robust methods
-	glm::dvec3 old_direction = photon.direction;
-
-	// Use Rodrigues' rotation formula for more stable direction update
-	if (std::abs(old_direction.z) > 0.99999) {
-		// Special case: nearly aligned with z-axis - use direct coordinate assignment
-		photon.direction =
-			glm::dvec3(sin_theta * cos_phi, sin_theta * sin_phi, cos_theta * (old_direction.z > 0 ? 1.0 : -1.0));
-	}
-	else {
-		// General case: Use stable rotation about axis perpendicular to incident direction
-		// Create orthonormal basis vectors
-		glm::dvec3 w = old_direction; // incident direction
-		glm::dvec3 u = glm::normalize(glm::cross(std::abs(w.z) < 0.9 ? glm::dvec3(0, 0, 1) : glm::dvec3(1, 0, 0), w));
-		glm::dvec3 v = glm::cross(w, u);
-
-		// Construct scattered direction in local coordinate system
-		photon.direction = sin_theta * cos_phi * u + sin_theta * sin_phi * v + cos_theta * w;
-	}
-
-	// Ensure direction normalization for numerical stability
-	photon.direction = glm::normalize(photon.direction);
-
-	// Mark that photon has scattered
-	photon.scatters = true;
-}
-
-void Simulator::roulette_photon(Photon& photon) {
-	// CRITICAL FIX: Never apply Russian Roulette to negative weights
-	if (photon.weight < 0.0) {
-		if (Config::get().log()) {
-			std::ostringstream debug_msg;
-			debug_msg << "ERROR: Attempted Russian Roulette on negative weight (" << photon.weight << "), terminating photon";
-			DebugLogger::instance().log_error(debug_msg.str());
-		}
-		terminate_photon_and_record_energy(photon, "negative_weight");
-		return;
-	}
-	
-	// Modernized Russian roulette with adaptive threshold and survival probability
-	if (photon.weight < mcml_weight_threshold) {
-		// Use weight-dependent survival probability for better variance reduction
-		double survival_probability = std::max(0.1, photon.weight / mcml_weight_threshold);
-		survival_probability = std::min(survival_probability, 0.5); // Cap at 50% for stability
-
-		if (rng->next() <= survival_probability) {
-			// ENERGY CONSERVATION FIX: Proper Russian Roulette
-			
-			// Survive with proper weight normalization
-			double old_weight = photon.weight;
-			photon.weight /= survival_probability;
-			
-			// CRITICAL FIX: Update energy budget to match new weight
-			// Russian Roulette increases the weight, so budget must increase proportionally
-			photon.total_energy_budget = photon.weight;
-			
-			if (Config::get().log()) {
-				std::ostringstream oss;
-				oss << "ROULETTE: weight " << old_weight << " -> " << photon.weight 
-				    << " (survival_prob=" << survival_probability << ", new_budget=" << photon.total_energy_budget << ")";
-				DebugLogger::instance().log_debug(oss.str());
-			}
-		}
-		else {
-			// Use centralized termination for consistency
-			terminate_photon_and_record_energy(photon, "roulette");
-		}
-	}
-}
-
 
 /***********************************************************
  * MEDIUM CONTEXT MANAGEMENT
@@ -3057,25 +2559,16 @@ Medium* Simulator::find_medium_at(const glm::dvec3& position) const {
 }
 
 /***********************************************************
- * Check if point is inside any medium.
- ***********************************************************/
-bool Simulator::is_inside_any_medium(const glm::dvec3& position) const {
-	return find_medium_at(position) != nullptr;
-}
-
-/***********************************************************
  * Handle photon transition between mediums.
  ***********************************************************/
 void Simulator::handle_medium_transition(Photon& photon, Medium* from, Medium* to) {
 	if (!from && to) {
 		// Entering a medium from ambient space
+		to->increment_photons_entered();
 	} 
 	else if (from && !to) {
 		// Exiting to ambient space
 		photon.alive = false;
-		
-		// NOTE: Do NOT call radiate() here - let the main cross() logic handle it
-		// This prevents duplicate radiate() calls for the same boundary crossing
 	} 
 	else if (from && to && from != to) {
 		// COMPREHENSIVE MULTI-LAYER INTERFACE PHYSICS
@@ -3142,7 +2635,7 @@ void Simulator::handle_medium_transition(Photon& photon, Medium* from, Medium* t
 			if (Config::get().log()) {
 				std::ostringstream debug_msg;
 				debug_msg << "Total internal reflection at medium interface (n1=" << n1 << ", n2=" << n2 << ")";
-				DebugLogger::instance().log_debug(debug_msg.str());
+				Logger::instance().log_debug(debug_msg.str());
 			}
 			return;
 		}
@@ -3179,7 +2672,7 @@ void Simulator::handle_medium_transition(Photon& photon, Medium* from, Medium* t
 			if (Config::get().log()) {
 				std::ostringstream debug_msg;
 				debug_msg << "Fresnel reflection at medium interface (R=" << R_fresnel << ")";
-				DebugLogger::instance().log_debug(debug_msg.str());
+				Logger::instance().log_debug(debug_msg.str());
 			}
 			
 		} else {
@@ -3207,7 +2700,7 @@ void Simulator::handle_medium_transition(Photon& photon, Medium* from, Medium* t
 				debug_msg << "Fresnel transmission at medium interface (T=" << T_fresnel 
 						  << ", angle_i=" << std::acos(cos_theta_i) * 180.0 / std::numbers::pi
 						  << "°, angle_t=" << std::acos(cos_theta_t) * 180.0 / std::numbers::pi << "°)";
-				DebugLogger::instance().log_debug(debug_msg.str());
+				Logger::instance().log_debug(debug_msg.str());
 			}
 		}
 		
@@ -3546,53 +3039,35 @@ Range3 Simulator::get_combined_bounds() const {
 	return combined;
 }
 
-// Combined metrics access methods (replacement for get_combined_record)
+// Combined metrics access methods (delegated to Metrics)
 double Simulator::get_combined_total_absorption() const {
-	double total = 0.0;
-	for (const auto& medium : mediums) {
-		total += medium.get_metrics().get_total_absorption();
-	}
-	return total;
+	if (!shared_metrics_) return 0.0;
+	return shared_metrics_->get_combined_total_absorption(*this);
 }
 
 double Simulator::get_combined_diffuse_reflection() const {
-	double total = 0.0;
-	for (const auto& medium : mediums) {
-		total += medium.get_metrics().get_diffuse_reflection();
-	}
-	return total;
+	if (!shared_metrics_) return 0.0;
+	return shared_metrics_->get_combined_diffuse_reflection(*this);
 }
 
 double Simulator::get_combined_specular_reflection() const {
-	double total = 0.0;
-	for (const auto& medium : mediums) {
-		total += medium.get_metrics().get_surface_reflection();
-	}
-	return total;
+	if (!shared_metrics_) return 0.0;
+	return shared_metrics_->get_combined_specular_reflection(*this);
 }
 
 double Simulator::get_combined_surface_refraction() const {
-	double total = 0.0;
-	for (const auto& medium : mediums) {
-		total += medium.get_metrics().get_surface_refraction();
-	}
-	return total;
+	if (!shared_metrics_) return 0.0;
+	return shared_metrics_->get_combined_surface_refraction(*this);
 }
 
 double Simulator::get_combined_diffuse_transmission() const {
-	double total = 0.0;
-	for (const auto& medium : mediums) {
-		total += medium.get_metrics().get_diffuse_transmission();
-	}
-	return total;
+	if (!shared_metrics_) return 0.0;
+	return shared_metrics_->get_combined_diffuse_transmission(*this);
 }
 
 double Simulator::get_combined_specular_transmission() const {
-	double total = 0.0;
-	for (const auto& medium : mediums) {
-		total += medium.get_metrics().get_specular_transmission();
-	}
-	return total;
+	if (!shared_metrics_) return 0.0;
+	return shared_metrics_->get_combined_specular_transmission(*this);
 }
 
 double Simulator::get_combined_avg_path_length() const {
@@ -3619,46 +3094,32 @@ int Simulator::get_combined_photons_entered() const {
 	return total;
 }
 
-Simulator::EnergyConservation Simulator::calculate_energy_conservation() const {
-	EnergyConservation result;
-	
-	// First, get the combined data for surface interactions
-	result.surface_reflection = get_combined_specular_reflection();
-	result.surface_refraction = get_combined_surface_refraction();
-	
-	// Calculate total voxel-based energy for accurate accounting
-	// Separate specular reflection (at surface entry) from diffuse reflection (at exit)
-	double total_voxel_absorption = 0.0;
-	double total_voxel_specular_reflection = 0.0;
-	double total_voxel_diffuse_reflection = 0.0;
-	double total_voxel_transmission = 0.0;
-	
-	for (const auto& medium : mediums) {
-		const auto& volume = medium.get_volume();
-		for (const auto& voxel : volume) {
-			if (voxel && voxel->material != nullptr) {
-				total_voxel_absorption += voxel->absorption;
-				
-				// Separate specular reflection (at entry) from diffuse reflection (at exit)
-				total_voxel_specular_reflection += voxel->specular_reflection;
-				total_voxel_diffuse_reflection += voxel->diffuse_reflection;
-				total_voxel_transmission += voxel->diffuse_transmission;
-			}
-		}
+/***********************************************************
+ * ENERGY STATISTICS DELEGATION METHODS
+ * These methods delegate to the shared Metrics instance
+ ***********************************************************/
+Metrics::MediumEnergyData Simulator::aggregate_medium_energy_data() const {
+	if (!shared_metrics_) {
+		// Return empty data if metrics not initialized
+		return Metrics::MediumEnergyData{};
 	}
-	
-	result.total_absorption = total_voxel_absorption;
-	result.total_reflection = total_voxel_diffuse_reflection;  // Only diffuse reflection for the "Reflection" line
-	result.total_transmission = total_voxel_transmission;
-	result.total_diffusion = total_voxel_diffuse_reflection + total_voxel_transmission;
-	
-	// For surface reflection: use the voxel-based specular reflection which includes entry reflectance
-	result.surface_reflection = total_voxel_specular_reflection;
-	
-	// Total energy should include ALL components for proper conservation check
-	result.total_energy = result.surface_reflection + result.total_absorption + result.total_reflection + result.total_transmission;
-	
-	return result;
+	return shared_metrics_->aggregate_medium_energy_data(*this);
+}
+
+Metrics::EnergyConservation Simulator::calculate_energy_conservation() const {
+	if (!shared_metrics_) {
+		// Return empty data if metrics not initialized
+		return Metrics::EnergyConservation{};
+	}
+	return shared_metrics_->calculate_energy_conservation(*this);
+}
+
+Metrics::EnergyConservationPercentages Simulator::calculate_energy_percentages() const {
+	if (!shared_metrics_) {
+		// Return empty data if metrics not initialized
+		return Metrics::EnergyConservationPercentages{};
+	}
+	return shared_metrics_->calculate_energy_percentages(*this);
 }
 
 /***********************************************************
@@ -3762,7 +3223,7 @@ void Simulator::initialize_dda_instances() {
 			debug_msg << "  DDA " << i << ": Grid " << grid_dimensions.x << "x" << grid_dimensions.y << "x" << grid_dimensions.z 
 					  << ", Origin " << grid_origin.x << "," << grid_origin.y << "," << grid_origin.z 
 					  << ", Voxel size " << voxel_size;
-			DebugLogger::instance().log_debug(debug_msg.str());
+			Logger::instance().log_debug(debug_msg.str());
 		}
 	}
 }
@@ -4114,117 +3575,3 @@ Medium* Simulator::find_medium_at_with_dda(const glm::dvec3& position) const {
 	
 	return nullptr; // All fallback stages failed - truly in ambient space
 }
-
-/***********************************************************
- * Output comprehensive voxel emittance summary for debugging
- ***********************************************************/
-void Simulator::output_voxel_emittance_summary() {
-	std::ofstream file(App::get_output_path("voxels.csv"));
-	if (!file.is_open()) {
-		std::cerr << "Warning: Could not create voxel summary file" << std::endl;
-		return;
-	}
-	
-	file << "MediumID,VoxelX,VoxelY,VoxelZ,WorldX,WorldY,WorldZ,IsSurface,HasTissue,Absorption,Emittance,EmittanceReflected,EmittanceTransmitted,TotalEmittance,EnergyNormalized\n";
-	
-	// Calculate total photon energy launched (each photon starts with weight 1.0)
-	double total_photon_energy = static_cast<double>(Config::get().num_photons());
-	int total_voxels = 0;
-	int surface_voxels = 0;
-	int voxels_with_emittance = 0;
-	
-	// Second pass: output detailed voxel information
-	for (const auto& medium : mediums) {
-		const auto& volume = medium.get_volume();
-		const auto& bounds = medium.get_bounds();
-		double voxel_size = volume.voxel_size();
-		
-		for (const auto& voxel : volume) {
-			if (voxel && voxel->material != nullptr) {
-				total_voxels++;
-				
-				// Proper surface detection: check if voxel has any neighbor without material
-				bool is_surface = false;
-				uint32_t vx = voxel->ix();
-				uint32_t vy = voxel->iy(); 
-				uint32_t vz = voxel->iz();
-				
-				// Check all 6 neighbors (up, down, left, right, front, back)
-				std::vector<std::tuple<int, int, int>> neighbors = {
-					{-1, 0, 0}, {1, 0, 0},   // left, right
-					{0, -1, 0}, {0, 1, 0},   // down, up
-					{0, 0, -1}, {0, 0, 1}    // back, front
-				};
-				
-				for (const auto& [dx, dy, dz] : neighbors) {
-					int nx = static_cast<int>(vx) + dx;
-					int ny = static_cast<int>(vy) + dy;
-					int nz = static_cast<int>(vz) + dz;
-					
-					// Check bounds
-					if (nx < 0 || ny < 0 || nz < 0 || 
-						nx >= static_cast<int>(volume.width()) ||
-						ny >= static_cast<int>(volume.height()) ||
-						nz >= static_cast<int>(volume.depth())) {
-						is_surface = true;
-						break;
-					}
-					
-					// Check if neighbor has no material
-					const Voxel* neighbor = volume(static_cast<uint32_t>(nx), 
-												  static_cast<uint32_t>(ny), 
-												  static_cast<uint32_t>(nz));
-					if (!neighbor || neighbor->material == nullptr) {
-						is_surface = true;
-						break;
-					}
-				}
-				
-				if (is_surface) surface_voxels++;
-				
-				double total_voxel_emittance = voxel->specular_reflection + voxel->diffuse_transmission;
-				if (total_voxel_emittance > 0.0) voxels_with_emittance++;
-				
-				// Calculate world coordinates of voxel center using bounds
-				glm::dvec3 world_pos = bounds.min_bounds + glm::dvec3(
-					(voxel->ix() + 0.5) * voxel_size,
-					(voxel->iy() + 0.5) * voxel_size,
-					(voxel->iz() + 0.5) * voxel_size
-				);
-				
-				// Energy normalized by total photon energy launched (more meaningful than percentage)
-				double energy_normalized = total_photon_energy > 0.0 ? 
-					(voxel->absorption + voxel->total_emittance()) / total_photon_energy : 0.0;
-				
-				file << 0 << ","  // Use 0 instead of medium.id() which doesn't exist
-					 << voxel->ix() << "," << voxel->iy() << "," << voxel->iz() << ","
-					 << world_pos.x << "," << world_pos.y << "," << world_pos.z << ","
-					 << (is_surface ? "TRUE" : "FALSE") << ","
-					 << "TRUE,"
-					 << voxel->absorption << ","
-					 << voxel->emittance << ","
-					 << voxel->specular_reflection << ","
-					 << voxel->diffuse_transmission << ","
-					 << total_voxel_emittance << ","
-					 << energy_normalized << "\n";
-			}
-		}
-	}
-	
-	file.close();
-	
-	// Log summary statistics
-	DebugLogger::instance().log_photon_event(
-		-1, "SUMMARY", glm::dvec3(0), glm::dvec3(0), 0.0, glm::ivec3(0), -1, total_photon_energy,
-		"Total voxels: " + std::to_string(total_voxels) + 
-		", Surface: " + std::to_string(surface_voxels) + 
-		", With emittance: " + std::to_string(voxels_with_emittance)
-	);
-	
-	std::cout << "Voxel data (CSV): " << App::get_output_path("voxels.csv") << std::endl;
-	if (Config::get().log()) {
-		DebugLogger::instance().log_info("Voxel data (CSV): " + App::get_output_path("voxels.csv"));
-	}
-}
-
-

@@ -3,12 +3,51 @@
 #include <vector>
 #include <chrono>
 #include <iostream>
+#include <string>
+#include <fstream>
 
 #include <glm/glm.hpp>
 #include "config.hpp"
 
+// Forward declarations
+class Simulator;
+class Medium;
+
 class Metrics
 {
+public:
+	// Energy data structures
+	struct MediumEnergyData {
+		double total_absorption = 0.0;
+		double specular_reflection = 0.0;
+		double diffuse_reflection = 0.0;
+		double surface_refraction = 0.0;
+		double specular_transmission = 0.0;
+		double diffuse_transmission = 0.0;
+		double scatter_events = 0.0;
+	};
+
+	struct EnergyConservation {
+		double total_absorption = 0.0;
+		double total_reflection = 0.0; 
+		double total_transmission = 0.0;
+		double surface_reflection = 0.0;
+		double surface_refraction = 0.0;
+		double total_energy = 0.0;
+		double total_diffusion = 0.0;
+	};
+
+	struct EnergyConservationPercentages {
+		double baseline_energy = 0.0;
+		double surface_reflection_percent = 0.0;
+		double absorption_percent = 0.0;
+		double reflection_percent = 0.0;
+		double transmission_percent = 0.0;
+		double total_percent = 0.0;
+		double total_accounted = 0.0;
+		bool is_conserved = true; // True if total_percent is close to 100%
+	};
+
 public:
 	Metrics() = default;
 	~Metrics() = default;
@@ -28,13 +67,43 @@ public:
 
 	void write_to_file();
 	void print_report(const class Simulator& simulator); // Unified energy conservation reporting
-	void reset(); // Reset all accumulated data
-	
-	// Normalize raw accumulator values by given factor
-	void normalize_raw_values(double factor);
-	
-	// Reset specific raw accumulator values (used during aggregation)
+	void reset();
+	void normalize_raw_values(double divisor);
 	void reset_raw_absorption_and_diffuse();
+
+	// Energy statistics methods (moved from EnergyStatisticsManager)
+	MediumEnergyData aggregate_medium_energy_data(const Simulator& simulator) const;
+	EnergyConservation calculate_energy_conservation(const Simulator& simulator) const;
+	EnergyConservationPercentages calculate_energy_percentages(const Simulator& simulator) const;
+	
+	// Energy validation methods
+	bool is_energy_conserved(const Simulator& simulator, double tolerance_percent = 2.0) const;
+	double get_conservation_error_percent(const Simulator& simulator) const;
+	
+	// Energy reporting methods
+	void export_energy_conservation_log(const Simulator& simulator, std::ofstream& ofs) const;
+	void print_energy_conservation_console(const Simulator& simulator) const;
+	std::string get_energy_summary_text(const Simulator& simulator) const;
+	
+	// Results export methods (moved from ResultsExporter)
+	void export_results(const Simulator& simulator, bool generate_csv = true) const;
+	void export_simulation_log(const Simulator& simulator, std::ofstream& ofs) const;
+	void export_medium_statistics(const Simulator& simulator, std::ofstream& ofs) const;
+	void export_csv_files(const Simulator& simulator) const;
+	
+	// CSV export methods (moved from ResultsExporter)
+	void export_absorption_csv(const Simulator& simulator, std::ofstream& ofs) const;
+	void export_photon_paths_csv(const Simulator& simulator, std::ofstream& ofs) const;
+	void export_optical_properties_csv(const Simulator& simulator, std::ofstream& ofs) const;
+	void export_voxel_data_csv(const Simulator& simulator, std::ofstream& ofs) const;
+	
+	// Combined metrics access (for backward compatibility)
+	double get_combined_total_absorption(const Simulator& simulator) const;
+	double get_combined_diffuse_reflection(const Simulator& simulator) const;
+	double get_combined_specular_reflection(const Simulator& simulator) const; 
+	double get_combined_surface_refraction(const Simulator& simulator) const;
+	double get_combined_diffuse_transmission(const Simulator& simulator) const;
+	double get_combined_specular_transmission(const Simulator& simulator) const;
 
 	// Getters for UI display
 	double get_path_length() const { return path_length_; }
@@ -116,4 +185,12 @@ private:
 
 	std::vector<double> step_sizes_;        // step sizes
 	std::vector<glm::dvec3> path_vertices_; // path vertices
+	
+	// Helper methods for energy statistics (moved from EnergyStatisticsManager)
+	void write_percentage_line(std::ofstream& ofs, const std::string& label, double percent) const;
+	void print_percentage_line(const std::string& label, double percent) const;
+	
+	// Helper methods for results export (moved from ResultsExporter)
+	std::string get_output_filename(const std::string& base_name, const std::string& extension) const;
+	void write_header(std::ofstream& ofs, const std::string& title) const;
 };
