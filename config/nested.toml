@@ -1,0 +1,113 @@
+################################################################################
+# nested.toml
+# Small box nested within large box.
+# Lengths are in cm; mua and mus are in 1/cm.
+################################################################################
+
+[general]
+photons = 10
+voxel_size = 0.1
+
+[source]
+position = [0.05, 0.2, 0.05]
+direction = [0.0, -1.0, 0.0]
+
+[[layer]]
+eta = 1.37
+mua = 0.5
+mus = 10
+ani = 0.75
+
+# vertices
+vertices = [
+    [-1.0,  0.0,  1.0],  # left-top-front
+    [ 1.0,  0.0,  1.0],  # right-top-front
+    [ 1.0, -1.0,  1.0],  # right-bottom-front
+    [-1.0, -1.0,  1.0],  # left-bottom-front
+    [-1.0,  0.0, -1.0],  # left-top-rear
+    [ 1.0,  0.0, -1.0],  # right-top-rear
+    [ 1.0, -1.0, -1.0],  # right-bottom-rear
+    [-1.0, -1.0, -1.0]   # left-bottom-rear
+]
+
+# faces (counter-clockwise vertex indices for outward normals)
+faces = [
+    [0, 3, 2],  # front face triangle 1
+    [0, 2, 1],  # front face triangle 2
+    [4, 5, 6],  # back face triangle 1
+    [4, 6, 7],  # back face triangle 2
+    [4, 7, 3],  # left face triangle 1
+    [4, 3, 0],  # left face triangle 2
+    [1, 2, 6],  # right face triangle 1
+    [1, 6, 5],  # right face triangle 2
+    [0, 1, 5],  # top face triangle 1
+    [0, 5, 4],  # top face triangle 2
+    [2, 3, 7],  # bottom face triangle 1
+    [2, 7, 6]   # bottom face triangle 2
+]
+
+# normals (same order as faces)
+normals = [
+    [ 0,  0,  1],  # front
+    [ 0,  0,  1],
+    [ 0,  0, -1],  # rear
+    [ 0,  0, -1],
+    [-1,  0,  0],  # left
+    [-1,  0,  0],
+    [ 1,  0,  0],  # right
+    [ 1,  0,  0],
+    [ 0,  1,  0],  # top
+    [ 0,  1,  0],
+    [ 0, -1,  0],  # bottom
+    [ 0, -1,  0]
+]
+
+[[layer]]
+eta = 1.37
+mua = 1
+mus = 100
+ani = 0.0
+
+# vertices
+vertices = [
+    [-0.2, -0.2,  0.2],  # left-top-front
+    [ 0.2, -0.2,  0.2],  # right-top-front
+    [ 0.2, -0.8,  0.2],  # right-bottom-front
+    [-0.2, -0.8,  0.2],  # left-bottom-front
+    [-0.2, -0.2, -0.2],  # left-top-rear
+    [ 0.2, -0.2, -0.2],  # right-top-rear
+    [ 0.2, -0.8, -0.2],  # right-bottom-rear
+    [-0.2, -0.8, -0.2]   # left-bottom-rear
+]
+
+# faces (counter-clockwise vertex indices for outward normals)
+faces = [
+    [0, 3, 2],  # front face triangle 1
+    [0, 2, 1],  # front face triangle 2
+    [4, 5, 6],  # back face triangle 1
+    [4, 6, 7],  # back face triangle 2
+    [4, 7, 3],  # left face triangle 1
+    [4, 3, 0],  # left face triangle 2
+    [1, 2, 6],  # right face triangle 1
+    [1, 6, 5],  # right face triangle 2
+    [0, 1, 5],  # top face triangle 1
+    [0, 5, 4],  # top face triangle 2
+    [2, 3, 7],  # bottom face triangle 1
+    [2, 7, 6]   # bottom face triangle 2
+]
+
+# normals (same order as faces)
+normals = [
+    [ 0,  0,  1],  # front
+    [ 0,  0,  1],
+    [ 0,  0, -1],  # rear
+    [ 0,  0, -1],
+    [-1,  0,  0],  # left
+    [-1,  0,  0],
+    [ 1,  0,  0],  # right
+    [ 1,  0,  0],
+    [ 0,  1,  0],  # top
+    [ 0,  1,  0],
+    [ 0, -1,  0],  # bottom
+    [ 0, -1,  0]
+]

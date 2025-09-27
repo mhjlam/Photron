@@ -1,0 +1,88 @@
+################################################################################
+# stack-2y.toml
+# Two layers with distinct optical properties stacked vertically.
+# Top layer: low absorption, high scattering; Bottom: high absorption, low scattering.
+# Lengths are in cm; mua and mus are in 1/cm.
+################################################################################
+
+[general]
+photons = 50
+voxel_size = 0.1
+log = false
+deterministic = true
+
+[source]
+position = [0.0, 0.2, 0.0]
+direction = [0, -1, 0]
+
+[[layer]]
+eta = 1.33
+mua = 0.1    # Low absorption
+mus = 50     # High scattering
+ani = 0.8
+
+# Top layer vertices (Y from 0.0 to -0.3)
+vertices = [
+    [-0.8,  0.0,  0.8],  # left-top-front
+    [ 0.8,  0.0,  0.8],  # right-top-front
+    [ 0.8, -0.3,  0.8],  # right-bottom-front
+    [-0.8, -0.3,  0.8],  # left-bottom-front
+    [-0.8,  0.0, -0.8],  # left-top-rear
+    [ 0.8,  0.0, -0.8],  # right-top-rear
+    [ 0.8, -0.3, -0.8],  # right-bottom-rear
+    [-0.8, -0.3, -0.8]   # left-bottom-rear
+]
+
+faces = [
+    [0, 3, 2], [0, 2, 1],  # front
+    [4, 5, 6], [4, 6, 7],  # back
+    [4, 7, 3], [4, 3, 0],  # left
+    [1, 2, 6], [1, 6, 5],  # right
+    [0, 1, 5], [0, 5, 4],  # top
+    [2, 3, 7], [2, 7, 6]   # bottom
+]
+
+normals = [
+    [ 0,  0,  1], [ 0,  0,  1],  # front
+    [ 0,  0, -1], [ 0,  0, -1],  # back
+    [-1,  0,  0], [-1,  0,  0],  # left
+    [ 1,  0,  0], [ 1,  0,  0],  # right
+    [ 0,  1,  0], [ 0,  1,  0],  # top
+    [ 0, -1,  0], [ 0, -1,  0]   # bottom
+]
+
+[[layer]]
+eta = 1.50
+mua = 2.0    # High absorption
+mus = 5      # Low scattering
+ani = 0.2
+
+# Bottom layer vertices (Y from -0.3 to -0.8)
+vertices = [
+    [-0.8, -0.3,  0.8],  # left-top-front
+    [ 0.8, -0.3,  0.8],  # right-top-front
+    [ 0.8, -0.8,  0.8],  # right-bottom-front
+    [-0.8, -0.8,  0.8],  # left-bottom-front
+    [-0.8, -0.3, -0.8],  # left-top-rear
+    [ 0.8, -0.3, -0.8],  # right-top-rear
+    [ 0.8, -0.8, -0.8],  # right-bottom-rear
+    [-0.8, -0.8, -0.8]   # left-bottom-rear
+]
+
+faces = [
+    [0, 3, 2], [0, 2, 1],  # front
+    [4, 5, 6], [4, 6, 7],  # back
+    [4, 7, 3], [4, 3, 0],  # left
+    [1, 2, 6], [1, 6, 5],  # right
+    [0, 1, 5], [0, 5, 4],  # top
+    [2, 3, 7], [2, 7, 6]   # bottom
+]
+
+normals = [
+    [ 0,  0,  1], [ 0,  0,  1],  # front
+    [ 0,  0, -1], [ 0,  0, -1],  # back
+    [-1,  0,  0], [-1,  0,  0],  # left
+    [ 1,  0,  0], [ 1,  0,  0],  # right
+    [ 0,  1,  0], [ 0,  1,  0],  # top
+    [ 0, -1,  0], [ 0, -1,  0]   # bottom
+]

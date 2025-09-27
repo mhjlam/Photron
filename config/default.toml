@@ -1,0 +1,49 @@
+################################################################################
+# box.toml
+# Simple one-layer box shape.
+# Lengths are in cm; mua and mus are in 1/cm.
+################################################################################
+
+[general]
+photons = 100
+voxel_size = 0.1
+log = false
+deterministic = true
+
+[source]
+position = [0.0, 0.2, 0.0]
+direction = [0, -1, -0.5]
+
+[[layer]]
+eta = 1.37
+mua = 1
+mus = 10
+ani = 0.0
+
+# vertices (left-top-front, right-top-front, etc.)
+vertices = [
+    [-1.0,  0.0,  1.0],  # left-top-front
+    [ 1.0,  0.0,  1.0],  # right-top-front
+    [ 1.0, -1.0,  1.0],  # right-bottom-front
+    [-1.0, -1.0,  1.0],  # left-bottom-front
+    [-1.0,  0.0, -1.0],  # left-top-rear
+    [ 1.0,  0.0, -1.0],  # right-top-rear
+    [ 1.0, -1.0, -1.0],  # right-bottom-rear
+    [-1.0, -1.0, -1.0],  # left-bottom-rear
+]
+
+# faces (counter-clockwise vertex indices for outward normals)
+faces = [
+    [0, 3, 2],  # front face triangle 1
+    [0, 2, 1],  # front face triangle 2
+    [4, 5, 6],  # back face triangle 1
+    [4, 6, 7],  # back face triangle 2
+    [4, 7, 3],  # left face triangle 1
+    [4, 3, 0],  # left face triangle 2
+    [1, 2, 6],  # right face triangle 1
+    [1, 6, 5],  # right face triangle 2
+    [0, 1, 5],  # top face triangle 1
+    [0, 5, 4],  # top face triangle 2
+    [2, 3, 7],  # bottom face triangle 1
+    [2, 7, 6],  # bottom face triangle 2
+]

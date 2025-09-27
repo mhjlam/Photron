@@ -64,7 +64,7 @@ public:
 	void simulate();
 	void simulate_single_photon(); 		// Add single photon for interactive use
 	void aggregate_voxel_data();		// Aggregate voxel energy data into medium records
-	void report();
+	void report(bool generate_csv = true);	// generate_csv controls CSV file output
 
 public:
 	Metrics metrics;

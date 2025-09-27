@@ -53,7 +53,7 @@ std::string App::get_output_path(const std::string& filename) {
 }
 
 App::App() : window_(nullptr), window_width_(1200), window_height_(800), should_close_(false),
-              left_mouse_pressed_(false), mouse_press_x_(0.0), mouse_press_y_(0.0) {
+              gui_mode_(true), left_mouse_pressed_(false), mouse_press_x_(0.0), mouse_press_y_(0.0) {
 	app_instance = this;
 }
 
@@ -98,6 +98,7 @@ bool App::initialize(int argc, char* argv[]) {
 		}
 		bool log_mode = result.count("log") > 0;
 		bool headless_mode = result.count("headless") > 0;
+		gui_mode_ = !headless_mode; // Set GUI mode (opposite of headless)
 
 		// If headless mode is requested without a config file, that's an error
 		if (headless_mode && !has_config_file) {
@@ -221,7 +222,7 @@ void App::setup_overlay_callbacks() {
 
 		// Run simulation immediately
 		simulator_->simulate();
-		simulator_->report();
+		simulator_->report(!gui_mode_); // Only generate CSV in headless mode
 
 		// Reset camera to default position when new config is loaded
 		if (renderer_) {
@@ -270,7 +271,7 @@ void App::setup_overlay_callbacks() {
 		if (!config_file_.empty()) {
 			simulator_->initialize(config_file_.c_str());
 			simulator_->simulate();
-			simulator_->report();
+			simulator_->report(!gui_mode_); // Only generate CSV in headless mode
 		}
 		else {
 			std::cout << "No config file loaded. Please load a configuration first." << std::endl;
@@ -304,7 +305,7 @@ void App::setup_overlay_callbacks() {
 			// Small delay to ensure the progress bar is visible
 			std::this_thread::sleep_for(std::chrono::milliseconds(100));
 			
-			simulator_->report(); // This generates all the CSV files and simulation.log
+			simulator_->report(true); // Always generate all files (CSV + log) when user explicitly saves
 			
 			// Update the message after save is complete
 			overlay_->show_save_feedback("Simulation results saved to out/ directory");
@@ -970,7 +971,7 @@ void App::run_simulation_with_progress() {
 	
 	// Run simulation
 	simulator_->simulate();
-	simulator_->report();
+	simulator_->report(!gui_mode_); // Generate CSV in headless mode
 	
 	// NOTE: Don't hide simulation progress overlay here - it wasn't shown
 	

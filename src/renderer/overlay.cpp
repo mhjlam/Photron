@@ -444,7 +444,7 @@ void Overlay::render_file_dialog() {
 				for (const auto& entry : std::filesystem::directory_iterator("config")) {
 					if (entry.is_regular_file()) {
 						const auto& path = entry.path();
-						if (path.extension() == ".in") {
+						if (path.extension() == ".toml") {
 							std::string file_str = path.string();
 							if (ImGui::Selectable(file_str.c_str())) {
 								file_path_ = file_str;

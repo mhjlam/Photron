@@ -744,7 +744,9 @@ void Simulator::transfer(Photon& photon) {
 		}
 		
 		if (substep_counter > max_substeps) {
-			std::cerr << "Warning: Photon exceeded maximum substeps, terminating." << std::endl;
+			if (Config::get().log()) {
+				std::cerr << "Warning: Photon exceeded maximum substeps, terminating." << std::endl;
+			}
 			
 			// Deposit remaining energy as absorption for energy conservation
 			if (photon.weight > 0.0 && photon.voxel && photon.voxel->material) {
@@ -2459,27 +2461,35 @@ void Simulator::aggregate_voxel_data() {
 /***********************************************************
  *	Write the resulting physical quantities to a file.
  ***********************************************************/
-void Simulator::report() {
-	std::string str_simulation = App::get_output_path("simulation.log");  // Changed to .log
-	std::string str_absorption = App::get_output_path("absorption.csv");  // Changed to .csv
-	std::string str_emi = App::get_output_path("emittance.out");   // Keep for legacy (unused)
-	std::string str_photons = App::get_output_path("photons.csv");     // Changed to .csv
+void Simulator::report(bool generate_csv) {
+	std::string str_simulation = App::get_output_path("simulation.log");  // Always generate .log file
 	
-	// NEW: Combined optical properties file (emittance + diffusion)
-	std::string str_optics = App::get_output_path("optics.csv");   // Changed to .csv
-	std::string str_voxels = App::get_output_path("voxels.csv");   // Combined voxels file as CSV
-
 	std::ofstream ofs_rep(str_simulation.c_str(), std::ios_base::out); // simulation report
-	std::ofstream ofs_abs(str_absorption.c_str(), std::ios_base::out); // absorption report
-	std::ofstream ofs_ptn(str_photons.c_str(), std::ios_base::out); // photon exitance report
 	
-	// NEW: Combined optical properties and per-voxel statistics
-	std::ofstream ofs_optical(str_optics.c_str(), std::ios_base::out); // optical properties (emittance + diffusion)
-	std::ofstream ofs_vox_stats(str_voxels.c_str(), std::ios_base::out); // per-voxel statistics
+	// CSV files are optional based on generate_csv parameter
+	std::ofstream ofs_abs, ofs_ptn, ofs_optical, ofs_vox_stats;
+	std::string str_absorption, str_photons, str_optics, str_voxels;
+	
+	if (generate_csv) {
+		str_absorption = App::get_output_path("absorption.csv");  // Changed to .csv
+		str_photons = App::get_output_path("photons.csv");       // Changed to .csv
+		str_optics = App::get_output_path("optics.csv");         // Changed to .csv
+		str_voxels = App::get_output_path("voxels.csv");         // Combined voxels file as CSV
+		
+		ofs_abs.open(str_absorption.c_str(), std::ios_base::out); // absorption report
+		ofs_ptn.open(str_photons.c_str(), std::ios_base::out);   // photon exitance report
+		ofs_optical.open(str_optics.c_str(), std::ios_base::out); // optical properties (emittance + diffusion)
+		ofs_vox_stats.open(str_voxels.c_str(), std::ios_base::out); // per-voxel statistics
+	}
 
-	if (!ofs_rep.good() || !ofs_abs.good() || !ofs_ptn.good() ||
-		!ofs_optical.good() || !ofs_vox_stats.good()) {
-		std::cerr << "Error: an output file could not be opened." << std::endl;
+	if (!ofs_rep.good()) {
+		std::cerr << "Error: simulation.log file could not be opened." << std::endl;
+		return;
+	}
+	
+	if (generate_csv && (!ofs_abs.good() || !ofs_ptn.good() ||
+		!ofs_optical.good() || !ofs_vox_stats.good())) {
+		std::cerr << "Error: one or more CSV files could not be opened." << std::endl;
 		return;
 	}
 
@@ -2612,13 +2622,9 @@ void Simulator::report() {
 		}
 		ofs_rep.close();
 	}
-	else {
-		std::cerr << "Error: file " << str_simulation << " could not be opened." << std::endl;
-		ofs_rep.close();
-	}
 
-	// write voxel absorption as CSV
-	if (ofs_abs.good()) {
+	// write voxel absorption as CSV (only if generate_csv is true)
+	if (generate_csv && ofs_abs.good()) {
 		ofs_abs.precision(10); // Increased precision to see small values
 		
 		// CSV column headers
@@ -2689,14 +2695,10 @@ void Simulator::report() {
 		}
 		ofs_abs.close();
 	}
-	else {
-		std::cerr << "Error: file " << str_absorption << " could not be opened." << std::endl;
-		ofs_abs.close();
-	}
 
-	// write optical properties as CSV
+	// write optical properties as CSV (only if generate_csv is true)
 	// Combined optical properties (emittance + diffusion) in CSV format
-	if (ofs_optical.good()) {
+	if (generate_csv && ofs_optical.good()) {
 		ofs_optical.precision(10); // Increased precision to see small values
 		
 		// CSV column headers
@@ -2798,13 +2800,9 @@ void Simulator::report() {
 		
 		ofs_optical.close();
 	}
-	else {
-		std::cerr << "Error: file " << str_optics << " could not be opened." << std::endl;
-		ofs_optical.close();
-	}
 
 	// Comprehensive photon tracking report (entrance, exit, termination, scattering, absorption)
-	if (ofs_ptn.good()) {
+	if (generate_csv && ofs_ptn.good()) {
 		ofs_ptn.precision(8);
 		
 		// CSV column headers
@@ -2846,15 +2844,11 @@ void Simulator::report() {
 		}
 		ofs_ptn.close();
 	}
-	else {
-		std::cerr << "Error: file " << str_photons << " could not be opened." << std::endl;
-		ofs_ptn.close();
-	}
 
 
 
-	// NEW: Write comprehensive per-voxel statistics as CSV
-	if (ofs_vox_stats.good()) {
+	// NEW: Write comprehensive per-voxel statistics as CSV (only if generate_csv is true)
+	if (generate_csv && ofs_vox_stats.good()) {
 		ofs_vox_stats.precision(6);
 		
 		// CSV column headers
@@ -2904,18 +2898,16 @@ void Simulator::report() {
 		
 		ofs_vox_stats.close();
 	}
-	else {
-		std::cerr << "Error: file " << str_voxels << " could not be opened." << std::endl;
-		ofs_vox_stats.close();
-	}
 
 	// Report all generated files to console
 	std::cout << std::endl << "=== Generated output ===" << std::endl;
 	std::cout << "Simulation report: " << str_simulation << std::endl;
-	std::cout << "Absorption data:   " << str_absorption << std::endl;
-	std::cout << "Photon data:       " << str_photons << std::endl;
-	std::cout << "Optical data:      " << str_optics << std::endl;
-	std::cout << "Voxel data:        " << str_voxels << std::endl;
+	if (generate_csv) {
+		std::cout << "Absorption data:   " << str_absorption << std::endl;
+		std::cout << "Photon data:       " << str_photons << std::endl;
+		std::cout << "Optical data:      " << str_optics << std::endl;
+		std::cout << "Voxel data:        " << str_voxels << std::endl;
+	}
 
 	std::cout << "======================================" << std::endl << std::endl;
 	

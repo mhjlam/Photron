@@ -77,6 +77,7 @@ private:
 
 	bool should_close_;
 	std::string config_file_;
+	bool gui_mode_; // Track if running in GUI mode (vs headless)
 	
 	// Mouse tracking for click vs drag detection
 	bool left_mouse_pressed_;

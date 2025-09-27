@@ -1,15 +1,13 @@
 #pragma once
 
 #include <cstdint>
-#include <list>
-#include <map>
 #include <memory>
-#include <sstream>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <vector>
 #include <span>
+
+#include <toml++/toml.h>
 
 #include "math/concepts.hpp"
 #include "simulator/layer.hpp"
@@ -41,100 +39,12 @@ private:
 	std::vector<Material> tissues_;
 	std::vector<Layer> layers_;
 
-	// Utility functions for parsing
-	template<Numeric T>
-	[[nodiscard]] constexpr T str2num(std::string_view str) noexcept {
-		T num{};
-		std::stringstream ss{std::string(str)};
-		ss >> num;
-		// Check for parsing failure or NaN
-		if (ss.fail() || (std::floating_point<T> && num != num)) {
-			return T{};
-		}
-		return num;
-	}
-
-	bool equals(std::string_view s, std::string_view t) { return s == t; }
-
-	void trim_comment(std::string& str) {
-		size_t position = str.find_first_of('#');
-		if (position != str.npos) {
-			str.erase(position);
-		}
-	}
-
-	void trim_spaces(std::string& str) {
-		static constexpr char delims[] = " \t\r\n"; // space, tab, return, newline
-		size_t position = str.find_first_not_of(delims);
-		if (position == std::string::npos) {
-			str = "";                   // String is all whitespace
-			return;
-		}
-		str.erase(0, position);
-		position = str.find_last_not_of(delims);
-		if (position != std::string::npos) {
-			str.erase(position + 1);
-		}
-	}
-
-	[[nodiscard]] std::vector<double> split(std::string_view str, char split_char) {
-		std::vector<double> dblarray;
-		dblarray.clear();
-		dblarray.reserve(8); // Reserve space for common case
-
-		auto position = str.find(split_char);
-		size_t beg = 0;
-
-		// decompose statement using ranges when possible
-		while (position != std::string_view::npos) {
-			const auto piece_view = str.substr(beg, position - beg);
-			std::string piece{piece_view}; // Convert to string for trim operations
-			trim_spaces(piece);
-			if (!piece.empty()) {
-				const double val = str2num<double>(piece);
-				dblarray.push_back(val);
-			}
-			beg = position + 1;
-			position = str.find(split_char, beg);
-		}
-
-		// add the last piece if there's anything left
-		if (beg < str.size()) {
-			const auto piece_view = str.substr(beg);
-			std::string piece{piece_view};
-			trim_spaces(piece);
-			if (!piece.empty()) {
-				const double val = str2num<double>(piece);
-				dblarray.push_back(val);
-			}
-		}
-
-		return dblarray;
-	}
-
-	template<ConfigContainer Container>
-	[[nodiscard]] std::vector<std::pair<std::string, std::string>> parameter_values(const Container& lines) 
-		requires std::convertible_to<std::ranges::range_value_t<Container>, std::string> {
-		std::vector<std::pair<std::string, std::string>> param_values;
-		param_values.reserve(std::ranges::size(lines)); // Pre-allocate for efficiency
-
-		for (const auto& line : lines) {
-			const auto delim = line.find_first_of("=");
-
-			// parameter name
-			std::string param = line.substr(0, delim);
-			trim_spaces(param);
-
-			// parameter value
-			std::string value = line.substr(delim + 1);
-			trim_comment(value);
-			trim_spaces(value);
-
-			param_values.emplace_back(std::move(param), std::move(value));
-		}
-
-		return param_values;
-	}
+	// TOML parsing helper methods
+	glm::dvec3 parse_vec3(const toml::array& arr) const;
+	glm::uvec3 parse_uvec3(const toml::array& arr) const;
+	std::vector<glm::dvec3> parse_vertices(const toml::array& vertices_array) const;
+	std::vector<glm::uvec3> parse_faces(const toml::array& faces_array) const;
+	std::vector<glm::dvec3> parse_normals(const toml::array& normals_array) const;
 
 public:
 	// Delete copy constructor and assignment operator for singleton
@@ -222,18 +132,12 @@ public:
 	// Main parsing interface
 	bool parse_config_file(const std::string& filename);
 
-	// Section-specific parsing methods
-	bool parse_general_config(std::list<std::string>& data);
-	bool parse_source_config(std::list<std::string>& data);
-	bool parse_tissue_config(std::list<std::string>& data);
-	bool parse_layer_config(std::list<std::string>& data);
+	// TOML parsing methods
+	bool parse_general_config(const toml::table& config);
+	bool parse_source_config(const toml::table& config);
+	bool parse_layer_configs(const toml::table& config);
 
 private:
-	// Internal parsing utilities
-	bool extract_config_data(const std::string& filename, std::multimap<std::string, std::list<std::string>>& datamap);
-	void extract_config_block(std::ifstream& in_config, const std::string& section,
-							  std::multimap<std::string, std::list<std::string>>& datamap);
-
 	// Private constructor for singleton
 	Config() = default;
 };

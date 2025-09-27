@@ -1,0 +1,119 @@
+################################################################################
+# mixed.toml
+# Simplified config format with inline material properties.
+# Lengths are in cm; mua and mus are in 1/cm.
+################################################################################
+
+[general]
+photons = 200
+voxel_size = 0.1
+log = 1
+deterministic = 1
+
+[source]
+position = [0.0, 0.5, 0.0]
+direction = [0, -1, 0]
+
+# First layer with inline material properties
+[[layer]]
+# Material properties (previously material id=0)
+eta = 1.33
+mua = 0.5
+mus = 8.0
+ani = 0.2
+
+# vertices for first box
+vertices = [
+    [-1.0,  0.0,  1.0],
+    [ 1.0,  0.0,  1.0],
+    [ 1.0, -0.5,  1.0],
+    [-1.0, -0.5,  1.0],
+    [-1.0,  0.0, -1.0],
+    [ 1.0,  0.0, -1.0],
+    [ 1.0, -0.5, -1.0],
+    [-1.0, -0.5, -1.0]
+]
+
+# faces (counter-clockwise vertex indices)
+faces = [
+    [0, 3, 2],
+    [0, 2, 1],
+    [4, 5, 6],
+    [4, 6, 7],
+    [4, 7, 3],
+    [4, 3, 0],
+    [1, 2, 6],
+    [1, 6, 5],
+    [0, 1, 5],
+    [0, 5, 4],
+    [2, 3, 7],
+    [2, 7, 6]
+]
+
+# normals
+normals = [
+    [ 0,  0,  1],
+    [ 0,  0,  1],
+    [ 0,  0, -1],
+    [ 0,  0, -1],
+    [-1,  0,  0],
+    [-1,  0,  0],
+    [ 1,  0,  0],
+    [ 1,  0,  0],
+    [ 0,  1,  0],
+    [ 0,  1,  0],
+    [ 0, -1,  0],
+    [ 0, -1,  0]
+]
+
+# Second layer with different inline material properties
+[[layer]]
+# Inline material - higher scattering, different refractive index
+eta = 1.45
+mua = 1.5
+mus = 20.0
+ani = 0.9
+
+# vertices for second box (lower position)
+vertices = [
+    [-0.8, -0.5,  0.8],
+    [ 0.8, -0.5,  0.8],
+    [ 0.8, -1.0,  0.8],
+    [-0.8, -1.0,  0.8],
+    [-0.8, -0.5, -0.8],
+    [ 0.8, -0.5, -0.8],
+    [ 0.8, -1.0, -0.8],
+    [-0.8, -1.0, -0.8]
+]
+
+# faces (counter-clockwise vertex indices)
+faces = [
+    [0, 3, 2],
+    [0, 2, 1],
+    [4, 5, 6],
+    [4, 6, 7],
+    [4, 7, 3],
+    [4, 3, 0],
+    [1, 2, 6],
+    [1, 6, 5],
+    [0, 1, 5],
+    [0, 5, 4],
+    [2, 3, 7],
+    [2, 7, 6]
+]
+
+# normals
+normals = [
+    [ 0,  0,  1],
+    [ 0,  0,  1],
+    [ 0,  0, -1],
+    [ 0,  0, -1],
+    [-1,  0,  0],
+    [-1,  0,  0],
+    [ 1,  0,  0],
+    [ 1,  0,  0],
+    [ 0,  1,  0],
+    [ 0,  1,  0],
+    [ 0, -1,  0],
+    [ 0, -1,  0]
+]
