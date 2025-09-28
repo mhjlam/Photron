@@ -154,6 +154,9 @@ bool App::initialize(int argc, char* argv[]) {
 			Config::get().set_log(true);
 		}
 
+		// Configure ErrorHandler with logging state
+		ErrorHandler::instance().set_logging_enabled(Config::get().log());
+
 		// Initialize simulator and run simulation only if we have a config file
 		if (has_config_file) {
 			// Initialize simulator first (always, regardless of headless mode)
@@ -173,12 +176,10 @@ bool App::initialize(int argc, char* argv[]) {
 		}
 
 		// Initialize GUI (either after simulation or directly if no config file)
-		if (!initialize_gui()) {
-			std::cerr << "Failed to initialize GUI" << std::endl;
-			return false;
-		}
-
-		// If no config file was provided, auto-open the config dialog
+			if (!initialize_gui()) {
+				ErrorHandler::instance().report_error("Failed to initialize GUI");
+				return false;
+			}		// If no config file was provided, auto-open the config dialog
 		if (!has_config_file) {
 			overlay_->open_config_dialog();
 		}
@@ -260,6 +261,9 @@ void App::setup_overlay_callbacks() {
 				overlay_->set_ui_enabled(true);
 				return;
 			}
+
+			// Configure ErrorHandler with new logging state
+			ErrorHandler::instance().set_logging_enabled(Config::get().log());
 
 			// Create simulator if it doesn't exist
 			if (!simulator_) {
@@ -697,12 +701,12 @@ bool App::initialize_gui() {
 
 void App::run_simulation_with_progress() {
 	if (config_file_.empty()) {
-		std::cerr << "Error: run_simulation_with_progress called without config file!" << std::endl;
+		ErrorHandler::instance().report_error(ErrorMessage::format(ConfigError::FileNotFound, "run_simulation_with_progress called without config file"));
 		return;
 	}
 	
 	if (!simulator_) {
-		std::cerr << "Error: run_simulation_with_progress called without simulator!" << std::endl;
+		ErrorHandler::instance().report_error(ErrorMessage::format(SimulationError::InitializationFailed, "run_simulation_with_progress called without simulator"));
 		return;
 	}
 

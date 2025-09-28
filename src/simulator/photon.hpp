@@ -139,6 +139,21 @@ public:
 	[[nodiscard]] inline double mu_a() const noexcept { return (voxel && voxel->material) ? voxel->material->mu_a() : 0.0; }
 	[[nodiscard]] inline double mu_s() const noexcept { return (voxel && voxel->material) ? voxel->material->mu_s() : 0.0; }
 
+	// Path analysis methods
+	[[nodiscard]] glm::dvec3 get_entrance_position() const noexcept;
+	[[nodiscard]] glm::dvec3 get_entrance_direction() const noexcept;
+	[[nodiscard]] glm::dvec3 get_exit_position() const noexcept;
+	[[nodiscard]] glm::dvec3 get_exit_direction() const noexcept;
+	[[nodiscard]] glm::dvec3 get_termination_position() const noexcept;
+	[[nodiscard]] glm::dvec3 get_termination_direction() const noexcept;
+	[[nodiscard]] uint32_t get_path_scatter_count() const noexcept;
+	[[nodiscard]] double get_total_path_length() const noexcept;
+	[[nodiscard]] double get_total_absorption_deposited() const noexcept;
+	[[nodiscard]] bool has_exit() const noexcept;
+	[[nodiscard]] bool exited_medium() const noexcept;
+	[[nodiscard]] std::string get_termination_reason() const noexcept;
+	[[nodiscard]] std::vector<glm::dvec3> get_all_exit_positions() const;
+
 	// Backward compatibility aliases for source access
 	[[nodiscard]] inline const glm::dvec3& source_origin() const noexcept { return source.origin; }
 	[[nodiscard]] inline const glm::dvec3& source_direction() const noexcept { return source.direction; }

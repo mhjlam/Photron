@@ -13,6 +13,7 @@
 #include "logger.hpp"
 #include "common/result.hpp"
 #include "common/error_handler.hpp"
+#include "common/error_types.hpp"
 #include "math/triangle.hpp"
 
 // Static member definitions
@@ -31,7 +32,7 @@ bool Config::initialize(const std::string& config_file) {
 		instance_ = std::unique_ptr<Config>(new Config());
 		auto result = instance_->parse_config_file(config_file);
 		if (!result.is_ok()) {
-			std::cerr << "Config initialization failed: " << ErrorMessage::format(result.error()) << std::endl;
+			ErrorHandler::instance().report_error(ErrorMessage::format(result.error(), "Config initialization failed"));
 			// Reset instance since parsing failed
 			instance_.reset();
 			return false;
@@ -106,58 +107,6 @@ Result<void, ConfigError> Config::parse_config_file(const std::string& filename)
 	}
 }
 
-// Legacy method for backward compatibility
-bool Config::parse_config_file_legacy(const std::string& filename) {
-	// Check if file exists first
-	if (!std::filesystem::exists(filename)) {
-		REPORT_CONFIG_ERROR("Configuration file '" + filename + "' does not exist.");
-		return false;
-	}
-
-	try {
-		// Store the config filename
-		config_filename_ = filename;
-		
-		// Parse TOML file
-		auto config = toml::parse_file(filename);
-		
-		// Clear existing data
-		sources_.clear();
-		materials_.clear();
-		layers_.clear();
-
-		// Parse sections
-		if (!parse_general_config(config)) {
-			REPORT_CONFIG_ERROR("Failed to parse general configuration in '" + filename + "'");
-			return false;
-		}
-
-		if (!parse_source_config(config)) {
-			REPORT_CONFIG_ERROR("Failed to parse source configuration in '" + filename + "'");
-			return false;
-		}
-
-		if (!parse_layer_configs(config)) {
-			REPORT_CONFIG_ERROR("Failed to parse layer configurations in '" + filename + "'");
-			return false;
-		}
-
-		// Update calculated values
-		set_num_layers(static_cast<uint64_t>(layers_.size()));
-		set_num_sources(static_cast<uint64_t>(sources_.size()));
-
-		return true;
-	}
-	catch (const toml::parse_error& err) {
-		REPORT_CONFIG_ERROR("TOML parsing error in '" + filename + "': " + err.what());
-		return false;
-	}
-	catch (const std::exception& e) {
-		REPORT_CONFIG_ERROR("Failed to parse config file '" + filename + "': " + e.what());
-		return false;
-	}
-}
-
 bool Config::parse_general_config(const toml::table& config) {
 	auto general = config["general"];
 	if (!general) {
@@ -206,7 +155,7 @@ bool Config::parse_source_config(const toml::table& config) {
 			position_arr->at(2).value_or<double>(0.0)
 		);
 	} else {
-		std::cerr << "Source position must be an array of 3 numbers" << std::endl;
+		ErrorHandler::instance().report_error("Source position must be an array of 3 numbers");
 		return false;
 	}
 
@@ -221,13 +170,13 @@ bool Config::parse_source_config(const toml::table& config) {
 			direction_arr->at(2).value_or<double>(0.0)
 		);
 	} else {
-		std::cerr << "Source direction must be an array of 3 numbers" << std::endl;
+		ErrorHandler::instance().report_error("Source direction must be an array of 3 numbers");
 		return false;
 	}
 
 	// Validate direction is not zero
 	if (src.direction == glm::dvec3(0)) {
-		std::cerr << "Source direction cannot be zero vector" << std::endl;
+		ErrorHandler::instance().report_error("Source direction cannot be zero vector");
 		return false;
 	}
 
@@ -242,14 +191,14 @@ bool Config::parse_layer_configs(const toml::table& config) {
 	// TOML array of tables: [[layer]]
 	auto layers_array = config["layer"].as_array();
 	if (!layers_array) {
-		std::cerr << "No [[layer]] sections found in config" << std::endl;
+		ErrorHandler::instance().report_error("No [[layer]] sections found in config");
 		return false;
 	}
 
 	for (const auto& layer_node : *layers_array) {
 		auto layer_table = layer_node.as_table();
 		if (!layer_table) {
-			std::cerr << "Invalid layer configuration" << std::endl;
+			ErrorHandler::instance().report_error("Invalid layer configuration");
 			continue;
 		}
 
@@ -279,8 +228,7 @@ bool Config::parse_layer_configs(const toml::table& config) {
 
 		// Validate required material properties
 		if (!has_eta || !has_mua || !has_mus || !has_ani) {
-			std::cerr << "Error: Layer " << (int)layer.id << " is missing required material properties. ";
-			std::cerr << "All layers must define: eta, mua, mus, ani" << std::endl;
+			ErrorHandler::instance().report_error("Layer " + std::to_string((int)layer.id) + " is missing required material properties. All layers must define: eta, mua, mus, ani");
 			return false;
 		}
 
@@ -305,7 +253,7 @@ bool Config::parse_layer_configs(const toml::table& config) {
 		if (auto vertices_arr = (*layer_table)["vertices"].as_array()) {
 			vertices = parse_vertices(*vertices_arr);
 		} else {
-			std::cerr << "Layer " << (int)layer.id << " missing vertices array" << std::endl;
+			ErrorHandler::instance().report_error("Layer " + std::to_string((int)layer.id) + " missing vertices array");
 			return false;
 		}
 
@@ -313,7 +261,7 @@ bool Config::parse_layer_configs(const toml::table& config) {
 		if (auto faces_arr = (*layer_table)["faces"].as_array()) {
 			faces = parse_faces(*faces_arr);
 		} else {
-			std::cerr << "Layer " << (int)layer.id << " missing faces array" << std::endl;
+			ErrorHandler::instance().report_error("Layer " + std::to_string((int)layer.id) + " missing faces array");
 			return false;
 		}
 
@@ -326,7 +274,7 @@ bool Config::parse_layer_configs(const toml::table& config) {
 		// Build triangle mesh
 		for (const auto& face : faces) {
 			if (face.x >= vertices.size() || face.y >= vertices.size() || face.z >= vertices.size()) {
-				std::cerr << "Error: Layer " << (int)layer.id << " has face with invalid vertex index" << std::endl;
+				ErrorHandler::instance().report_error("Layer " + std::to_string((int)layer.id) + " has face with invalid vertex index");
 				return false;
 			}
 
@@ -432,15 +380,17 @@ std::vector<glm::dvec3> Config::parse_normals(const toml::array& normals_array) 
 template<typename T>
 bool Config::validate_range(T value, T min, T max, const std::string& param_name, int layer_id) const {
 	if (value < min || value > max) {
-		std::cerr << "Error: Invalid " << param_name << "=" << value;
+		std::ostringstream error_msg;
+		error_msg << "Invalid " << param_name << "=" << value;
 		if (layer_id >= 0) {
-			std::cerr << " for layer " << layer_id;
+			error_msg << " for layer " << layer_id;
 		}
 		if (max == std::numeric_limits<T>::max()) {
-			std::cerr << ". Must be >= " << min << std::endl;
+			error_msg << ". Must be >= " << min;
 		} else {
-			std::cerr << ". Must be between " << min << " and " << max << std::endl;
+			error_msg << ". Must be between " << min << " and " << max;
 		}
+		ErrorHandler::instance().report_error(ErrorMessage::format(ConfigError::ValidationError, error_msg.str()));
 		return false;
 	}
 	return true;
@@ -448,7 +398,7 @@ bool Config::validate_range(T value, T min, T max, const std::string& param_name
 
 bool Config::validate_array_size(const toml::array& arr, size_t expected_size, const std::string& param_name) const {
 	if (arr.size() != expected_size) {
-		std::cerr << param_name << " must be an array of " << expected_size << " numbers" << std::endl;
+		ErrorHandler::instance().report_error(param_name + " must be an array of " + std::to_string(expected_size) + " numbers");
 		return false;
 	}
 	return true;
@@ -456,8 +406,9 @@ bool Config::validate_array_size(const toml::array& arr, size_t expected_size, c
 
 bool Config::validate_geometry_size(size_t actual_size, size_t min_size, const std::string& type, int layer_id) const {
 	if (actual_size < min_size) {
-		std::cerr << "Error: Layer " << layer_id 
-		          << " must have at least " << min_size << " " << type << " for a valid polyhedron" << std::endl;
+		std::ostringstream error_msg;
+		error_msg << "Layer " << layer_id << " must have at least " << min_size << " " << type << " for a valid polyhedron";
+		ErrorHandler::instance().report_error(ErrorMessage::format(ConfigError::GeometryError, error_msg.str()));
 		return false;
 	}
 	return true;
@@ -467,9 +418,11 @@ bool Config::validate_geometry_size(size_t actual_size, size_t min_size, const s
 template<typename T>
 Result<void, ConfigError> Config::validate_range_structured(T value, T min, T max, const std::string& param_name, int layer_id) const {
 	if (value < min || value > max) {
-		std::cerr << "Validation failed for parameter '" << param_name << "'";
-		if (layer_id >= 0) std::cerr << " in layer " << layer_id;
-		std::cerr << ": value " << value << " not in range [" << min << ", " << max << "]" << std::endl;
+		std::ostringstream error_msg;
+		error_msg << "Validation failed for parameter '" << param_name << "'";
+		if (layer_id >= 0) error_msg << " in layer " << layer_id;
+		error_msg << ": value " << value << " not in range [" << min << ", " << max << "]";
+		ErrorHandler::instance().report_error(ErrorMessage::format(ConfigError::InvalidValue, error_msg.str()));
 		return Result<void, ConfigError>::error(ConfigError::InvalidValue);
 	}
 	return Result<void, ConfigError>::ok();
@@ -486,9 +439,11 @@ Result<void, ConfigError> Config::validate_array_size_structured(const toml::arr
 
 Result<void, ConfigError> Config::validate_geometry_size_structured(size_t actual_size, size_t min_size, const std::string& type, int layer_id) const {
 	if (actual_size < min_size) {
-		std::cerr << "Geometry validation failed for " << type << " geometry";
-		if (layer_id >= 0) std::cerr << " in layer " << layer_id;
-		std::cerr << ": has " << actual_size << " elements, minimum required is " << min_size << std::endl;
+		std::ostringstream error_msg;
+		error_msg << "Geometry validation failed for " << type << " geometry";
+		if (layer_id >= 0) error_msg << " in layer " << layer_id;
+		error_msg << ": has " << actual_size << " elements, minimum required is " << min_size;
+		ErrorHandler::instance().report_error(ErrorMessage::format(ConfigError::GeometryError, error_msg.str()));
 		return Result<void, ConfigError>::error(ConfigError::GeometryError);
 	}
 	return Result<void, ConfigError>::ok();

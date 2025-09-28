@@ -1,6 +1,5 @@
 #include "error_handler.hpp"
 #include "../simulator/logger.hpp"
-#include "../simulator/config.hpp"
 #include <chrono>
 #include <iomanip>
 
@@ -11,48 +10,32 @@ ErrorHandler& ErrorHandler::instance() {
 
 void ErrorHandler::report_info(const std::string& message) {
     // Info only goes to log files (if logging enabled)
-    try {
-        if (Config::is_initialized() && Config::get().log()) {
-            write_to_log(Level::Info, message);
-        }
-    } catch (const std::exception&) {
-        // Silently ignore Config access errors during error recovery
+    if (logging_enabled_) {
+        write_to_log(Level::Info, message);
     }
 }
 
 void ErrorHandler::report_warning(const std::string& message) {
     // Warnings go to both console and log
     write_to_console(Level::Warning, message);
-    try {
-        if (Config::is_initialized() && Config::get().log()) {
-            write_to_log(Level::Warning, message);
-        }
-    } catch (const std::exception&) {
-        // Silently ignore Config access errors during error recovery
+    if (logging_enabled_) {
+        write_to_log(Level::Warning, message);
     }
 }
 
 void ErrorHandler::report_error(const std::string& message) {
     // Errors go to both console and log
     write_to_console(Level::Error, message);
-    try {
-        if (Config::is_initialized() && Config::get().log()) {
-            write_to_log(Level::Error, message);
-        }
-    } catch (const std::exception&) {
-        // Silently ignore Config access errors during error recovery
+    if (logging_enabled_) {
+        write_to_log(Level::Error, message);
     }
 }
 
 void ErrorHandler::report_critical(const std::string& message) {
     // Critical errors always go everywhere
     write_to_console(Level::Critical, message);
-    try {
-        if (Config::is_initialized() && Config::get().log()) {
-            write_to_log(Level::Critical, message);
-        }
-    } catch (const std::exception&) {
-        // Silently ignore Config access errors during error recovery
+    if (logging_enabled_) {
+        write_to_log(Level::Critical, message);
     }
 }
 

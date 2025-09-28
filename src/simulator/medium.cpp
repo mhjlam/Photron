@@ -1,5 +1,7 @@
 #include "medium.hpp"
 #include "common/file_utils.hpp"
+#include "common/error_handler.hpp"
+#include "common/error_types.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -36,7 +38,7 @@ Medium::Medium(Config& config) : config_(config) {
 bool Medium::initialize() {
 	// Initialize volume
 	if (!initialize_volume()) {
-		std::cerr << "An error occurred while initializing the voxel grid." << std::endl;
+		ErrorHandler::instance().report_error("An error occurred while initializing the voxel grid.");
 		return false;
 	}
 	if (config_.log()) {
@@ -48,7 +50,7 @@ bool Medium::initialize() {
 
 	// Intialize layers
 	if (!initialize_layers()) {
-		std::cerr << "An error occurred while initializing the layers." << std::endl;
+		ErrorHandler::instance().report_error("An error occurred while initializing the layers.");
 		return false;
 	}
 	if (config_.log()) {
@@ -67,7 +69,7 @@ bool Medium::initialize() {
 
 	// voxelize the geometry
 	if (!voxelize_layers()) {
-		std::cerr << "An error occurred during geometry voxelization." << std::endl;
+		ErrorHandler::instance().report_error("An error occurred during geometry voxelization.");
 		return false;
 	}
 	if (config_.log()) {
@@ -109,7 +111,8 @@ bool Medium::initialize_volume() {
 	// check for inconsistency and zero width/height/depth
 	if ((bounds_.min_bounds.x >= bounds_.max_bounds.x) || (bounds_.min_bounds.y >= bounds_.max_bounds.y)
 		|| (bounds_.min_bounds.z >= bounds_.max_bounds.z)) {
-		std::cerr << "Invalid bounds detected. Zero or negative dimensions." << std::endl;
+		ErrorHandler::instance().report_error(ErrorMessage::format(ConfigError::ValidationError, "Invalid bounds detected. Zero or negative dimensions."));
+		FAST_LOG_ERROR("Invalid bounds detected. Zero or negative dimensions.");
 		return false;
 	}
 
@@ -138,7 +141,8 @@ bool Medium::initialize_volume() {
 
 	// Check for voxel sizes that are too large
 	if (config_.vox_size() > size_vec.x || config_.vox_size() > size_vec.y || config_.vox_size() > size_vec.z) {
-		std::cerr << "Error: Voxel size is too large compared to geometry dimensions" << std::endl;
+		ErrorHandler::instance().report_error(ErrorMessage::format(ConfigError::ValidationError, "Voxel size is too large compared to geometry dimensions"));
+		FAST_LOG_ERROR("Voxel size is too large compared to geometry dimensions");
 		return false;
 	}
 

@@ -462,8 +462,8 @@ void Overlay::render_control_panel(Simulator* simulator) {
 					}
 					// Volume Statistics
 					ImGui::Text("Volume Statistics");
-					ImGui::Text("Medium Voxels:         %zu", material_voxels);
-					ImGui::Text("Surface Voxels:        %zu", surface_voxels);
+					ImGui::Text("  Medium Voxels:       %zu", material_voxels);
+					ImGui::Text("  Surface Voxels:      %zu", surface_voxels);
 					ImGui::Spacing();
 					
 					// Transport Statistics (8-character adaptive formatting)
@@ -499,14 +499,14 @@ void Overlay::render_control_panel(Simulator* simulator) {
 							ImVec4(1.0f, 0.3f, 0.3f, 1.0f) :  // Red if not conserved
 							ImVec4(0.3f, 1.0f, 0.3f, 1.0f);   // Green if conserved
 
-						ImGui::Text("  Specular reflection: %7.1f%%", percentages.surface_reflection_percent);
+						ImGui::Text("  Specularity:         %7.1f%%", percentages.surface_reflection_percent);
 						ImGui::Text("  Absorption:          %7.1f%%", percentages.absorption_percent);
 						ImGui::Text("  Reflection:          %7.1f%%", percentages.reflection_percent);
 						ImGui::Text("  Transmission:        %7.1f%%", percentages.transmission_percent);
 						ImGui::TextColored(total_color, "  Total:               %7.1f%%", percentages.total_percent);
 					}
 					else {
-						ImGui::Text("  Specular reflection: 0.0%%");
+						ImGui::Text("  Specularity:         0.0%%");
 						ImGui::Text("  Absorption:          0.0%%");
 						ImGui::Text("  Reflection:          0.0%%");
 						ImGui::Text("  Transmission:        0.0%%");

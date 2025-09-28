@@ -7,6 +7,9 @@
 #include <iomanip>
 #include <glm/glm.hpp>
 
+// Forward declaration for Config (needed by FAST_LOG macros)
+class Config;
+
 class Logger {
 public:
     static Logger& instance();
@@ -30,6 +33,23 @@ public:
     void log_error(const std::string& message);
 
     ~Logger();
+
+    // Convenience macros that eliminate Config::get().log() checks
+#ifdef _DEBUG
+    #define FAST_LOG_INFO(msg) do { if (Config::get().log()) { Logger::instance().log_info(msg); } } while(0)
+    #define FAST_LOG_DEBUG(msg) do { if (Config::get().log()) { Logger::instance().log_debug(msg); } } while(0)  
+    #define FAST_LOG_WARNING(msg) do { if (Config::get().log()) { Logger::instance().log_warning(msg); } } while(0)
+    #define FAST_LOG_ERROR(msg) do { if (Config::get().log()) { Logger::instance().log_error(msg); } } while(0)
+    #define FAST_LOG_PHOTON_EVENT(id, event, pos, dir, weight, voxel, med, energy, desc) \
+        do { if (Config::get().log()) { Logger::instance().log_photon_event(id, event, pos, dir, weight, voxel, med, energy, desc); } } while(0)
+#else
+    // Complete no-ops in release build - compiler eliminates entirely
+    #define FAST_LOG_INFO(msg) ((void)0)
+    #define FAST_LOG_DEBUG(msg) ((void)0)
+    #define FAST_LOG_WARNING(msg) ((void)0)
+    #define FAST_LOG_ERROR(msg) ((void)0)
+    #define FAST_LOG_PHOTON_EVENT(id, event, pos, dir, weight, voxel, med, energy, desc) ((void)0)
+#endif
 
 private:
     std::ofstream csv_file_;

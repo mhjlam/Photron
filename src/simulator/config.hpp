@@ -143,7 +143,6 @@ public:
 	// Main parsing interface
 	// Configuration parsing with structured error handling
 	Result<void, ConfigError> parse_config_file(const std::string& filename);
-	bool parse_config_file_legacy(const std::string& filename); // Keep old signature for backward compatibility
 
 	// TOML parsing methods
 	bool parse_general_config(const toml::table& config);

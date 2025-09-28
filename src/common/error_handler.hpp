@@ -35,6 +35,10 @@ public:
     // Config and initialization errors (always to console)
     void report_config_error(const std::string& message);
     void report_initialization_error(const std::string& component, const std::string& message);
+    
+    // Configuration methods
+    void set_logging_enabled(bool enabled) { logging_enabled_ = enabled; }
+    bool is_logging_enabled() const { return logging_enabled_; }
 
 private:
     ErrorHandler() = default;
@@ -43,6 +47,8 @@ private:
     void write_to_log(Level level, const std::string& message);
     std::string format_message(Level level, const std::string& message) const;
     std::string get_level_string(Level level) const;
+    
+    bool logging_enabled_ = false; // Set by App during initialization
 };
 
 // Convenience macros for common patterns

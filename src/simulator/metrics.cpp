@@ -122,9 +122,10 @@ void Metrics::print_report(const class Simulator& simulator) {
 
 	// General Simulation Statistics (not per-medium)
 	const auto& config = Config::get();
+    std::cout << "Total photons:         " << simulator.photons.size() << std::endl;
+    
 	std::cout << "Volume Grid:           " << config.nx() << "x" << config.ny() << "x" << config.nz() << std::endl;
 	std::cout << "Voxel Size:            " << config.vox_size() << std::endl;
-    std::cout << "  Total photons:       " << simulator.photons.size() << std::endl;
 	
 	// Calculate overall voxel statistics (using first medium)
 	auto& mediums = simulator.mediums;
@@ -864,23 +865,25 @@ void Metrics::export_absorption_csv(const Simulator& simulator, std::ofstream& o
 }
 
 void Metrics::export_photon_paths_csv(const Simulator& simulator, std::ofstream& ofs) const {
-    ofs << "PhotonID,X,Y,Z,DirX,DirY,DirZ,Weight,ScatterCount,VoxelX,VoxelY,VoxelZ\n";
+    ofs << "PhotonID,EntranceX,EntranceY,EntranceZ,ExitX,ExitY,ExitZ,TerminationX,TerminationY,TerminationZ,"
+        << "PathLength,ScatterCount,AbsorptionDeposited,ExitedMedium,TerminationReason\n";
     
     const auto& photons = simulator.photons;
     for (const auto& photon : photons) {
-        // Use current position and direction
-        ofs << photon.id << ","
-            << photon.position.x << "," << photon.position.y << "," << photon.position.z << ","
-            << photon.direction.x << "," << photon.direction.y << "," << photon.direction.z << ","
-            << photon.weight << ","
-            << photon.scatter_count << ",";
+        // Use new Photon class methods for detailed path analysis
+        auto entrance_pos = photon.get_entrance_position();
+        auto exit_pos = photon.get_exit_position();
+        auto termination_pos = photon.get_termination_position();
         
-        // Add voxel coordinates if voxel exists
-        if (photon.voxel) {
-            ofs << photon.voxel->ix() << "," << photon.voxel->iy() << "," << photon.voxel->iz() << "\n";
-        } else {
-            ofs << "-1,-1,-1\n";
-        }
+        ofs << photon.id << ","
+            << entrance_pos.x << "," << entrance_pos.y << "," << entrance_pos.z << ","
+            << exit_pos.x << "," << exit_pos.y << "," << exit_pos.z << ","
+            << termination_pos.x << "," << termination_pos.y << "," << termination_pos.z << ","
+            << photon.get_total_path_length() << ","
+            << photon.get_path_scatter_count() << ","
+            << photon.get_total_absorption_deposited() << ","
+            << (photon.exited_medium() ? "TRUE" : "FALSE") << ","
+            << photon.get_termination_reason() << "\n";
     }
 }
 

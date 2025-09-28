@@ -187,15 +187,29 @@ void ResultsExporter::export_paths_csv(const Simulator& simulator, const std::st
     
     write_csv_header_paths(file);
     
-    // Export photon paths from simulator (using current position and direction)
+    // Export photon paths using new Photon class methods
     const auto& photons = simulator.photons;
     for (const auto& photon : photons) {
-        // Use current position and direction (simplified path export)
-        file << photon.id << ",0,"  // segment 0 for current position
+        auto entrance_pos = photon.get_entrance_position();
+        auto entrance_dir = photon.get_entrance_direction();
+        
+        file << photon.id << ",entrance,"
              << std::scientific << std::setprecision(6)
-             << photon.position.x << "," << photon.position.y << "," << photon.position.z << ","
-             << photon.direction.x << "," << photon.direction.y << "," << photon.direction.z << ","
+             << entrance_pos.x << "," << entrance_pos.y << "," << entrance_pos.z << ","
+             << entrance_dir.x << "," << entrance_dir.y << "," << entrance_dir.z << ","
              << photon.weight << "\n";
+             
+        // Add exit position if photon has exited
+        if (photon.has_exit()) {
+            auto exit_pos = photon.get_exit_position();
+            auto exit_dir = photon.get_exit_direction();
+            
+            file << photon.id << ",exit,"
+                 << std::scientific << std::setprecision(6)
+                 << exit_pos.x << "," << exit_pos.y << "," << exit_pos.z << ","
+                 << exit_dir.x << "," << exit_dir.y << "," << exit_dir.z << ","
+                 << photon.weight << "\n";
+        }
     }
     
     file.close();
@@ -387,5 +401,5 @@ void ResultsExporter::write_csv_header_emittance(std::ostream& out) {
 }
 
 void ResultsExporter::write_csv_header_paths(std::ostream& out) {
-    out << "PhotonID,Segment,PosX,PosY,PosZ,DirX,DirY,DirZ,Weight\n";
+    out << "PhotonID,EventType,PosX,PosY,PosZ,DirX,DirY,DirZ,Weight\n";
 }

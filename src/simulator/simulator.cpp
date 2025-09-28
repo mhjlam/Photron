@@ -2,7 +2,6 @@
 
 #include "common/result.hpp"
 #include "common/error_types.hpp"
-#include "common/optimized_logger.hpp"
 #include "common/error_handler.hpp"
 
 #include <algorithm>
@@ -41,14 +40,6 @@ Simulator::Simulator() : rng(std::make_shared<Random>()), mcml_weight_threshold(
 	// Initialize MCML random number generator 
 	// Note: Will be re-seeded in initialize() based on config settings
 	rng->seed(static_cast<int>(std::time(nullptr)));
-}
-
-/***********************************************************
- * Initialize shared metrics for energy statistics
- ***********************************************************/
-void Simulator::initialize_shared_metrics() {
-	// Create shared metrics instance that can be used for energy statistics
-	shared_metrics_ = std::make_shared<Metrics>();
 }
 
 /***********************************************************
@@ -118,7 +109,7 @@ Result<void, SimulationError> Simulator::initialize(std::string file) {
 
 	for (auto& medium : mediums) {
 		if (!medium.initialize()) {
-			std::cerr << "An error occurred while initializing the medium." << std::endl;
+			ErrorHandler::instance().report_error("An error occurred while initializing the medium.");
 			FAST_LOG_ERROR("Failed to initialize medium");
 			return Result<void, SimulationError>::error(SimulationError::MediumInitializationFailure);
 		}
@@ -168,7 +159,7 @@ Result<void, SimulationError> Simulator::initialize(std::string file) {
 	
 	// Shared metrics should be set externally via set_shared_metrics() before initialization
 	if (!shared_metrics_) {
-		std::cerr << "Warning: shared_metrics_ not set. Please call set_shared_metrics() before initialize()." << std::endl;
+		ErrorHandler::instance().report_warning("shared_metrics_ not set. Please call set_shared_metrics() before initialize().");
 		// Fallback: create local metrics instance
 		shared_metrics_ = std::make_shared<Metrics>();
 	}
@@ -258,17 +249,6 @@ Result<void, SimulationError> Simulator::initialize_sources() {
 	return Result<void, SimulationError>::ok();
 }
 
-// Legacy compatibility methods (deprecated)
-bool Simulator::parse_legacy(const std::string& fconfig) {
-	auto result = parse(fconfig);
-	return result.is_ok();
-}
-
-bool Simulator::initialize_sources_legacy() {
-	auto result = initialize_sources();
-	return result.is_ok();
-}
-
 /***********************************************************
  * Run the Monte Carlo photon transport simulation.
  ***********************************************************/
@@ -316,8 +296,9 @@ Result<void, SimulationError> Simulator::simulate() {
 			while (photons[p].alive) {
 				photon_iteration_counter++;
 				if (photon_iteration_counter > max_photon_iterations) {
-					std::cerr << "Warning: Photon " << photons[p].id << " exceeded maximum iterations, terminating."
-							  << std::endl;
+					std::string warning_msg = "Photon " + std::to_string(photons[p].id) + " exceeded maximum iterations, terminating.";
+					ErrorHandler::instance().report_warning(warning_msg);
+					FAST_LOG_WARNING(warning_msg);
 					
 					// Use centralized termination for consistency
 					if (photons[p].weight > 0.0) {
@@ -404,7 +385,7 @@ Result<void, SimulationError> Simulator::simulate() {
 void Simulator::simulate_single_photon() {
 	// Use the first source (there should be at least one)
 	if (sources.empty()) {
-		std::cerr << "Error: No light sources available for single photon simulation" << std::endl;
+		ErrorHandler::instance().report_error("No light sources available for single photon simulation");
 		return;
 	}
 
@@ -424,7 +405,8 @@ void Simulator::simulate_single_photon() {
 	while (new_photon.alive) {
 		photon_iteration_counter++;
 		if (photon_iteration_counter > max_photon_iterations) {
-			std::cerr << "Warning: Single photon exceeded maximum iterations, terminating." << std::endl;
+			ErrorHandler::instance().report_warning("Single photon exceeded maximum iterations, terminating.");
+			FAST_LOG_WARNING("Single photon exceeded maximum iterations, terminating.");
 			
 			// Deposit remaining energy as absorption for energy conservation
 			if (new_photon.weight > 0.0 && new_photon.voxel && new_photon.voxel->material) {
@@ -476,7 +458,8 @@ void Simulator::launch(Photon& photon, const Source& source) {
 	// Find the medium that the photon will start in
 	Medium* start_medium = find_medium_at_with_dda(source.intersect);
 	if (!start_medium) {
-		std::cerr << "Error: Photon launch point is not in any medium" << std::endl;
+		ErrorHandler::instance().report_error(ErrorMessage::format(SimulationError::NoMediumFound, "Photon launch point is not in any medium"));
+		FAST_LOG_ERROR("Photon launch point is not in any medium");
 		photon.alive = false;
 		return;
 	}
@@ -496,24 +479,7 @@ void Simulator::launch(Photon& photon, const Source& source) {
 	// Initialize scatter count for detailed tracking
 	photon.scatter_count = 0;
 	photon.scatters = false;
-	
-	// Create detailed tracking data for this photon
-	DetailedPhotonData detailed_data;
-	detailed_data.id = photon.id;
-	detailed_data.entrance_position = source.origin;
-	detailed_data.entrance_direction = source.direction;
-	detailed_data.initial_weight = photon.weight;
-	detailed_data.remaining_weight = photon.weight;
-	detailed_data.has_exit = false;
-	detailed_data.exited_medium = false;
-	detailed_data.termination_reason = "initialized";
-	
-	// Ensure detailed_photon_data has enough space
-	if (detailed_photon_data.size() <= photon.id) {
-		detailed_photon_data.resize(photon.id + 1);
-	}
-	detailed_photon_data[photon.id] = detailed_data;
-	
+
 	// Copy source data directly into photon
 	photon.source.origin = source.origin;
 	photon.source.direction = source.direction;
@@ -1007,11 +973,13 @@ void Simulator::sub_step(Photon& photon) {
 	// ROBUST ERROR HANDLING: Multiple fallback strategies if intersection fails
 	if (voxdist == std::numeric_limits<double>::max()) {
 		if (Config::get().log()) {
-			std::cerr << "WARNING: Primary ray-voxel intersection failed. Attempting fallbacks..." << std::endl;
-			std::cerr << "  Ray origin: " << ray.origin().x << ", " << ray.origin().y << ", " << ray.origin().z << std::endl;
-			std::cerr << "  Ray direction: " << ray.direction().x << ", " << ray.direction().y << ", " << ray.direction().z << std::endl;
-			std::cerr << "  Voxel bounds: min(" << box.min_point().x << ", " << box.min_point().y << ", " << box.min_point().z 
-					  << ") max(" << box.max_point().x << ", " << box.max_point().y << ", " << box.max_point().z << ")" << std::endl;
+			std::ostringstream debug_info;
+			debug_info << "Primary ray-voxel intersection failed. Ray origin: (" 
+					   << ray.origin().x << ", " << ray.origin().y << ", " << ray.origin().z
+					   << "), direction: (" << ray.direction().x << ", " << ray.direction().y << ", " << ray.direction().z
+					   << "), voxel bounds: [(" << box.min_point().x << ", " << box.min_point().y << ", " << box.min_point().z 
+					   << ") to (" << box.max_point().x << ", " << box.max_point().y << ", " << box.max_point().z << ")]";
+			ErrorHandler::instance().report_warning(debug_info.str());
 		}
 		
 		// FALLBACK 1: Try from exact voxel center
@@ -1025,12 +993,12 @@ void Simulator::sub_step(Photon& photon) {
 		
 		if (voxdist != std::numeric_limits<double>::max()) {
 			if (Config::get().log()) {
-				std::cerr << "  Fallback 1 (voxel center) succeeded." << std::endl;
+				ErrorHandler::instance().report_info("Fallback 1 (voxel center) succeeded.");
 			}
 		} else {
 			// FALLBACK 2: Use manual boundary calculation
 			if (Config::get().log()) {
-				std::cerr << "  Fallback 1 failed. Using manual boundary calculation." << std::endl;
+				ErrorHandler::instance().report_info("Fallback 1 failed. Using manual boundary calculation.");
 			}
 			
 			// Find which boundary the ray will hit first
@@ -1085,12 +1053,12 @@ void Simulator::sub_step(Photon& photon) {
 				photon.intersect = hit_point;
 				photon.voxel_normal = hit_normal;
 				if (Config::get().log()) {
-					std::cerr << "  Fallback 2 (manual calculation) succeeded." << std::endl;
+					ErrorHandler::instance().report_info("Fallback 2 (manual calculation) succeeded.");
 				}
 			} else {
 				// FALLBACK 3: Emergency exit - force photon to exit current voxel
 				if (Config::get().log()) {
-					std::cerr << "  All fallbacks failed. Forcing photon exit." << std::endl;
+					ErrorHandler::instance().report_warning("All fallbacks failed. Forcing photon exit.");
 				}
 				photon.intersect = adjusted_position + photon.direction * EPSILON;
 				photon.voxel_normal = -photon.direction; // Opposite to ray direction
@@ -2080,7 +2048,8 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 	}
 	
 	if (!exit_voxel || !exit_voxel->material) {
-		std::cerr << "ERROR: Cannot determine last material voxel for emittance recording" << std::endl;
+		ErrorHandler::instance().report_error(ErrorMessage::format(SimulationError::NoVoxelFound, "Cannot determine last material voxel for emittance recording"));
+		FAST_LOG_ERROR("Cannot determine last material voxel for emittance recording");
 		return;
 	}
 	
@@ -2162,20 +2131,7 @@ void Simulator::radiate(Photon& photon, glm::dvec3& direction, double weight) {
 	// Create shared emitter and establish connection with exit node
 	auto emitter = std::make_shared<Emitter>(photon.id, photon.intersect, direction, weight, emitter_exit_type);
 	emitters.push_back(emitter);
-	
-	// Update detailed photon tracking data for exit
-	if (photon.id < detailed_photon_data.size()) {
-		DetailedPhotonData& detailed = detailed_photon_data[photon.id];
-		detailed.has_exit = true;
-		detailed.exit_position = photon.intersect;
-		detailed.exit_direction = direction;
-		detailed.exited_medium = true;
-		detailed.scatter_count = photon.scatter_count;
-		detailed.total_absorption_deposited = photon.total_energy_absorbed;
-		detailed.remaining_weight = weight;
-		detailed.termination_reason = (photon.exit_type == Photon::ExitType::REFLECTED) ? "reflected" : "transmitted";
-	}
-	
+
 	// Establish bidirectional connection between exit node and emitter
 	if (exit_node) {
 		exit_node->emitter = emitter;
@@ -2390,7 +2346,7 @@ void Simulator::specular_reflection(Photon& photon) {
 	if (!voxel) {
 		// Log the error but continue simulation - assume no reflection occurs
 		if (Config::is_initialized() && Config::get().log()) {
-			std::cerr << "Warning: specular reflection could not be computed - photon will continue unreflected." << std::endl;
+			ErrorHandler::instance().report_warning("Specular reflection could not be computed - photon will continue unreflected.");
 		}
 		// Graceful fallback: no reflection, photon continues with full weight
 		return;
@@ -2644,7 +2600,8 @@ void Simulator::handle_medium_transition(Photon& photon, Medium* from, Medium* t
 		if (to_voxel && to_voxel->material) to_material = to_voxel->material;
 		
 		if (!from_material || !to_material) {
-			std::cerr << "Warning: Interface transition without proper material properties" << std::endl;
+			ErrorHandler::instance().report_warning("Interface transition without proper material properties");
+			FAST_LOG_WARNING("Interface transition without proper material properties");
 			// Fallback to simple transmission
 			return;
 		}
@@ -2761,13 +2718,16 @@ void Simulator::handle_medium_transition(Photon& photon, Medium* from, Medium* t
 		
 		// VALIDATION: Ensure photon direction is physically reasonable
 		if (glm::length(photon.direction) < 0.9 || glm::length(photon.direction) > 1.1) {
-			std::cerr << "Warning: Invalid photon direction after interface transition. Normalizing." << std::endl;
+			ErrorHandler::instance().report_warning("Invalid photon direction after interface transition. Normalizing.");
+			FAST_LOG_WARNING("Invalid photon direction after interface transition. Normalizing.");
 			photon.direction = glm::normalize(photon.direction);
 		}
 		
 		// ENERGY CONSERVATION CHECK
 		if (photon.weight < 0.0 || photon.weight > 1.0) {
-			std::cerr << "Warning: Invalid photon weight after interface transition: " << photon.weight << std::endl;
+			std::string weight_msg = "Invalid photon weight after interface transition: " + std::to_string(photon.weight);
+			ErrorHandler::instance().report_warning(weight_msg);
+			FAST_LOG_WARNING(weight_msg);
 			photon.weight = glm::clamp(photon.weight, 0.0, 1.0);
 		}
 		
@@ -2793,21 +2753,26 @@ void Simulator::validate_photon_state_after_interface_transition(Photon& photon,
 	bool in_to_medium = to_medium && to_medium->contains_point(photon.position);
 	
 	if (!in_from_medium && !in_to_medium) {
-		std::cerr << "Error: Photon position invalid after interface transition" << std::endl;
-		std::cerr << "  Position: (" << photon.position.x << ", " << photon.position.y << ", " << photon.position.z << ")" << std::endl;
+		std::ostringstream pos_error;
+		pos_error << "Photon position invalid after interface transition at (" 
+				  << photon.position.x << ", " << photon.position.y << ", " << photon.position.z << ")";
+		ErrorHandler::instance().report_error(ErrorMessage::format(SimulationError::InvalidPhotonState, pos_error.str()));
+		FAST_LOG_ERROR(pos_error.str());
 		position_valid = false;
 	}
 	
 	// VALIDATION 2: Ensure photon can find a valid voxel
 	Medium* current_medium = find_medium_at(photon.position);
 	if (!current_medium) {
-		std::cerr << "Error: No medium found at photon position after interface transition" << std::endl;
+		ErrorHandler::instance().report_error(ErrorMessage::format(SimulationError::NoMediumFound, "No medium found at photon position after interface transition"));
+		FAST_LOG_ERROR("No medium found at photon position after interface transition");
 		position_valid = false;
 	}
 	else {
 		Voxel* current_voxel = current_medium->voxel_at(photon.position);
 		if (!current_voxel || !current_voxel->material) {
-			std::cerr << "Error: No valid voxel/material at photon position after interface transition" << std::endl;
+			ErrorHandler::instance().report_error(ErrorMessage::format(SimulationError::NoVoxelFound, "No valid voxel/material at photon position after interface transition"));
+			FAST_LOG_ERROR("No valid voxel/material at photon position after interface transition");
 			position_valid = false;
 		}
 	}
@@ -2815,7 +2780,9 @@ void Simulator::validate_photon_state_after_interface_transition(Photon& photon,
 	// VALIDATION 3: Direction vector validation
 	double dir_length = glm::length(photon.direction);
 	if (dir_length < 0.9 || dir_length > 1.1) {
-		std::cerr << "Warning: Invalid direction vector length after interface transition: " << dir_length << std::endl;
+		std::string dir_msg = "Invalid direction vector length after interface transition: " + std::to_string(dir_length);
+		ErrorHandler::instance().report_warning(dir_msg);
+		FAST_LOG_WARNING(dir_msg);
 		photon.direction = glm::normalize(photon.direction);
 	}
 	
@@ -3234,18 +3201,7 @@ void Simulator::terminate_photon_and_record_energy(Photon& photon, const std::st
 	
 	// Terminate the photon
 	photon.alive = false;
-	
-	// Update detailed photon tracking data
-	if (photon.id < detailed_photon_data.size()) {
-		DetailedPhotonData& detailed = detailed_photon_data[photon.id];
-		detailed.termination_position = photon.position;
-		detailed.termination_direction = photon.direction;
-		detailed.scatter_count = photon.scatter_count;
-		detailed.total_absorption_deposited = photon.total_energy_absorbed;
-		detailed.remaining_weight = photon.weight;
-		detailed.termination_reason = reason;
-	}
-	
+
 	photon.weight = 0.0; // Clear weight to prevent double-counting
 }
 
