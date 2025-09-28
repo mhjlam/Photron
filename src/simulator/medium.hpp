@@ -46,8 +46,8 @@ public:
     // Getters
     const std::vector<Layer>& get_layers() const { return layers_; }
     std::vector<Layer>& get_layers() { return layers_; }
-    const std::vector<Material>& get_tissues() const { return tissues_; }
-    std::vector<Material>& get_tissues() { return tissues_; }
+    const std::vector<Material>& get_tissues() const { return materials_; }
+    std::vector<Material>& get_tissues() { return materials_; }
     const Volume& get_volume() const { return volume_; }
     Volume& get_volume() { return volume_; }
     const Metrics& get_metrics() const { return metrics_; }
@@ -74,7 +74,7 @@ public:
 
 private:
     std::vector<Layer> layers_;
-	std::vector<Material> tissues_;
+	std::vector<Material> materials_;
 
     Config& config_;
     Range3 bounds_;

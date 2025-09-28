@@ -3,6 +3,8 @@
 #include <cstring>
 #include <filesystem>
 #include <iostream>
+#include <cmath>
+#include <limits>
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -10,6 +12,62 @@
 
 #include "simulator/simulator.hpp"
 #include "simulator/config.hpp"
+
+// Optimized 8-character decimal formatter with change-based caching
+struct CachedFormat {
+	double last_value = -999999.0; // Use impossible value instead of NaN
+	char cached_string[16] = {0};
+	bool is_valid = false;
+};
+
+static CachedFormat format_cache[16]; // Multiple cache slots for different values
+static int cache_slot = 0;
+
+static const char* format_8char(double value) {
+	// Find existing cache slot for this value or use next available slot
+	CachedFormat* slot = nullptr;
+	
+	// First, check if we already have this value cached
+	for (int i = 0; i < 16; i++) {
+		if (format_cache[i].is_valid && std::abs(format_cache[i].last_value - value) < 1e-9) {
+			slot = &format_cache[i];
+			break;
+		}
+	}
+	
+	// If not found, use the next cache slot (round-robin)
+	if (!slot) {
+		slot = &format_cache[cache_slot];
+		cache_slot = (cache_slot + 1) % 16;
+	}
+	
+	// Only recalculate if value changed or slot is invalid
+	if (!slot->is_valid || std::abs(slot->last_value - value) >= 1e-9) {
+		slot->last_value = value;
+		slot->is_valid = true;
+		
+		// Try precision from 6 down to 0 until it fits in 8 characters
+		bool formatted = false;
+		for (int precision = 6; precision >= 0 && !formatted; precision--) {
+			snprintf(slot->cached_string, sizeof(slot->cached_string), "%.*f", precision, value);
+			if (strlen(slot->cached_string) <= 8) {
+				formatted = true;
+			}
+		}
+		
+		// If still too long, try without decimal point
+		if (!formatted) {
+			snprintf(slot->cached_string, sizeof(slot->cached_string), "%.0f", value);
+			
+			// If still too long, truncate
+			if (strlen(slot->cached_string) > 8) {
+				slot->cached_string[8] = '\0';
+			}
+		}
+	}
+	
+	return slot->cached_string;
+}
 
 // Helper function for ImGui tooltips
 static void HelpMarker(const char* desc) {
@@ -24,7 +82,7 @@ static void HelpMarker(const char* desc) {
 }
 
 Overlay::Overlay() :
-	ui_enabled_(true), show_file_dialog_(false), 
+	ui_enabled_(true), show_file_dialog_(false), deferred_open_config_(false),
 	file_dialog_mode_(FileDialogMode::LoadConfig), current_directory_("config/"),
 	show_save_feedback_(false), save_feedback_timer_(0.0f) {
 	std::fill(std::begin(file_path_buffer_), std::end(file_path_buffer_), '\0');
@@ -33,6 +91,15 @@ Overlay::Overlay() :
 
 Overlay::~Overlay() {
 	shutdown();
+}
+
+void Overlay::open_config_dialog() {
+	show_file_dialog_ = true;
+	file_dialog_mode_ = FileDialogMode::LoadConfig;
+}
+
+void Overlay::open_config_dialog_deferred() {
+	deferred_open_config_ = true;
 }
 
 bool Overlay::initialize(GLFWwindow* window) {
@@ -74,7 +141,7 @@ void Overlay::shutdown() {
 	}
 }
 
-void Overlay::handle_keyboard_shortcuts() {
+void Overlay::handle_keyboard_shortcuts(bool has_simulator) {
 	ImGuiIO& io = ImGui::GetIO();
 
 	// Only process shortcuts if UI is enabled and no text input is active
@@ -84,25 +151,25 @@ void Overlay::handle_keyboard_shortcuts() {
 
 	bool ctrl_pressed = io.KeyCtrl;
 
-	// Ctrl+O: Load Config
+	// Ctrl+O: Load Config (always available)
 	if (ctrl_pressed && ImGui::IsKeyPressed(ImGuiKey_O)) {
 		show_file_dialog_ = true;
 		file_dialog_mode_ = FileDialogMode::LoadConfig;
 	}
 
-	// R: Run Simulation
-	if (ImGui::IsKeyPressed(ImGuiKey_R)) {
+	// R: Run Simulation (only when simulator available)
+	if (has_simulator && ImGui::IsKeyPressed(ImGuiKey_R)) {
 		if (!ctrl_pressed && run_simulation_callback_) {
 			run_simulation_callback_();
 		}
-		// Shift+R: Rerun Simulation
+		// Ctrl+R: Rerun Simulation
 		else if (ctrl_pressed && rerun_simulation_callback_) {
 			rerun_simulation_callback_();
 		}
 	}
 
-	// Ctrl+S: Save Results (direct save to out directory)
-	if (ctrl_pressed && ImGui::IsKeyPressed(ImGuiKey_S)) {
+	// Ctrl+S: Save Results (only when simulator available)
+	if (has_simulator && ctrl_pressed && ImGui::IsKeyPressed(ImGuiKey_S)) {
 		if (direct_save_results_callback_) {
 			direct_save_results_callback_();
 		}
@@ -115,8 +182,15 @@ void Overlay::render() {
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
 
+	// Check for deferred dialog opening
+	if (deferred_open_config_) {
+		show_file_dialog_ = true;
+		file_dialog_mode_ = FileDialogMode::LoadConfig;
+		deferred_open_config_ = false;
+	}
+
 	// Handle keyboard shortcuts
-	handle_keyboard_shortcuts();
+	handle_keyboard_shortcuts(false); // No simulator available
 
 	render_main_menu_bar(false); // No simulator available
 	render_control_panel();
@@ -140,11 +214,18 @@ void Overlay::render_with_simulator(Simulator& simulator) {
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
 
+	// Check for deferred dialog opening
+	if (deferred_open_config_) {
+		show_file_dialog_ = true;
+		file_dialog_mode_ = FileDialogMode::LoadConfig;
+		deferred_open_config_ = false;
+	}
+
 	// Render world text overlays FIRST (so they appear behind other UI elements)
 	render_world_text_overlays();
 
 	// Handle keyboard shortcuts
-	handle_keyboard_shortcuts();
+	handle_keyboard_shortcuts(true); // Simulator is available
 
 	render_main_menu_bar(true); // Simulator is available
 	render_control_panel(&simulator);
@@ -203,8 +284,22 @@ void Overlay::render_main_menu_bar(bool has_simulator) {
 			ImGui::EndMenu();
 		}
 
-		// Add controls help in the upper-right corner like VolRec
+		// Add config filename in center of menu bar (only if simulator is loaded)
 		float menu_bar_width = ImGui::GetWindowWidth();
+		std::string config_name = "No Configuration Loaded";
+		if (has_simulator) {
+			const std::string& config_path = Config::get().config_filename();
+			std::filesystem::path path(config_path);
+			config_name = path.filename().string();
+		}
+		
+		float text_width = ImGui::CalcTextSize(config_name.c_str()).x;
+		ImGui::SetCursorPosX((menu_bar_width - text_width) * 0.5f);
+		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f)); // Gray color
+		ImGui::Text("%s", config_name.c_str());
+		ImGui::PopStyleColor();
+		
+		// Add controls help in the upper-right corner
 		ImGui::SetCursorPosX(menu_bar_width - 30);
 		ImGui::Text("?");
 		if (ImGui::IsItemHovered()) {
@@ -228,22 +323,18 @@ void Overlay::render_main_menu_bar(bool has_simulator) {
 }
 
 void Overlay::render_control_panel(Simulator* simulator) {
+	if (!simulator) {
+		return;
+	}
+
 	// Set window position and size to be larger to accommodate more information
 	ImGui::SetNextWindowPos(ImVec2(10, 30), ImGuiCond_FirstUseEver);
-	ImGui::SetNextWindowSize(ImVec2(240, 640), ImGuiCond_Always); // Force size update every time
+	ImGui::SetNextWindowSize(ImVec2(240, 720), ImGuiCond_Always); // Force size update every time
 
 	// Create non-movable, non-resizable window like VolRec
 	ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
 
 	if (ImGui::Begin("##MainWindow", nullptr, window_flags)) {
-		
-		// If no simulator is loaded, show only the load config option
-		if (!simulator) {
-			ImGui::Text("No configuration loaded.");
-			ImGui::End();
-			return;
-		}
-
 		// Rendering Options Section (only when simulator is available)
 		ImGui::SeparatorText("Rendering");
 
@@ -257,7 +348,7 @@ void Overlay::render_control_panel(Simulator* simulator) {
 		HelpMarker("Show photon paths and scatter points");
 
 		// Energy Labels - auto-disabled after 10 photons (handled by renderer)
-		bool many_photons = (simulator && simulator->get_paths().size() > 10);
+		bool many_photons = (simulator && simulator->photons.size() > 10);
 		
 		ImGui::Checkbox("Energy Labels", &settings_.draw_labels);
 		ImGui::SameLine();
@@ -321,10 +412,33 @@ void Overlay::render_control_panel(Simulator* simulator) {
 		// Simulation Info Section
 		if (simulator) {
 			ImGui::SeparatorText("Simulation Statistics");
+			
+			// General Simulation Statistics
+			const auto& config = Config::get();
+			ImGui::Text("Total Photons:       %llu", simulator->photons.size());
+			ImGui::Text("Volume Grid:         %dx%dx%d", config.nx(), config.ny(), config.nz());
+			ImGui::Text("Voxel Size:          %s", format_8char(config.vox_size()));
+			
+			// Calculate overall voxel statistics (using first medium for now)
+			auto& mediums = simulator->mediums;
+			if (!mediums.empty()) {
+				const auto& volume = mediums[0].get_volume();
+				size_t total_voxels = volume.size();
+				size_t material_voxels = 0;
+				
+				for (uint64_t idx = 0; idx < volume.size(); ++idx) {
+					auto voxel = volume.at(static_cast<uint32_t>(idx));
+					if (voxel && voxel->material) {
+						material_voxels++;
+					}
+				}
+				
+				ImGui::Text("Total Voxels:        %zu", total_voxels);
+				ImGui::Text("Empty Voxels:        %zu", total_voxels - material_voxels);
+			}
 
 			// Per-medium statistics (collapsible)
 			ImGui::Spacing();
-			auto& mediums = simulator->mediums;
 			for (size_t i = 0; i < mediums.size(); ++i) {
 				auto& medium = mediums[i];
 				auto& metrics = medium.get_metrics();
@@ -332,33 +446,33 @@ void Overlay::render_control_panel(Simulator* simulator) {
 				// Medium header with ID
 				std::string medium_name = "Medium " + std::to_string(i + 1);
 				if (ImGui::CollapsingHeader(medium_name.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-					// Volume Statistics
-					ImGui::Text("Volume Statistics");
-					const auto& config = Config::get();
-					ImGui::Text("  Volume Grid:         %dx%dx%d", config.nx(), config.ny(), config.nz());
-					ImGui::Text("  Total Voxels:        %llu", medium.get_volume().size());
-					
-					// Count surface voxels manually
-					size_t surface_count = 0;
+					// Medium Voxel Statistics
 					const auto& volume = medium.get_volume();
+					size_t material_voxels = 0;
+					size_t surface_voxels = 0;
+					
 					for (uint64_t idx = 0; idx < volume.size(); ++idx) {
 						auto voxel = volume.at(static_cast<uint32_t>(idx));
-						if (voxel && voxel->is_surface_voxel) {
-							surface_count++;
+						if (voxel && voxel->material) {
+							material_voxels++;
+							if (voxel->is_surface_voxel) {
+								surface_voxels++;
+							}
 						}
 					}
-					ImGui::Text("  Surface Voxels:      %zu", surface_count);
-					
+					// Volume Statistics
+					ImGui::Text("Volume Statistics");
+					ImGui::Text("Medium Voxels:         %zu", material_voxels);
+					ImGui::Text("Surface Voxels:        %zu", surface_voxels);
 					ImGui::Spacing();
 					
-					// Transport Statistics (matching console format)
+					// Transport Statistics (8-character adaptive formatting)
 					ImGui::Text("Transport Statistics");
-					ImGui::Text("  Total photons:       %zu", simulator->get_paths().size());
 					ImGui::Text("  Photons entered:     %d", metrics.get_photons_entered());
 					ImGui::Text("  Scatter events:      %.0f", metrics.get_scatter_events());
-					ImGui::Text("  Total path length:   %8.4f", metrics.compute_path_length());
-					ImGui::Text("  Average step size:   %.6f", metrics.compute_average_step_size());
-					ImGui::Text("  Diffusion distance:  %.6f", metrics.compute_diffusion_distance());
+					ImGui::Text("  Total path length:   %s", format_8char(metrics.compute_path_length()));
+					ImGui::Text("  Average step size:   %s", format_8char(metrics.compute_average_step_size()));
+					ImGui::Text("  Diffusion distance:  %s", format_8char(metrics.compute_diffusion_distance()));
 					
 					ImGui::Spacing();
 					
@@ -366,10 +480,10 @@ void Overlay::render_control_panel(Simulator* simulator) {
 					auto energy = simulator->calculate_energy_conservation();
 
 					ImGui::Text("Radiance Properties");
-					ImGui::Text("  Total absorption:    %.6f", energy.total_absorption);
-					ImGui::Text("  Total diffusion:     %.6f", energy.total_diffusion);
-					ImGui::Text("    Reflection:        %.6f", energy.total_reflection);
-					ImGui::Text("    Transmission:      %.6f", energy.total_transmission);
+					ImGui::Text("  Total absorption:    %s", format_8char(energy.total_absorption));
+					ImGui::Text("  Total diffusion:     %s", format_8char(energy.total_diffusion));
+					ImGui::Text("    Reflection:        %s", format_8char(energy.total_reflection));
+					ImGui::Text("    Transmission:      %s", format_8char(energy.total_transmission));
 					
 					ImGui::Spacing();
 					
@@ -411,10 +525,15 @@ void Overlay::render_file_dialog() {
 	const char* title =
 		(file_dialog_mode_ == FileDialogMode::LoadConfig) ? "Load Configuration File" : "Save Results File";
 
+	// Center the dialog on the screen
+	ImGuiIO& io = ImGui::GetIO();
+	ImVec2 center = ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
+	ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
 	ImGui::SetNextWindowSize(ImVec2(500, 400), ImGuiCond_FirstUseEver);
-	ImGui::SetNextWindowPos(ImVec2(200, 100), ImGuiCond_FirstUseEver);
 
-	if (ImGui::Begin(title, &show_file_dialog_)) {
+	// Prevent the dialog from being minimized/collapsed
+	ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoCollapse;
+	if (ImGui::Begin(title, &show_file_dialog_, window_flags)) {
 		// File path input
 		ImGui::Text("File path:");
 		ImGui::SetNextItemWidth(-1);

@@ -1,4 +1,7 @@
 #include "metrics.hpp"
+#include "../common/file_utils.hpp"
+#include "../common/result.hpp"
+#include "../common/error_types.hpp"
 
 #include <algorithm>
 #include <ranges>
@@ -110,14 +113,40 @@ void Metrics::stop_clock() {
 }
 
 void Metrics::print_report(const class Simulator& simulator) {
+	// Always show simulation results header - this is core output users expect
 	std::cout << std::endl << "=== Monte Carlo Simulation Results ===" << std::endl << std::endl;
 	
 	if (Config::get().log()) {
 		Logger::instance().log_info("=== Monte Carlo Simulation Results ===");
 	}
 
-	// Per-medium statistics (matching overlay format)
+	// General Simulation Statistics (not per-medium)
+	const auto& config = Config::get();
+	std::cout << "Volume Grid:           " << config.nx() << "x" << config.ny() << "x" << config.nz() << std::endl;
+	std::cout << "Voxel Size:            " << config.vox_size() << std::endl;
+    std::cout << "  Total photons:       " << simulator.photons.size() << std::endl;
+	
+	// Calculate overall voxel statistics (using first medium)
 	auto& mediums = simulator.mediums;
+	if (!mediums.empty()) {
+		const auto& volume = mediums[0].get_volume();
+		size_t total_voxels = volume.size();
+		size_t material_voxels = 0;
+		
+		for (uint64_t idx = 0; idx < volume.size(); ++idx) {
+			auto voxel = volume.at(static_cast<uint32_t>(idx));
+			if (voxel && voxel->material) {
+				material_voxels++;
+			}
+		}
+		
+		std::cout << "Total Voxels:          " << total_voxels << std::endl;
+		std::cout << "Empty Voxels:          " << (total_voxels - material_voxels) << std::endl;
+	}
+	
+	std::cout << std::endl;
+
+	// Per-medium statistics (transport only)
 	for (size_t i = 0; i < mediums.size(); ++i) {
 		auto& medium = mediums[i];
 		const auto& metrics = medium.get_metrics();  // const reference
@@ -125,29 +154,29 @@ void Metrics::print_report(const class Simulator& simulator) {
 		// Medium header with ID
 		std::cout << "Medium " << (i + 1) << std::endl;
 		
-		// Volume Statistics
-		std::cout << "Volume Statistics" << std::endl;
-		const auto& config = Config::get();
-		std::cout << "  Volume Grid:         " << config.nx() << "x" 
-		          << config.ny() << "x" << config.nz() << std::endl;
-		std::cout << "  Total Voxels:        " << medium.get_volume().size() << std::endl;
-		
-		// Count surface voxels manually
-		size_t surface_count = 0;
+		// Medium Voxel Statistics
 		const auto& volume = medium.get_volume();
+		size_t material_voxels = 0;
+		size_t surface_voxels = 0;
+		
 		for (uint64_t idx = 0; idx < volume.size(); ++idx) {
 			auto voxel = volume.at(static_cast<uint32_t>(idx));
-			if (voxel && voxel->is_surface_voxel) {
-				surface_count++;
+			if (voxel && voxel->material) {
+				material_voxels++;
+				if (voxel->is_surface_voxel) {
+					surface_voxels++;
+				}
 			}
 		}
-		std::cout << "  Surface Voxels:      " << surface_count << std::endl;
 		
+        // Volume Statistics
+        std::cout << "Volume Statistics" << std::endl;
+		std::cout << "  Medium Voxels:       " << material_voxels << std::endl;
+		std::cout << "  Surface Voxels:      " << surface_voxels << std::endl;
 		std::cout << std::endl;
 		
 		// Transport Statistics
 		std::cout << "Transport Statistics" << std::endl;
-		std::cout << "  Total photons:       " << simulator.get_paths().size() << std::endl;
 		std::cout << "  Photons entered:     " << metrics.get_photons_entered() << std::endl;
 		std::cout << "  Scatter events:      " << std::fixed << std::setprecision(0) 
 		          << metrics.get_scatter_events() << std::endl;
@@ -211,10 +240,11 @@ void Metrics::print_report(const class Simulator& simulator) {
 	std::cout << "Execution time:        " << elapsed_time_ms_ << " ms" << std::endl;
 	std::cout << "======================================" << std::endl << std::endl;
 	
+	// Always log summary to file (regardless of console output setting)
 	if (Config::get().log()) {
 		Logger::instance().log_info("Simulation completed successfully");
 		Logger::instance().log_info("Execution time: " + std::to_string(elapsed_time_ms_) + " ms");
-		Logger::instance().log_info("Total photons processed: " + std::to_string(simulator.get_paths().size()));
+		Logger::instance().log_info("Total photons processed: " + std::to_string(simulator.photons.size()));
 		Logger::instance().log_info("======================================");
 	}
 }
@@ -253,6 +283,14 @@ void Metrics::reset() {
 	scatter_events_ = 0.0;
 	total_steps_ = 0;
 	photons_entered_ = 0;
+	
+	// Invalidate cache
+	cached_medium_energy_.reset();
+	cached_conservation_.reset();
+	cached_percentages_.reset();
+	medium_energy_cache_version_ = 0;
+	conservation_cache_version_ = 0;
+	percentages_cache_version_ = 0;
 }
 
 void Metrics::normalize_raw_values(double divisor) {
@@ -291,6 +329,12 @@ void Metrics::reset_raw_absorption_and_diffuse() {
  * Consolidates energy data from all media
  ***********************************************************/
 Metrics::MediumEnergyData Metrics::aggregate_medium_energy_data(const Simulator& simulator) const {
+    // Check cache first - use simulation version as the version counter
+    const uint64_t current_version = simulator.get_simulation_version();
+    if (cached_medium_energy_ && medium_energy_cache_version_ == current_version) {
+        return *cached_medium_energy_;
+    }
+    
     MediumEnergyData data;
     
     for (const auto& medium : simulator.mediums) {
@@ -304,6 +348,10 @@ Metrics::MediumEnergyData Metrics::aggregate_medium_energy_data(const Simulator&
         data.scatter_events += medium_metrics.get_scatter_events();
     }
     
+    // Cache the result
+    cached_medium_energy_ = data;
+    medium_energy_cache_version_ = current_version;
+    
     return data;
 }
 
@@ -312,6 +360,12 @@ Metrics::MediumEnergyData Metrics::aggregate_medium_energy_data(const Simulator&
  * Computes comprehensive energy conservation data
  ***********************************************************/
 Metrics::EnergyConservation Metrics::calculate_energy_conservation(const Simulator& simulator) const {
+    // Check cache first - use simulation version as the version counter
+    const uint64_t current_version = simulator.get_simulation_version();
+    if (cached_conservation_ && conservation_cache_version_ == current_version) {
+        return *cached_conservation_;
+    }
+    
     EnergyConservation result;
     
     // Calculate total voxel-based energy for accurate accounting
@@ -337,9 +391,13 @@ Metrics::EnergyConservation Metrics::calculate_energy_conservation(const Simulat
     result.total_transmission = total_voxel_transmission;
     result.total_diffusion = total_voxel_diffuse_reflection + total_voxel_transmission;
     result.surface_reflection = total_voxel_specular_reflection;
-    result.surface_refraction = get_combined_surface_refraction(simulator);
+    result.surface_refraction = aggregate_medium_energy_data(simulator).surface_refraction;
     result.total_energy = result.surface_reflection + result.total_absorption + 
                          result.total_reflection + result.total_transmission;
+    
+    // Cache the result
+    cached_conservation_ = result;
+    conservation_cache_version_ = current_version;
     
     return result;
 }
@@ -349,6 +407,12 @@ Metrics::EnergyConservation Metrics::calculate_energy_conservation(const Simulat
  * Eliminates code duplication across all output methods
  ***********************************************************/
 Metrics::EnergyConservationPercentages Metrics::calculate_energy_percentages(const Simulator& simulator) const {
+    // Check cache first - use simulation version as the version counter
+    const uint64_t current_version = simulator.get_simulation_version();
+    if (cached_percentages_ && percentages_cache_version_ == current_version) {
+        return *cached_percentages_;
+    }
+    
     EnergyConservationPercentages percentages;
     
     auto energy = calculate_energy_conservation(simulator);
@@ -373,6 +437,10 @@ Metrics::EnergyConservationPercentages Metrics::calculate_energy_percentages(con
         // No energy in simulation - all percentages remain 0.0
         percentages.is_conserved = true;
     }
+    
+    // Cache the result
+    cached_percentages_ = percentages;
+    percentages_cache_version_ = current_version;
     
     return percentages;
 }
@@ -469,31 +537,9 @@ std::string Metrics::get_energy_summary_text(const Simulator& simulator) const {
 }
 
 /***********************************************************
- * BACKWARD COMPATIBILITY METHODS
+ * DIRECT ENERGY ACCESS METHODS
+ * Note: get_combined_* methods removed - use aggregate_medium_energy_data() directly
  ***********************************************************/
-double Metrics::get_combined_total_absorption(const Simulator& simulator) const {
-    return aggregate_medium_energy_data(simulator).total_absorption;
-}
-
-double Metrics::get_combined_diffuse_reflection(const Simulator& simulator) const {
-    return aggregate_medium_energy_data(simulator).diffuse_reflection;
-}
-
-double Metrics::get_combined_specular_reflection(const Simulator& simulator) const {
-    return aggregate_medium_energy_data(simulator).specular_reflection;
-}
-
-double Metrics::get_combined_surface_refraction(const Simulator& simulator) const {
-    return aggregate_medium_energy_data(simulator).surface_refraction;
-}
-
-double Metrics::get_combined_diffuse_transmission(const Simulator& simulator) const {
-    return aggregate_medium_energy_data(simulator).diffuse_transmission;
-}
-
-double Metrics::get_combined_specular_transmission(const Simulator& simulator) const {
-    return aggregate_medium_energy_data(simulator).specular_transmission;
-}
 
 /***********************************************************
  * HELPER METHODS
@@ -520,17 +566,14 @@ void Metrics::print_percentage_line(const std::string& label, double percent) co
 void Metrics::export_results(const Simulator& simulator, bool generate_csv) const {
     // Always generate simulation.log
     std::string log_path = get_output_filename("simulation", "log");
-    std::ofstream log_file(log_path);
+    std::ofstream log_file = FileUtils::create_output_file(log_path);
     
-    if (!log_file.good()) {
-        std::cerr << "Error: simulation.log file could not be opened." << std::endl;
-        return;
+    if (!log_file.is_open()) {
+        return; // Error already logged by FileUtils
     }
     
-    // Export main log sections
+    // Export main log sections (now consolidated into single function)
     export_simulation_log(simulator, log_file);
-    export_energy_conservation_log(simulator, log_file);
-    export_medium_statistics(simulator, log_file);
     log_file.close();
     
     // Export CSV files if requested
@@ -546,42 +589,155 @@ void Metrics::export_results(const Simulator& simulator, bool generate_csv) cons
 void Metrics::export_simulation_log(const Simulator& simulator, std::ofstream& ofs) const {
     write_header(ofs, "SIMULATION REPORT");
     
-    // Add timestamp
     auto now = std::chrono::system_clock::now();
     auto time_t = std::chrono::system_clock::to_time_t(now);
     auto tm = *std::localtime(&time_t);
-    ofs << "Generated: " << std::put_time(&tm, "%Y-%m-%d %H:%M:%S") << std::endl;
-    ofs << std::endl;
+    ofs << std::left << std::setw(28) << "Generated:" << std::put_time(&tm, "%Y-%m-%d %H:%M:%S") << std::endl;
+    ofs << std::left << std::setw(28) << "Configuration file:" << Config::get().config_filename() << std::endl;
+    ofs << std::left << std::setw(28) << "Execution time:" << std::fixed << std::setprecision(1) << elapsed_time_ms_ << " ms" << std::endl;
+    ofs << std::endl << "################################################################" << std::endl << std::endl;
     
-    // Configuration section
-    ofs << "Configuration" << std::endl;
-    ofs << "################################################################" << std::endl;
-    ofs << std::endl;
-    ofs << "Number of photons:        " << Config::get().num_photons() << std::endl;
-    ofs << "Number of layers:         " << Config::get().num_layers() << std::endl;
-    ofs << "Number of voxels:         " << Config::get().num_voxels() << std::endl;
-    ofs << "Grid dimensions:          " << Config::get().nx() 
-        << " x " << Config::get().ny() 
-        << " x " << Config::get().nz() << std::endl;
-    ofs << "Voxel dimensions:         " << Config::get().vox_size() 
-        << " x " << Config::get().vox_size() 
-        << " x " << Config::get().vox_size() << std::endl;
-    ofs << "Deterministic mode:       " << (Config::get().deterministic() ? "Yes" : "No") << std::endl;
-    ofs << std::endl << std::endl;
+    // General Simulation Statistics
+    const auto& config = Config::get();
+    ofs << std::left << std::setw(28) << "Volume Grid:" << config.nx() << "x" << config.ny() << "x" << config.nz() << std::endl;
+    ofs << std::left << std::setw(28) << "Voxel Size:" << config.vox_size() << std::endl;
     
-    // Recorded parameters section using consolidated method
-    ofs << "Recorded parameters" << std::endl;
-    ofs << "################################################################" << std::endl;
+    // Use actual photons simulated if available, otherwise config value
+    size_t photons_to_report = (simulator.photons.size() > 0) ? simulator.photons.size() : config.num_photons();
+    ofs << std::left << std::setw(28) << "Total Photons:" << photons_to_report << std::endl;
     
-    auto energy_data = aggregate_medium_energy_data(simulator);
+    // Calculate overall voxel statistics
+    auto& mediums = simulator.mediums;
+    if (!mediums.empty()) {
+        const auto& volume = mediums[0].get_volume();
+        size_t total_voxels = volume.size();
+        size_t material_voxels = 0;
+        
+        for (uint64_t idx = 0; idx < volume.size(); ++idx) {
+            auto voxel = volume.at(static_cast<uint32_t>(idx));
+            if (voxel && voxel->material) {
+                material_voxels++;
+            }
+        }
+        
+        ofs << std::left << std::setw(28) << "Total Voxels:" << total_voxels << std::endl;
+        ofs << std::left << std::setw(28) << "Empty Voxels:" << (total_voxels - material_voxels) << std::endl;
+    }
     
-    ofs << "Total absorption:        " << std::fixed << energy_data.total_absorption << std::endl;
-    ofs << "Surface reflection:      " << std::fixed << energy_data.specular_reflection << std::endl;
-    ofs << "Surface refraction:      " << std::fixed << energy_data.surface_refraction << std::endl;
-    ofs << "Diffuse reflection:      " << std::fixed << energy_data.diffuse_reflection << std::endl;
-    ofs << "Diffuse transmission:    " << std::fixed << energy_data.diffuse_transmission << std::endl;
-    ofs << "Specular transmission:   " << std::fixed << energy_data.specular_transmission << std::endl;
-    ofs << std::endl;
+    ofs << std::endl << "################################################################" << std::endl << std::endl;
+    
+    // Layer properties section
+    for (const auto& medium : simulator.mediums) {
+        const auto& layers = medium.get_layers();
+        const auto& materials = medium.get_tissues();
+        
+        for (size_t i = 0; i < layers.size(); ++i) {
+            const auto& layer = layers[i];
+            ofs << "Layer " << (i + 1) << ":" << std::endl;
+            ofs << std::left << std::setw(28) << "  Triangle count:" << layer.mesh.size() << std::endl;
+            
+            if (layer.tissue_id < materials.size()) {
+                const auto& material = materials[layer.tissue_id];
+                ofs << std::left << std::setw(28) << "  Refractive index (eta):" << material.eta() << std::endl;
+                ofs << std::left << std::setw(28) << "  Absorption coeff (mua):" << material.mu_a() << std::endl;
+                ofs << std::left << std::setw(28) << "  Scattering coeff (mus):" << material.mu_s() << std::endl;
+                ofs << std::left << std::setw(28) << "  Anisotropy factor (g):" << material.g() << std::endl;
+            }
+            ofs << std::endl;
+        }
+    }
+
+    ofs << "################################################################" << std::endl << std::endl;
+    
+    // Medium statistics section
+    for (size_t i = 0; i < mediums.size(); ++i) {
+        auto& medium = mediums[i];
+        const auto& metrics = medium.get_metrics();
+        
+        // Medium header with ID (same as console)
+        ofs << "Medium " << (i + 1) << ":" << std::endl;
+        
+        // Medium Voxel Statistics
+        const auto& volume = medium.get_volume();
+        size_t material_voxels = 0;
+        size_t surface_voxels = 0;
+        
+        for (uint64_t idx = 0; idx < volume.size(); ++idx) {
+            auto voxel = volume.at(static_cast<uint32_t>(idx));
+            if (voxel && voxel->material) {
+                material_voxels++;
+                if (voxel->is_surface_voxel) {
+                    surface_voxels++;
+                }
+            }
+        }
+        
+        // Volume Statistics (aligned to 28 characters)
+        ofs << "Volume Statistics" << std::endl;
+        ofs << std::left << std::setw(28) << "  Medium Voxels:" << material_voxels << std::endl;
+        ofs << std::left << std::setw(28) << "  Surface Voxels:" << surface_voxels << std::endl;
+        ofs << std::endl;
+        
+        // Transport Statistics (aligned to 28 characters)
+        ofs << "Transport Statistics" << std::endl;
+        ofs << std::left << std::setw(28) << "  Photons entered:" << metrics.get_photons_entered() << std::endl;
+        ofs << std::left << std::setw(28) << "  Scatter events:" << std::fixed << std::setprecision(0) 
+            << metrics.get_scatter_events() << std::endl;
+        ofs << std::left << std::setw(28) << "  Total path length:" << std::fixed << std::setprecision(6) 
+            << metrics.compute_path_length() << std::endl;
+        ofs << std::left << std::setw(28) << "  Average step size:" << std::fixed << std::setprecision(6) 
+            << metrics.compute_average_step_size() << std::endl;
+        ofs << std::left << std::setw(28) << "  Diffusion distance:" << std::fixed << std::setprecision(6) 
+            << metrics.compute_diffusion_distance() << std::endl;
+        
+        ofs << std::endl;
+        
+        // Use unified energy conservation calculation (same as console)
+        auto energy = calculate_energy_conservation(simulator);
+
+        ofs << "Radiance Properties" << std::endl;
+        ofs << std::left << std::setw(28) << "  Total absorption:" << std::fixed << std::setprecision(6) 
+            << energy.total_absorption << std::endl;
+        ofs << std::left << std::setw(28) << "  Total diffusion:" << std::fixed << std::setprecision(6) 
+            << energy.total_diffusion << std::endl;
+        ofs << std::left << std::setw(28) << "    Reflection:" << std::fixed << std::setprecision(6) 
+            << energy.total_reflection << std::endl;
+        ofs << std::left << std::setw(28) << "    Transmission:" << std::fixed << std::setprecision(6) 
+            << energy.total_transmission << std::endl;
+        
+        ofs << std::endl;
+        
+        // Energy Conservation (exact console format)
+        ofs << "Energy Conservation" << std::endl;
+        
+        auto percentages = calculate_energy_percentages(simulator);
+        
+        if (percentages.baseline_energy > 0) {
+            ofs << std::left << std::setw(28) << "  Specular reflection:" << std::fixed << std::setprecision(1) 
+                << percentages.surface_reflection_percent << "%" << std::endl;
+            ofs << std::left << std::setw(28) << "  Absorption:" << std::fixed << std::setprecision(1) 
+                << percentages.absorption_percent << "%" << std::endl;
+            ofs << std::left << std::setw(28) << "  Reflection:" << std::fixed << std::setprecision(1) 
+                << percentages.reflection_percent << "%" << std::endl;
+            ofs << std::left << std::setw(28) << "  Transmission:" << std::fixed << std::setprecision(1) 
+                << percentages.transmission_percent << "%" << std::endl;
+            ofs << std::left << std::setw(28) << "  Total:" << std::fixed << std::setprecision(1) 
+                << percentages.total_percent << "%" << std::endl;
+
+            // Check if energy is conserved
+            if (!percentages.is_conserved) {
+                ofs << "  WARNING: Energy not conserved!" << std::endl;
+            }
+        } else {
+            ofs << std::left << std::setw(28) << "  Specular reflection:" << "0.0%" << std::endl;
+            ofs << std::left << std::setw(28) << "  Absorption:" << "0.0%" << std::endl;
+            ofs << std::left << std::setw(28) << "  Reflection:" << "0.0%" << std::endl;
+            ofs << std::left << std::setw(28) << "  Transmission:" << "0.0%" << std::endl;
+            ofs << std::left << std::setw(28) << "  Total:" << "0.0%" << std::endl;
+        }
+        
+        ofs << std::endl;
+    }
 }
 
 /***********************************************************
@@ -592,39 +748,47 @@ void Metrics::export_medium_statistics(const Simulator& simulator, std::ofstream
     ofs << "Per-Medium Details" << std::endl;
     ofs << "################################################################" << std::endl;
     
+    // Get aggregated energy data for accurate statistics
+    auto energy_data = aggregate_medium_energy_data(simulator);
+    
     // Access mediums through the public member variable
     const auto& mediums = simulator.mediums;
     for (size_t i = 0; i < mediums.size(); ++i) {
         const auto& medium = mediums[i];
-        const auto& volume = medium.get_volume();
         const auto& medium_metrics = medium.get_metrics();
         
         ofs << "Medium " << (i + 1) << ":" << std::endl;
-        ofs << "  Volume dimensions:      " 
-            << volume.width() << " x " 
-            << volume.height() << " x " 
-            << volume.depth() << std::endl;
-        ofs << "  Total voxels:           " << volume.size() << std::endl;
         
-        // Count different types of voxels
-        size_t material_count = 0, surface_count = 0, boundary_count = 0;
-        for (const auto& voxel_ptr : volume) {
-            if (voxel_ptr->material) material_count++;
-            if (voxel_ptr->is_surface_voxel) surface_count++;
-            if (voxel_ptr->is_boundary_voxel) boundary_count++;
+        // Medium Voxel Statistics
+        const auto& volume = medium.get_volume();
+        size_t material_voxels = 0;
+        size_t surface_voxels = 0;
+        
+        for (uint64_t idx = 0; idx < volume.size(); ++idx) {
+            auto voxel = volume.at(static_cast<uint32_t>(idx));
+            if (voxel && voxel->material) {
+                material_voxels++;
+                if (voxel->is_surface_voxel) {
+                    surface_voxels++;
+                }
+            }
         }
         
-        ofs << "  Material voxels:        " << material_count << std::endl;
-        ofs << "  Surface voxels:         " << surface_count << std::endl;
-        ofs << "  Boundary voxels:        " << boundary_count << std::endl;
+        // Use correct aggregated energy data with percentage formatting
+        // Calculate percentages for single medium case
+        auto percentages = calculate_energy_percentages(simulator);
+        
+        ofs << "  Medium voxels:          " << material_voxels << std::endl;
+        ofs << "  Surface voxels:         " << surface_voxels << std::endl;
         ofs << "  Photons entered:        " << medium_metrics.get_photons_entered() << std::endl;
-        ofs << "  Total absorption:       " << std::fixed << medium_metrics.get_total_absorption() << std::endl;
-        ofs << "  Surface reflection:     " << std::fixed << medium_metrics.get_surface_reflection() << std::endl;
-        ofs << "  Surface refraction:     " << std::fixed << medium_metrics.get_surface_refraction() << std::endl;
-        ofs << "  Diffuse reflection:     " << std::fixed << medium_metrics.get_diffuse_reflection() << std::endl;
-        ofs << "  Diffuse transmission:   " << std::fixed << medium_metrics.get_diffuse_transmission() << std::endl;
-        ofs << "  Specular transmission:  " << std::fixed << medium_metrics.get_specular_transmission() << std::endl;
         ofs << "  Scatter events:         " << static_cast<int>(medium_metrics.get_scatter_events()) << std::endl;
+        
+        ofs << "  Total absorption:       " << std::fixed << std::setprecision(1) << percentages.absorption_percent << "%" << std::endl;
+        ofs << "  Surface reflection:     " << std::fixed << std::setprecision(1) << percentages.surface_reflection_percent << "%" << std::endl;
+        ofs << "  Surface refraction:     " << std::fixed << std::setprecision(1) << (100.0 - percentages.surface_reflection_percent) << "%" << std::endl;
+        ofs << "  Diffuse reflection:     " << std::fixed << std::setprecision(1) << percentages.reflection_percent << "%" << std::endl;
+        ofs << "  Diffuse transmission:   " << std::fixed << std::setprecision(1) << percentages.transmission_percent << "%" << std::endl;
+        ofs << "  Specular transmission:  " << std::fixed << std::setprecision(1) << "0.0%" << std::endl;
         ofs << std::endl;
     }
 }
@@ -636,34 +800,26 @@ void Metrics::export_medium_statistics(const Simulator& simulator, std::ofstream
 void Metrics::export_csv_files(const Simulator& simulator) const {
     // Export absorption CSV
     std::string absorption_path = get_output_filename("absorption", "csv");
-    std::ofstream absorption_file(absorption_path);
-    if (absorption_file.good()) {
+    std::ofstream absorption_file = FileUtils::create_output_file(absorption_path);
+    if (absorption_file.is_open()) {
         export_absorption_csv(simulator, absorption_file);
         absorption_file.close();
     }
     
-    // Export optical properties CSV
-    std::string optical_path = get_output_filename("optics", "csv");
-    std::ofstream optical_file(optical_path);
-    if (optical_file.good()) {
-        export_optical_properties_csv(simulator, optical_file);
-        optical_file.close();
-    }
-    
     // Export photon paths CSV
     std::string photon_path = get_output_filename("photons", "csv");
-    std::ofstream photon_file(photon_path);
-    if (photon_file.good()) {
+    std::ofstream photon_file = FileUtils::create_output_file(photon_path);
+    if (photon_file.is_open()) {
         export_photon_paths_csv(simulator, photon_file);
         photon_file.close();
     }
     
-    // Export voxel statistics CSV
-    std::string voxel_path = get_output_filename("voxels", "csv");
-    std::ofstream voxel_file(voxel_path);
-    if (voxel_file.good()) {
-        export_voxel_data_csv(simulator, voxel_file);
-        voxel_file.close();
+    // Export emittance data CSV (only voxels with emittance > 0)
+    std::string emittance_path = get_output_filename("emittance", "csv");
+    std::ofstream emittance_file = FileUtils::create_output_file(emittance_path);
+    if (emittance_file.is_open()) {
+        export_emittance_data_csv(simulator, emittance_file);
+        emittance_file.close();
     }
 }
 
@@ -675,11 +831,7 @@ std::string Metrics::get_output_filename(const std::string& base_name, const std
 }
 
 void Metrics::write_header(std::ofstream& ofs, const std::string& title) const {
-    ofs.precision(8);
-    ofs << "################################################################" << std::endl;
-    ofs << "# " << title << std::endl;
-    ofs << "################################################################" << std::endl;
-    ofs << std::endl;
+    FileUtils::write_file_header(ofs, title);
 }
 
 // Placeholder implementations for CSV methods (to be filled based on existing report() logic)
@@ -714,7 +866,7 @@ void Metrics::export_absorption_csv(const Simulator& simulator, std::ofstream& o
 void Metrics::export_photon_paths_csv(const Simulator& simulator, std::ofstream& ofs) const {
     ofs << "PhotonID,X,Y,Z,DirX,DirY,DirZ,Weight,ScatterCount,VoxelX,VoxelY,VoxelZ\n";
     
-    const auto& photons = simulator.get_paths();
+    const auto& photons = simulator.photons;
     for (const auto& photon : photons) {
         // Use current position and direction
         ofs << photon.id << ","
@@ -732,38 +884,8 @@ void Metrics::export_photon_paths_csv(const Simulator& simulator, std::ofstream&
     }
 }
 
-void Metrics::export_optical_properties_csv(const Simulator& simulator, std::ofstream& ofs) const {
-    ofs << "MediumID,VoxelX,VoxelY,VoxelZ,WorldX,WorldY,WorldZ,Eta,MuA,MuS,G\n";
-    
-    // Export optical properties for each voxel with material
-    for (const auto& medium : simulator.mediums) {
-        const auto& volume = medium.get_volume();
-        const auto& bounds = medium.get_bounds();
-        double voxel_size = volume.voxel_size();
-        
-        for (const auto& voxel : volume) {
-            if (voxel && voxel->material != nullptr) {
-                // Calculate world coordinates of voxel center using bounds
-                glm::dvec3 world_pos = bounds.min_bounds + glm::dvec3(
-                    (voxel->ix() + 0.5) * voxel_size,
-                    (voxel->iy() + 0.5) * voxel_size,
-                    (voxel->iz() + 0.5) * voxel_size
-                );
-                
-                const auto* material = voxel->material;
-                ofs << 0 << ","  // MediumID
-                    << voxel->ix() << "," << voxel->iy() << "," << voxel->iz() << ","
-                    << world_pos.x << "," << world_pos.y << "," << world_pos.z << ","
-                    << material->eta() << ","
-                    << material->mu_a() << ","
-                    << material->mu_s() << ","
-                    << material->g() << "\n";
-            }
-        }
-    }
-}
 
-void Metrics::export_voxel_data_csv(const Simulator& simulator, std::ofstream& ofs) const {
+void Metrics::export_emittance_data_csv(const Simulator& simulator, std::ofstream& ofs) const {
     ofs << "MediumID,VoxelX,VoxelY,VoxelZ,WorldX,WorldY,WorldZ,IsSurface,HasTissue,Absorption,Emittance,EmittanceReflected,EmittanceTransmitted,TotalEmittance,EnergyNormalized\n";
     
     // Calculate total photon energy launched (each photon starts with weight 1.0)
@@ -824,28 +946,31 @@ void Metrics::export_voxel_data_csv(const Simulator& simulator, std::ofstream& o
                 double total_voxel_emittance = voxel->specular_reflection + voxel->diffuse_transmission;
                 if (total_voxel_emittance > 0.0) voxels_with_emittance++;
                 
-                // Calculate world coordinates of voxel center using bounds
-                glm::dvec3 world_pos = bounds.min_bounds + glm::dvec3(
-                    (voxel->ix() + 0.5) * voxel_size,
-                    (voxel->iy() + 0.5) * voxel_size,
-                    (voxel->iz() + 0.5) * voxel_size
-                );
-                
-                // Energy normalized by total photon energy launched
-                double energy_normalized = total_photon_energy > 0.0 ? 
-                    (voxel->absorption + voxel->total_emittance()) / total_photon_energy : 0.0;
-                
-                ofs << 0 << ","  // MediumID
-                    << voxel->ix() << "," << voxel->iy() << "," << voxel->iz() << ","
-                    << world_pos.x << "," << world_pos.y << "," << world_pos.z << ","
-                    << (is_surface ? "TRUE" : "FALSE") << ","
-                    << "TRUE,"  // HasTissue
-                    << voxel->absorption << ","
-                    << voxel->emittance << ","
-                    << voxel->specular_reflection << ","
-                    << voxel->diffuse_transmission << ","
-                    << total_voxel_emittance << ","
-                    << energy_normalized << "\n";
+                // Only export voxels with emittance > 0
+                if (total_voxel_emittance > 0.0) {
+                    // Calculate world coordinates of voxel center using bounds
+                    glm::dvec3 world_pos = bounds.min_bounds + glm::dvec3(
+                        (voxel->ix() + 0.5) * voxel_size,
+                        (voxel->iy() + 0.5) * voxel_size,
+                        (voxel->iz() + 0.5) * voxel_size
+                    );
+                    
+                    // Energy normalized by total photon energy launched
+                    double energy_normalized = total_photon_energy > 0.0 ? 
+                        (voxel->absorption + voxel->total_emittance()) / total_photon_energy : 0.0;
+                    
+                    ofs << 0 << ","  // MediumID
+                        << voxel->ix() << "," << voxel->iy() << "," << voxel->iz() << ","
+                        << world_pos.x << "," << world_pos.y << "," << world_pos.z << ","
+                        << (is_surface ? "TRUE" : "FALSE") << ","
+                        << "TRUE,"  // HasTissue
+                        << voxel->absorption << ","
+                        << voxel->emittance << ","
+                        << voxel->specular_reflection << ","
+                        << voxel->diffuse_transmission << ","
+                        << total_voxel_emittance << ","
+                        << energy_normalized << "\n";
+                }
             }
         }
     }

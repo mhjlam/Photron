@@ -5,6 +5,7 @@
 #include <iostream>
 #include <string>
 #include <fstream>
+#include <optional>
 
 #include <glm/glm.hpp>
 #include "config.hpp"
@@ -94,16 +95,9 @@ public:
 	// CSV export methods (moved from ResultsExporter)
 	void export_absorption_csv(const Simulator& simulator, std::ofstream& ofs) const;
 	void export_photon_paths_csv(const Simulator& simulator, std::ofstream& ofs) const;
-	void export_optical_properties_csv(const Simulator& simulator, std::ofstream& ofs) const;
-	void export_voxel_data_csv(const Simulator& simulator, std::ofstream& ofs) const;
+	void export_emittance_data_csv(const Simulator& simulator, std::ofstream& ofs) const;
 	
-	// Combined metrics access (for backward compatibility)
-	double get_combined_total_absorption(const Simulator& simulator) const;
-	double get_combined_diffuse_reflection(const Simulator& simulator) const;
-	double get_combined_specular_reflection(const Simulator& simulator) const; 
-	double get_combined_surface_refraction(const Simulator& simulator) const;
-	double get_combined_diffuse_transmission(const Simulator& simulator) const;
-	double get_combined_specular_transmission(const Simulator& simulator) const;
+	// Direct energy data access - use aggregate_medium_energy_data() for all energy calculations
 
 	// Getters for UI display
 	double get_path_length() const { return path_length_; }
@@ -159,11 +153,19 @@ public:
 	
 	// Get elapsed time in milliseconds
 	double get_elapsed_time_ms() const { return elapsed_time_ms_; }
+	
+	// Set simulation completion data for accurate reporting
+	void set_simulation_completion(size_t photons_simulated) {
+		simulation_timestamp_ = std::chrono::system_clock::now();
+		actual_photons_simulated_ = photons_simulated;
+	}
 
 private:
 	// Modern C++ chrono timing
 	std::chrono::high_resolution_clock::time_point start_time_;
 	double elapsed_time_ms_ {0.0};          // elapsed time in milliseconds
+	std::chrono::system_clock::time_point simulation_timestamp_; // when simulation completed
+	size_t actual_photons_simulated_ {0};   // actual number of photons simulated
 
 	double total_absorption_ {0.0};         // total absorption
 	double diffuse_reflection_ {0.0};       // diffuse reflection (separate from specular)
@@ -185,6 +187,14 @@ private:
 
 	std::vector<double> step_sizes_;        // step sizes
 	std::vector<glm::dvec3> path_vertices_; // path vertices
+	
+	// Caching for expensive calculations
+	mutable std::optional<MediumEnergyData> cached_medium_energy_;
+	mutable std::optional<EnergyConservation> cached_conservation_;
+	mutable std::optional<EnergyConservationPercentages> cached_percentages_;
+	mutable uint64_t medium_energy_cache_version_ = 0;
+	mutable uint64_t conservation_cache_version_ = 0;
+	mutable uint64_t percentages_cache_version_ = 0;
 	
 	// Helper methods for energy statistics (moved from EnergyStatisticsManager)
 	void write_percentage_line(std::ofstream& ofs, const std::string& label, double percent) const;

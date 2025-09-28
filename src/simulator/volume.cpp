@@ -1,4 +1,6 @@
 #include "volume.hpp"
+#include "../common/result.hpp"
+#include "../common/error_types.hpp"
 
 #include <algorithm>
 #include <iostream>

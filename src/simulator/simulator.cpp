@@ -1,5 +1,10 @@
 #include "simulator.hpp"
 
+#include "common/result.hpp"
+#include "common/error_types.hpp"
+#include "common/optimized_logger.hpp"
+#include "common/error_handler.hpp"
+
 #include <algorithm>
 #include <cfloat>
 #include <cstdlib>
@@ -61,7 +66,7 @@ Simulator::~Simulator() {
 /***********************************************************
  * Parse the input file and initializes the data structures.
  ***********************************************************/
-bool Simulator::initialize(std::string file) {
+Result<void, SimulationError> Simulator::initialize(std::string file) {
 	// Clear previous simulation data to ensure clean reset
 	mediums.clear();
 	photons.clear();
@@ -71,13 +76,23 @@ bool Simulator::initialize(std::string file) {
 	// Reset metrics
 	metrics.reset();
 
+	// Re-initialize the Config singleton with the file to ensure fresh data
+	// This is critical for rerun functionality since data gets moved out during first run
+	Config::shutdown(); // Clear the singleton
+	if (!Config::initialize(file)) {
+		return Result<void, SimulationError>::error(SimulationError::InvalidConfiguration);
+	}
+
 	// read and parse input configuration file
-	if (!parse(file)) {
-		std::cerr << "An error occurred while parsing the input file." << std::endl;
-		return false;
+	auto parse_result = parse(file);
+	if (!parse_result.is_ok()) {
+		return parse_result; // Forward the error
 	}
 	
-	std::cout << "Loading configuration: " << file << std::endl << std::endl;
+	// Only show loading message if logging is enabled
+	if (Config::get().log()) {
+		std::cout << "Loading configuration: " << file << std::endl << std::endl;
+	}
 
 	// Configure random number generator based on deterministic setting
 	if (Config::get().deterministic()) {
@@ -86,16 +101,16 @@ bool Simulator::initialize(std::string file) {
 		rng->seed(deterministic_seed);
 		if (Config::get().log()) {
 			std::cout << "Deterministic mode enabled: Using fixed seed " << deterministic_seed << std::endl;
-			Logger::instance().log_info("Deterministic mode enabled: Using fixed seed " + std::to_string(deterministic_seed));
 		}
+		FAST_LOG_INFO("Deterministic mode enabled: Using fixed seed " + std::to_string(deterministic_seed));
 	} else {
 		// Use time-based seed for stochastic behavior
 		int time_seed = static_cast<int>(std::time(nullptr));
 		rng->seed(time_seed);
 		if (Config::get().log()) {
 			std::cout << "Stochastic mode: Using time-based seed " << time_seed << std::endl;
-			Logger::instance().log_info("Stochastic mode: Using time-based seed " + std::to_string(time_seed));
 		}
+		FAST_LOG_INFO("Stochastic mode: Using time-based seed " + std::to_string(time_seed));
 	}
 
 	// Initialize medium (only one for now)
@@ -104,12 +119,12 @@ bool Simulator::initialize(std::string file) {
 	for (auto& medium : mediums) {
 		if (!medium.initialize()) {
 			std::cerr << "An error occurred while initializing the medium." << std::endl;
-			Logger::instance().log_error("Failed to initialize medium");
-			return false;
+			FAST_LOG_ERROR("Failed to initialize medium");
+			return Result<void, SimulationError>::error(SimulationError::MediumInitializationFailure);
 		}
 		if (Config::get().log()) {
 			// Log initialization success to file only
-			Logger::instance().log_info("Medium initialized successfully.");
+		FAST_LOG_INFO("Medium initialized successfully.");
 		}
 	}
 
@@ -117,7 +132,7 @@ bool Simulator::initialize(std::string file) {
 	initialize_dda_instances();
 	if (Config::get().log()) {
 		// Log DDA initialization to file only  
-		Logger::instance().log_info("3D DDA voxel traversal initialized successfully.");
+		FAST_LOG_INFO("3D DDA voxel traversal initialized successfully.");
 	}
 
 	// Initialize debug logger (only in log mode)
@@ -137,14 +152,13 @@ bool Simulator::initialize(std::string file) {
 	}
 
 	// Initialize light sources
-	if (!initialize_sources()) {
-		std::cerr << "An error occurred while initializing the data structures." << std::endl;
-		Logger::instance().log_error("Failed to initialize light sources");
-		return false;
+	auto init_sources_result = initialize_sources();
+	if (!init_sources_result.is_ok()) {
+		return init_sources_result; // Forward the error
 	}
 	if (Config::get().log()) {
 		// Log light source initialization to file only
-		Logger::instance().log_info("Light sources initialized successfully.");
+		FAST_LOG_INFO("Light sources initialized successfully.");
 	}
 
 	// Initialize photons
@@ -152,16 +166,20 @@ bool Simulator::initialize(std::string file) {
 		photons.emplace_back(i);
 	}
 	
-	// Initialize energy statistics manager after all components are ready
-	initialize_shared_metrics();
+	// Shared metrics should be set externally via set_shared_metrics() before initialization
+	if (!shared_metrics_) {
+		std::cerr << "Warning: shared_metrics_ not set. Please call set_shared_metrics() before initialize()." << std::endl;
+		// Fallback: create local metrics instance
+		shared_metrics_ = std::make_shared<Metrics>();
+	}
 	
 	if (Config::get().log()) {
 		// Simple confirmation message for console
 		std::cout << "Photron simulation initialized successfully." << std::endl;
-		Logger::instance().log_info("Photron simulation initialized successfully.");
+		FAST_LOG_INFO("Photron simulation initialized successfully.");
 	}
 	
-	return true;
+	return Result<void, SimulationError>::ok();
 }
 
 /***********************************************************
@@ -171,29 +189,36 @@ bool Simulator::initialize(std::string file) {
 /***********************************************************
  * Read and parse the given configuration file.
  ***********************************************************/
-bool Simulator::parse(const std::string& fconfig) {
+Result<void, SimulationError> Simulator::parse(const std::string& /* fconfig */) {
 	// Clear existing data structures for reinitialization
 	sources.clear();
 	photons.clear();
 	mediums.clear();
 
-	// Initialize the global Config singleton and parse the configuration file
-	Config::initialize();
-	if (!Config::get().parse_config_file(fconfig)) {
-		std::cerr << "Failed to parse configuration file." << std::endl;
-		return false;
+	// Config should already be initialized by this point with the same file
+	// Just extract parsed data from Config
+	if (!Config::is_initialized()) {
+		return Result<void, SimulationError>::error(SimulationError::ConfigNotInitialized);
+	}
+	
+	sources = Config::get().sources();
+	
+	// Only show debug info if logging is enabled
+	if (Config::get().log()) {
+		std::cout << "Parsed " << sources.size() << " sources from config" << std::endl;
+	}
+	
+	if (sources.empty()) {
+		return Result<void, SimulationError>::error(SimulationError::NoSources);
 	}
 
-	// Extract parsed data from Config
-	sources = Config::get().sources_vector();
-
-	return true;
+	return Result<void, SimulationError>::ok();
 }
 
 /***********************************************************
  * Initialize configuration properties.
  ***********************************************************/
-bool Simulator::initialize_sources() {
+Result<void, SimulationError> Simulator::initialize_sources() {
 	// initialize config properties
 	Config::get().set_num_sources(static_cast<uint64_t>(sources.size()));
 
@@ -226,21 +251,35 @@ bool Simulator::initialize_sources() {
 		}
 
 		if (!found_intersection) {
-			std::cerr << "Error: Light source " << source.id 
-					  << " does not intersect with any medium geometry or valid voxels." << std::endl;
+			return Result<void, SimulationError>::error(SimulationError::SourceIntersectionFailure);
 		}
 	}
 
-	return true;
+	return Result<void, SimulationError>::ok();
+}
+
+// Legacy compatibility methods (deprecated)
+bool Simulator::parse_legacy(const std::string& fconfig) {
+	auto result = parse(fconfig);
+	return result.is_ok();
+}
+
+bool Simulator::initialize_sources_legacy() {
+	auto result = initialize_sources();
+	return result.is_ok();
 }
 
 /***********************************************************
  * Run the Monte Carlo photon transport simulation.
  ***********************************************************/
-void Simulator::simulate() {
-	if (Config::get().log()) {
-		std::cout << "Running Monte Carlo simulation" << std::endl;
-		Logger::instance().log_info("Running Monte Carlo simulation");
+Result<void, SimulationError> Simulator::simulate() {
+	// Validate simulation state before starting
+	if (sources.empty()) {
+		return Result<void, SimulationError>::error(SimulationError::InvalidConfiguration);
+	}
+	
+	if (photons.empty()) {
+		return Result<void, SimulationError>::error(SimulationError::NoPhotons);
 	}
 
 	metrics.start_clock();
@@ -259,22 +298,22 @@ void Simulator::simulate() {
 			// launch the photon (create a new path)
 			launch(photons[p], source);
 			
-		// CRITICAL FIX: Update source with calculated specular direction from first photon
-		// This ensures the renderer can access the correct reflection direction
-		if (p == 0 && photons[p].alive) {
-			source.specular_direction = photons[p].specular_direction();
-		}
-		
-		// Track launched energy
-		if (photons[p].alive) {
-			total_launched_energy += photons[p].weight;
-		}
-		
-		// Safety mechanism to prevent infinite photon loops
-		int photon_iteration_counter = 0;
-		const int max_photon_iterations = 1000000;
-		
-		while (photons[p].alive) {
+			// CRITICAL FIX: Update source with calculated specular direction from first photon
+			// This ensures the renderer can access the correct reflection direction
+			if (p == 0 && photons[p].alive) {
+				source.specular_direction = photons[p].specular_direction();
+			}
+			
+			// Track launched energy
+			if (photons[p].alive) {
+				total_launched_energy += photons[p].weight;
+			}
+			
+			// Safety mechanism to prevent infinite photon loops
+			int photon_iteration_counter = 0;
+			const int max_photon_iterations = 1000000;
+			
+			while (photons[p].alive) {
 				photon_iteration_counter++;
 				if (photon_iteration_counter > max_photon_iterations) {
 					std::cerr << "Warning: Photon " << photons[p].id << " exceeded maximum iterations, terminating."
@@ -300,15 +339,16 @@ void Simulator::simulate() {
 				}
 			}
 			
-			// Progress report AFTER photon simulation is complete - show every 2% for better visibility  
+			// Progress report AFTER photon simulation is complete - show every 2% for better visibility
 			uint32_t progress_interval = std::max(1u, static_cast<uint32_t>(photons.size() / 50)); // Show every 2%
 			
 			if ((p + 1) % progress_interval == 0 || p == 0 || (p + 1) == photons.size()) {
+				// Always show console progress - this is essential user feedback
 				double progress_percent = ((double)(p + 1) / photons.size()) * 100.0;
 				std::cout << "\rProgress: " << (p + 1) << "/" << Config::get().num_photons() 
 						  << " (" << std::fixed << std::setprecision(1) << progress_percent << "%)" << std::flush;
 				
-				// Call GUI progress callback to allow GUI updates
+				// Always call GUI progress callback
 				if (progress_callback_) {
 					progress_callback_(p + 1, Config::get().num_photons());
 				}
@@ -316,7 +356,7 @@ void Simulator::simulate() {
 		}
 	}
 
-	// Complete the progress line
+	// Always complete the progress line
 	std::cout << std::endl;
 
 	// Normalize physical quantities
@@ -326,13 +366,16 @@ void Simulator::simulate() {
 
 	metrics.stop_clock();
 	
+	// Set simulation completion data for accurate reporting
+	metrics.set_simulation_completion(photons.size());
+	
 	// Increment simulation version since data has changed
 	increment_simulation_version();
 	
 	// Aggregate voxel data to medium records before calculating final metrics
 	aggregate_voxel_data();
 	
-	// Use consolidated energy aggregation method
+    // Use consolidated energy aggregation method
 	auto energy_data = aggregate_medium_energy_data();
 	
 	// Set only the scatter events in the main simulator metrics (path data is now handled by medium metrics)
@@ -340,7 +383,19 @@ void Simulator::simulate() {
 	
 	metrics.collect_data(energy_data.total_absorption, energy_data.specular_reflection, energy_data.diffuse_reflection,
 						 energy_data.surface_refraction, energy_data.specular_transmission, energy_data.diffuse_transmission);
+	
+	// Update shared metrics for GUI components
+	if (shared_metrics_) {
+		shared_metrics_->collect_data(energy_data.total_absorption, energy_data.specular_reflection, energy_data.diffuse_reflection,
+									  energy_data.surface_refraction, energy_data.specular_transmission, energy_data.diffuse_transmission);
+		shared_metrics_->set_scatter_events(energy_data.scatter_events);
+		shared_metrics_->stop_clock(); // Update timing for GUI
+		shared_metrics_->set_simulation_completion(photons.size()); // Set completion data for GUI
+	}
+	
 	metrics.print_report(*this);
+	
+	return Result<void, SimulationError>::ok();
 }
 
 /***********************************************************
@@ -402,6 +457,13 @@ void Simulator::simulate_single_photon() {
 	
 	metrics.collect_data(energy_data.total_absorption, energy_data.specular_reflection, energy_data.diffuse_reflection,
 						 energy_data.surface_refraction, energy_data.specular_transmission, energy_data.diffuse_transmission);
+	
+	// Update shared metrics if available (for GUI components)
+	if (shared_metrics_) {
+		shared_metrics_->collect_data(energy_data.total_absorption, energy_data.specular_reflection, energy_data.diffuse_reflection,
+									  energy_data.surface_refraction, energy_data.specular_transmission, energy_data.diffuse_transmission);
+		shared_metrics_->set_scatter_events(energy_data.scatter_events);
+	}
 	
 	// Increment simulation version since data has changed
 	increment_simulation_version();
@@ -714,20 +776,18 @@ void Simulator::transfer(Photon& photon) {
 	while (photon.step >= 1E-10 && photon.alive) {
 		substep_counter++;
 		
-		// DEBUG: Track photon state at each step (log mode only) - now logged to file instead of console
-		if (Config::get().log() && substep_counter <= 50) { // Limit debug output
+		// DEBUG: Track photon state at each step (optimized logging)
+		if (substep_counter <= 50) { // Limit debug output
 			std::ostringstream oss;
 			oss << "Step " << substep_counter << ": Photon " << photon.id 
 			    << " weight=" << photon.weight << " step=" << photon.step 
 			    << " pos=(" << photon.position.x << "," << photon.position.y << "," << photon.position.z << ")"
 			    << " alive=" << (photon.alive ? "yes" : "no");
-			Logger::instance().log_debug(oss.str());
+			FAST_LOG_DEBUG(oss.str());
 		}
 		
 		if (substep_counter > max_substeps) {
-			if (Config::get().log()) {
-				std::cerr << "Warning: Photon exceeded maximum substeps, terminating." << std::endl;
-			}
+			FAST_LOG_WARNING("Photon exceeded maximum substeps, terminating.");
 			
 			// Deposit remaining energy as absorption for energy conservation
 			if (photon.weight > 0.0 && photon.voxel && photon.voxel->material) {
@@ -843,9 +903,7 @@ void Simulator::sub_step(Photon& photon) {
 	// ROBUST VOXEL SELECTION: Always find the correct voxel at current position
 	Medium* photon_medium = find_medium_at(photon.position);
 	if (!photon_medium) {
-		if (Config::get().log()) {
-			std::cerr << "Error: No medium found at photon position in sub_step()" << std::endl;
-		}
+		FAST_LOG_ERROR("No medium found at photon position in sub_step()");
 		if (photon.weight > 0.0) {
 			terminate_photon_and_record_energy(photon, "no_material_properties");
 		} else {
@@ -857,9 +915,7 @@ void Simulator::sub_step(Photon& photon) {
 	// Get the correct voxel at the current position
 	Voxel* current_voxel = photon_medium->voxel_at(photon.position);
 	if (!current_voxel) {
-		if (Config::get().log()) {
-			std::cerr << "Error: No voxel found at photon position in sub_step()" << std::endl;
-		}
+		FAST_LOG_ERROR("No voxel found at photon position in sub_step()");
 		// Energy conservation: Deposit remaining energy as absorption before terminating
 		if (photon.weight > 0.0) {
 			terminate_photon_and_record_energy(photon, "no_voxel_found");
@@ -874,9 +930,7 @@ void Simulator::sub_step(Photon& photon) {
 	
 	// Validate voxel has material properties
 	if (!photon.voxel->material) {
-		if (Config::get().log()) {
-			std::cerr << "Error: Photon voxel has no material properties in sub_step()" << std::endl;
-		}
+		FAST_LOG_ERROR("Photon voxel has no material properties in sub_step()");
 		// Energy conservation: Deposit remaining energy as absorption before terminating
 		if (photon.weight > 0.0) {
 			terminate_photon_and_record_energy(photon, "no_material_properties");
@@ -2332,10 +2386,14 @@ void Simulator::specular_reflection(Photon& photon) {
 		}
 	}
 
-	// voxel should never be nullptr at this point
+	// voxel should never be nullptr at this point, but handle gracefully if it occurs
 	if (!voxel) {
-		std::cerr << "Critical error: specular reflection could not be computed." << std::endl;
-		exit(EXIT_FAILURE);
+		// Log the error but continue simulation - assume no reflection occurs
+		if (Config::is_initialized() && Config::get().log()) {
+			std::cerr << "Warning: specular reflection could not be computed - photon will continue unreflected." << std::endl;
+		}
+		// Graceful fallback: no reflection, photon continues with full weight
+		return;
 	}
 
 	// refractive indices of ambient medium and medium that is hit
@@ -2528,11 +2586,8 @@ void Simulator::aggregate_voxel_data() {
  *	Now uses Metrics class for unified statistics and export functionality.
  ***********************************************************/
 void Simulator::report(bool generate_csv) {
-	if (shared_metrics_) {
-		shared_metrics_->export_results(*this, generate_csv);
-	} else {
-		std::cerr << "Error: shared_metrics_ not initialized." << std::endl;
-	}
+	// Use the simulator's own metrics for log export to ensure correct timing
+	metrics.export_results(*this, generate_csv);
 }
 
 /***********************************************************
@@ -2901,11 +2956,6 @@ Voxel* Simulator::voxel_grid(uint32_t x, uint32_t y, uint32_t z) const {
 /***********************************************************
  * Get PhotonPaths from photons for backward compatibility
  ***********************************************************/
-std::vector<Photon> Simulator::get_paths() const {
-	// Since PhotonPath is now an alias for Photon, just return the photons
-	return photons;
-}
-
 /***********************************************************
  * Accessor methods for aggregating data across all mediums
  ***********************************************************/
@@ -2915,7 +2965,7 @@ std::vector<Material> Simulator::get_all_tissues() const {
 	for (const auto& medium : mediums) {
 		const auto& medium_tissues = medium.get_tissues();
 		for (const auto& material : medium_tissues) {
-			// Add unique tissues from each medium based on optical properties
+			// Add unique materials from each medium based on optical properties
 			bool found = false;
 			for (const auto& existing : all_tissues) {
 				if (existing.has_same_optical_properties(material)) {
@@ -3042,32 +3092,32 @@ Range3 Simulator::get_combined_bounds() const {
 // Combined metrics access methods (delegated to Metrics)
 double Simulator::get_combined_total_absorption() const {
 	if (!shared_metrics_) return 0.0;
-	return shared_metrics_->get_combined_total_absorption(*this);
+	return shared_metrics_->aggregate_medium_energy_data(*this).total_absorption;
 }
 
 double Simulator::get_combined_diffuse_reflection() const {
 	if (!shared_metrics_) return 0.0;
-	return shared_metrics_->get_combined_diffuse_reflection(*this);
+	return shared_metrics_->aggregate_medium_energy_data(*this).diffuse_reflection;
 }
 
 double Simulator::get_combined_specular_reflection() const {
 	if (!shared_metrics_) return 0.0;
-	return shared_metrics_->get_combined_specular_reflection(*this);
+	return shared_metrics_->aggregate_medium_energy_data(*this).specular_reflection;
 }
 
 double Simulator::get_combined_surface_refraction() const {
 	if (!shared_metrics_) return 0.0;
-	return shared_metrics_->get_combined_surface_refraction(*this);
+	return shared_metrics_->aggregate_medium_energy_data(*this).surface_refraction;
 }
 
 double Simulator::get_combined_diffuse_transmission() const {
 	if (!shared_metrics_) return 0.0;
-	return shared_metrics_->get_combined_diffuse_transmission(*this);
+	return shared_metrics_->aggregate_medium_energy_data(*this).diffuse_transmission;
 }
 
 double Simulator::get_combined_specular_transmission() const {
 	if (!shared_metrics_) return 0.0;
-	return shared_metrics_->get_combined_specular_transmission(*this);
+	return shared_metrics_->aggregate_medium_energy_data(*this).specular_transmission;
 }
 
 double Simulator::get_combined_avg_path_length() const {

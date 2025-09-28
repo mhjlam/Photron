@@ -21,6 +21,9 @@
 #include "simulator/volume.hpp"
 #include "simulator/medium.hpp"
 
+#include "common/result.hpp"
+#include "common/error_types.hpp"
+
 // Forward declaration for Random class
 class Random;
 
@@ -60,8 +63,11 @@ public:
 	~Simulator();
 
 	// main routines
-	bool initialize(std::string file);
-	void simulate();
+	// Main initialization method with structured error handling
+	Result<void, SimulationError> initialize(std::string file);
+	
+	// Primary simulation methods with structured error handling
+	Result<void, SimulationError> simulate();
 	void simulate_single_photon(); 		// Add single photon for interactive use
 	void aggregate_voxel_data();		// Aggregate voxel energy data into medium records
 	void report(bool generate_csv = true);	// generate_csv controls CSV file output
@@ -116,10 +122,16 @@ public:
 	Metrics::EnergyConservationPercentages calculate_energy_percentages() const;
 	Metrics::MediumEnergyData aggregate_medium_energy_data() const;
 	
+	// Access to shared metrics for external components
+	std::shared_ptr<Metrics> get_shared_metrics() const { return shared_metrics_; }
+	
 	// Shared metrics instance for energy statistics
 	std::shared_ptr<Metrics> shared_metrics_;
 	
-	// Initialize shared metrics (called after constructor)
+	// Set shared metrics (replaces initialize_shared_metrics)
+	void set_shared_metrics(std::shared_ptr<Metrics> shared_metrics) { shared_metrics_ = shared_metrics; }
+	
+	// Initialize shared metrics (called after constructor) - DEPRECATED: use set_shared_metrics
 	void initialize_shared_metrics();
 	
 	// Geometry queries (needed by renderer)
@@ -129,7 +141,7 @@ public:
 	Voxel* voxel_grid(uint32_t x, uint32_t y, uint32_t z) const;
 
 	// Path access for backward compatibility (creates PhotonPaths from photon data)
-	std::vector<Photon> get_paths() const;
+	// Removed get_paths() - use photons member directly
 	
 	// Progress callback for UI updates
 	void set_progress_callback(std::function<void(uint64_t, uint64_t)> callback) {
@@ -163,11 +175,15 @@ private:
 	glm::dvec3 move(glm::dvec3& position, glm::dvec3& direction, double d);
 	glm::dvec3 move_delta(glm::dvec3& position, glm::dvec3& direction);
 
-	// file parsing
-	bool parse(const std::string& fconfig);
+	// file parsing with structured error handling
+	Result<void, SimulationError> parse(const std::string& fconfig);
 
-	// initialization
-	bool initialize_sources();
+	// initialization with structured error handling
+	Result<void, SimulationError> initialize_sources();
+	
+	// Legacy compatibility methods (deprecated - use structured versions)
+	bool parse_legacy(const std::string& fconfig); // DEPRECATED: use parse()
+	bool initialize_sources_legacy(); // DEPRECATED: use initialize_sources()
 
 	// data management
 	void reset_simulation_data();

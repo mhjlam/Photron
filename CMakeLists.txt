@@ -94,17 +94,24 @@ file(MAKE_DIRECTORY ${BIN_DIR})
 file(GLOB_RECURSE PHOTRON_SOURCES
     ${SRC_DIR}/main.cpp
     ${SRC_DIR}/app.cpp
+    ${SRC_DIR}/common/*.cpp
     ${SRC_DIR}/math/*.cpp
     ${SRC_DIR}/renderer/*.cpp
     ${SRC_DIR}/simulator/*.cpp
 )
 
-# Combine Photron and MCML sources
-set(ALL_SOURCES ${PHOTRON_SOURCES})
+# Add common utility sources
+file(GLOB COMMON_SOURCES 
+    ${SRC_DIR}/common/*.cpp
+)
+
+# Combine all sources
+set(ALL_SOURCES ${PHOTRON_SOURCES} ${COMMON_SOURCES})
 
 # Collect all header files (for IDE integration)
 file(GLOB_RECURSE PHOTRON_HEADERS
     ${SRC_DIR}/*.hpp
+    ${SRC_DIR}/common/*.hpp
     ${SRC_DIR}/math/*.hpp
     ${SRC_DIR}/renderer/*.hpp
     ${SRC_DIR}/simulator/*.hpp

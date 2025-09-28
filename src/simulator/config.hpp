@@ -9,6 +9,8 @@
 
 #include <toml++/toml.h>
 
+#include "common/error_types.hpp"
+#include "common/result.hpp"
 #include "math/concepts.hpp"
 #include "simulator/layer.hpp"
 #include "simulator/photon.hpp"
@@ -34,9 +36,12 @@ private:
 	bool log_ {false};         		// display logging debug and progress messages
 	bool deterministic_ {false};   	// use deterministic random seed for reproducible results
 	
+	// Configuration metadata
+	std::string config_filename_;  	// path to the configuration file
+	
 	// Parsing configuration data
 	std::vector<Source> sources_;
-	std::vector<Material> tissues_;
+	std::vector<Material> materials_;
 	std::vector<Layer> layers_;
 
 	// TOML parsing helper methods
@@ -45,6 +50,19 @@ private:
 	std::vector<glm::dvec3> parse_vertices(const toml::array& vertices_array) const;
 	std::vector<glm::uvec3> parse_faces(const toml::array& faces_array) const;
 	std::vector<glm::dvec3> parse_normals(const toml::array& normals_array) const;
+	
+	// Validation helper methods
+	// Enhanced validation with structured errors
+	template<typename T>
+	Result<void, ConfigError> validate_range_structured(T value, T min, T max, const std::string& param_name, int layer_id = -1) const;
+	Result<void, ConfigError> validate_array_size_structured(const toml::array& arr, size_t expected_size, const std::string& param_name) const;
+	Result<void, ConfigError> validate_geometry_size_structured(size_t actual_size, size_t min_size, const std::string& type, int layer_id) const;
+	
+	// Legacy validation methods (for backward compatibility)
+	template<typename T>
+	bool validate_range(T value, T min, T max, const std::string& param_name, int layer_id = -1) const;
+	bool validate_array_size(const toml::array& arr, size_t expected_size, const std::string& param_name) const;
+	bool validate_geometry_size(size_t actual_size, size_t min_size, const std::string& type, int layer_id) const;
 
 public:
 	// Delete copy constructor and assignment operator for singleton
@@ -60,8 +78,9 @@ public:
 	/**
 	 * @brief Initialize the global Config instance with a config file
 	 * @param config_file Path to the configuration file
+	 * @return true if initialization and parsing succeeded, false otherwise
 	 */
-	static void initialize(const std::string& config_file);
+	static bool initialize(const std::string& config_file);
 	
 	/**
 	 * @brief Check if config service has been initialized
@@ -94,26 +113,18 @@ public:
 	[[nodiscard]] constexpr bool partial() const noexcept { return true; } // Always enabled
 	[[nodiscard]] constexpr bool log() const noexcept { return log_; }
 	[[nodiscard]] constexpr bool deterministic() const noexcept { return deterministic_; }
+	[[nodiscard]] const std::string& config_filename() const noexcept { return config_filename_; }
 
-	// Access parsed data with span for zero-copy access
-	[[nodiscard]] std::span<const Source> sources() const noexcept { 
-		return std::span<const Source>(sources_); 
-	}
-	[[nodiscard]] std::span<const Material> tissues() const noexcept { 
-		return std::span<const Material>(tissues_); 
-	}
-	[[nodiscard]] std::span<const Layer> layers() const noexcept { 
-		return std::span<const Layer>(layers_); 
-	}
-	
 	// Compatibility accessors returning references
-	[[nodiscard]] const std::vector<Source>& sources_vector() const noexcept { return sources_; }
-	[[nodiscard]] const std::vector<Material>& tissues_vector() const noexcept { return tissues_; }
-	[[nodiscard]] const std::vector<Layer>& layers_vector() const noexcept { return layers_; }
-	
-	// Move versions for when transferring ownership
+	[[nodiscard]] const std::vector<Source>& sources() const noexcept { return sources_; }
+	[[nodiscard]] const std::vector<Material>& materials() const noexcept { return materials_; }
+	[[nodiscard]] const std::vector<Layer>& layers() const noexcept { return layers_; }
+
+	// Move versions for transferring ownership (needed for Layer which is move-only)
 	[[nodiscard]] std::vector<Layer>&& move_layers() { return std::move(layers_); }
-	[[nodiscard]] std::vector<Material>&& move_tissues() { return std::move(tissues_); }
+	[[nodiscard]] std::vector<Material>&& move_materials() { return std::move(materials_); }
+
+	// Note: Direct access to vectors is preferred, but move semantics needed for Layer transfer
 
 	// Setters
 	void set_nx(uint32_t nx) noexcept { nx_ = nx; }
@@ -130,7 +141,9 @@ public:
 	void set_deterministic(bool deterministic) noexcept { deterministic_ = deterministic; }
 
 	// Main parsing interface
-	bool parse_config_file(const std::string& filename);
+	// Configuration parsing with structured error handling
+	Result<void, ConfigError> parse_config_file(const std::string& filename);
+	bool parse_config_file_legacy(const std::string& filename); // Keep old signature for backward compatibility
 
 	// TOML parsing methods
 	bool parse_general_config(const toml::table& config);

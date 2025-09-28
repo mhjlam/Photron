@@ -104,22 +104,6 @@ void Logger::log_error(const std::string& message) {
 #endif
 }
 
-void Logger::log_info_fmt(const std::string& message) {
-    log_info(message);
-}
-
-void Logger::log_debug_fmt(const std::string& message) {
-    log_debug(message);
-}
-
-void Logger::log_warning_fmt(const std::string& message) {
-    log_warning(message);
-}
-
-void Logger::log_error_fmt(const std::string& message) {
-    log_error(message);
-}
-
 Logger::~Logger() {
 #ifdef _DEBUG
     if (csv_file_.is_open()) {

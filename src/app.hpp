@@ -9,6 +9,7 @@
 class Overlay;
 class Renderer;
 class Simulator;
+class Metrics;
 
 class App
 {
@@ -18,6 +19,9 @@ public:
 
 	bool initialize(int argc, char* argv[]);
 	void run();
+	
+	// Access to shared metrics for external components
+	std::shared_ptr<Metrics> get_shared_metrics() const { return shared_metrics_; }
 	void shutdown();
 
 	// Getters
@@ -29,7 +33,11 @@ public:
 	// Static method to get executable directory for output files
 	static std::string get_executable_directory();
 	static void set_executable_path(const char* argv0);
-	static std::string get_output_path(const std::string& filename);
+	
+	// Unified output path generation (replaces multiple scattered methods)
+	static std::string get_output_path(const std::string& filename, const std::string& subdir = "");
+	static std::string get_results_path(const std::string& filename);
+	static std::string get_debug_path(const std::string& filename);
 
 private:
 	void setup_callbacks();
@@ -60,6 +68,7 @@ private:
 	std::unique_ptr<Simulator> simulator_;
 	std::unique_ptr<Renderer> renderer_;
 	std::unique_ptr<Overlay> overlay_;
+	std::shared_ptr<Metrics> shared_metrics_;  // Shared metrics for all components
 
 	bool should_close_;
 	std::string config_file_;

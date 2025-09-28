@@ -14,7 +14,8 @@
 #include "math/range.hpp"
 #include "renderer/camera.hpp"
 #include "renderer/settings.hpp"
-#include "simulator/config.hpp"
+#include "common/result.hpp"
+#include "common/error_types.hpp"
 #include "simulator/config.hpp"
 #include "simulator/layer.hpp"
 #include "simulator/medium.hpp"
@@ -1072,7 +1073,7 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 
 	// First pass: analyze energy distribution for adaptive logarithmic mapping
 	std::vector<float> all_energies;
-	for (const Photon& photon : simulator_->get_paths()) {
+	for (const Photon& photon : simulator_->photons) {
 		if (photon.path_head) {
 			auto current = photon.path_head;
 			while (current) {
@@ -1101,7 +1102,7 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 	// Draw photon path histories with adaptive energy-based coloring
 	begin_lines();
 
-	for (const Photon& photon : simulator_->get_paths()) {
+	for (const Photon& photon : simulator_->photons) {
 		if (photon.path_head) {
 			// Draw connected line segments with energy gradient exactly like backup
 			auto current = photon.path_head;
@@ -1225,7 +1226,7 @@ void Renderer::draw_paths(const Settings& /*settings*/) {
 	// Draw scatter/interaction markers with better visualization (user feedback)
 	begin_points();
 
-	for (const Photon& photon : simulator_->get_paths()) {
+	for (const Photon& photon : simulator_->photons) {
 		if (photon.path_head) {
 			auto current = photon.path_head;
 			int vertex_count = 0;
@@ -1324,7 +1325,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 	};
 
 	// PERFORMANCE OPTIMIZATION: Use incremental caching instead of rebuilding every frame
-	size_t current_photon_count = simulator_->get_paths().size();
+	size_t current_photon_count = simulator_->photons.size();
 	
 	// Check if we need to rebuild cache completely or just add new photons
 	if (!path_instances_cached_ || current_photon_count < cached_photon_count_) {
@@ -1360,7 +1361,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 		}
 
 		// PERFORMANCE: Process only NEW photons (incremental caching)
-		const auto paths = simulator_->get_paths();
+		const auto paths = simulator_->photons;
 		for (size_t i = cached_photon_count_; i < paths.size(); ++i) {
 			const Photon& photon = paths[i];
 		if (photon.path_head) {
@@ -1614,7 +1615,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 
 		// PERFORMANCE: Collect scatter points INSIDE cache block to eliminate per-frame processing
 		// First, collect scatter points from photon paths
-		for (const Photon& photon : simulator_->get_paths()) {
+		for (const Photon& photon : simulator_->photons) {
 			if (photon.path_head) {
 				auto current = photon.path_head;
 				int vertex_count = 0;
@@ -2124,7 +2125,7 @@ void Renderer::auto_manage_energy_labels(Settings& settings) {
 	if (!simulator_) return;
 	
 	static bool auto_disabled_labels = false;
-	bool many_photons = (simulator_->get_paths().size() > 10);
+	bool many_photons = (simulator_->photons.size() > 10);
 	
 	// Auto-disable when crossing the 10 photon threshold
 	if (many_photons && !auto_disabled_labels) {
@@ -2145,7 +2146,7 @@ void Renderer::cache_energy_labels() {
 		return;
 
 	// Collect energy labels from photon paths
-	for (const Photon& photon : simulator_->get_paths()) {
+	for (const Photon& photon : simulator_->photons) {
 		if (photon.path_head) {
 			auto current = photon.path_head;
 			int vertex_count = 0;
@@ -3231,7 +3232,7 @@ void Renderer::update_cached_energy_range(const Settings& settings) const {
 	std::vector<float> all_energies;
 	
 	// Collect energies from photon paths
-	for (const Photon& photon : simulator_->get_paths()) {
+	for (const Photon& photon : simulator_->photons) {
 		if (photon.path_head) {
 			auto current = photon.path_head;
 			while (current) {

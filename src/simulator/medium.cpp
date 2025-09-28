@@ -1,4 +1,5 @@
 #include "medium.hpp"
+#include "common/file_utils.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -16,11 +17,11 @@
 Medium::Medium(Config& config) : config_(config) {
 	// Reserve space for common use cases
 	layers_.reserve(10);
-	tissues_.reserve(5);
+	materials_.reserve(5);
 
 	// Transfer layer and material data from config to medium
 	layers_ = config_.move_layers();
-	tissues_ = config_.move_tissues();
+	materials_ = config_.move_materials();
 
 	// Update geometry for each layer after transfer
 	for (auto& layer : layers_) {
@@ -166,16 +167,16 @@ bool Medium::initialize_layers() {
 		}
 	}
 
-	// check for duplicate tissues
-	for (uint32_t i = 1; i < tissues_.size(); ++i) {
-		if (tissues_[i - 1] == tissues_[i]) {
+	// check for duplicate materials
+	for (uint32_t i = 1; i < materials_.size(); ++i) {
+		if (materials_[i - 1] == materials_[i]) {
 			return false;
 		}
 	}
 
 	// check if layer's material id is out of range
 	for (const auto& layer : layers_) {
-		if (layer.tissue_id >= tissues_.size()) {
+		if (layer.tissue_id >= materials_.size()) {
 			return false;
 		}
 	}
@@ -237,7 +238,7 @@ bool Medium::voxelize_layers() {
 					Voxel* voxel = volume_(ix, iy, iz);
 					
 					// Assign material from dominant layer
-					voxel->material = &tissues_[classification.dominant_tissue_id];
+					voxel->material = &materials_[classification.dominant_tissue_id];
 					voxel->layer_id = classification.dominant_layer_id;
 					voxel->volume_fraction_inside = classification.volume_fraction;
 					voxel->volume_fraction_outside = 1.0 - classification.volume_fraction;
@@ -254,11 +255,18 @@ bool Medium::voxelize_layers() {
 	}
 
 	if (config_.log()) {
-		std::cout << "Point-containment voxelization completed. Assigned material to " << total_voxels_assigned << " voxels ("
-				  << partial_voxels << " partial)." << std::endl;
+		uint64_t total_voxels_in_volume = volume_.size();
+		uint64_t empty_voxels = total_voxels_in_volume - total_voxels_assigned;
+		
+		std::cout << "Voxelization completed:" << std::endl;
+		std::cout << "  Total volume voxels:    " << total_voxels_in_volume << std::endl;
+		std::cout << "  Material voxels:        " << total_voxels_assigned << " (" << partial_voxels << " partial)" << std::endl;
+		std::cout << "  Empty voxels:           " << empty_voxels << std::endl;
+		
 		std::stringstream voxel_msg;
-		voxel_msg << "Point-containment voxelization completed. Assigned material to " << total_voxels_assigned 
-		          << " voxels (" << partial_voxels << " partial).";
+		voxel_msg << "Voxelization completed: " << total_voxels_in_volume << " total voxels, " 
+		          << total_voxels_assigned << " with material (" << partial_voxels << " partial), " 
+		          << empty_voxels << " empty.";
 		Logger::instance().log_info(voxel_msg.str());
 	}
 
@@ -308,12 +316,11 @@ void Medium::write_results() const {
 	std::string str_abs = App::get_output_path("absorption.out");
 	std::string str_emi = App::get_output_path("emittance.out");
 
-	std::ofstream ofs_abs(str_abs.c_str(), std::ios_base::out);
-	std::ofstream ofs_emi(str_emi.c_str(), std::ios_base::out);
+	std::ofstream ofs_abs = FileUtils::create_output_file(str_abs);
+	std::ofstream ofs_emi = FileUtils::create_output_file(str_emi);
 
-	if (!ofs_abs.good() || !ofs_emi.good()) {
-		std::cerr << "Error: Could not open output files for writing" << std::endl;
-		return;
+	if (!ofs_abs.is_open() || !ofs_emi.is_open()) {
+		return; // Error already logged by FileUtils
 	}
 
 	// Write voxel absorption and emittance data

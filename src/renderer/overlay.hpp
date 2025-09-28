@@ -62,6 +62,8 @@ public:
 	
 	// Check if file dialog is currently open
 	bool is_file_dialog_open() const { return show_file_dialog_; }
+	void open_config_dialog(); // Method to auto-open config dialog
+	void open_config_dialog_deferred(); // Method to auto-open config dialog in next frame
 
 	// Text overlay system for 3D world text rendering
 	void add_world_text(const std::string& text, float screen_x, float screen_y, const glm::vec4& color);
@@ -76,7 +78,7 @@ private:
 	void render_file_dialog();
 	void render_world_text_overlays();
 	void render_save_feedback();
-	void handle_keyboard_shortcuts();
+	void handle_keyboard_shortcuts(bool has_simulator = false);
 
 	Settings settings_;
 	bool ui_enabled_;
@@ -88,6 +90,7 @@ private:
 	
 	// File dialog state
 	bool show_file_dialog_;
+	bool deferred_open_config_; // Flag for deferred dialog opening
 	FileDialogMode file_dialog_mode_;
 	char file_path_buffer_[512];
 	std::string file_path_; // Modern C++ string for file path

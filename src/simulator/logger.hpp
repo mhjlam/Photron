@@ -29,12 +29,6 @@ public:
     void log_warning(const std::string& message);
     void log_error(const std::string& message);
 
-    // Simple formatted logging using stringstream
-    void log_info_fmt(const std::string& message);
-    void log_debug_fmt(const std::string& message);
-    void log_warning_fmt(const std::string& message);
-    void log_error_fmt(const std::string& message);
-
     ~Logger();
 
 private:

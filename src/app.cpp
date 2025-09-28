@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "common/file_utils.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -15,6 +16,13 @@
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
+#include "app.hpp"
+
+#include "common/results_exporter.hpp"
+#include "common/error_handler.hpp"
+#include "common/result.hpp"
+#include "common/error_types.hpp"
+
 #include <cxxopts.hpp>
 
 #include "simulator/logger.hpp"
@@ -22,6 +30,7 @@
 #include "renderer/overlay.hpp"
 #include "renderer/renderer.hpp"
 #include "simulator/simulator.hpp"
+#include "simulator/metrics.hpp"
 #include "simulator/config.hpp"
 
 // Static pointer for callbacks
@@ -43,19 +52,36 @@ std::string App::get_executable_directory() {
 	return executable_directory_;
 }
 
-std::string App::get_output_path(const std::string& filename) {
-	std::filesystem::path out_dir = std::filesystem::path(executable_directory_) / "out";
+std::string App::get_output_path(const std::string& filename, const std::string& subdir) {
+	std::filesystem::path base_dir = std::filesystem::path(executable_directory_);
 	
-	// Create the out directory if it doesn't exist
-	std::filesystem::create_directories(out_dir);
+	// Build path with optional subdirectory
+	if (subdir.empty()) {
+		base_dir = base_dir / "out";
+	} else {
+		base_dir = base_dir / subdir;
+	}
 	
-	return (out_dir / filename).string();
+	// Create the directory if it doesn't exist
+	std::filesystem::create_directories(base_dir);
+	
+	return (base_dir / filename).string();
+}
+
+std::string App::get_results_path(const std::string& filename) {
+	return get_output_path(filename, "results");
+}
+
+std::string App::get_debug_path(const std::string& filename) {
+	return get_output_path(filename, "out");
 }
 
 App::App() : window_(nullptr), window_width_(1200), window_height_(800), should_close_(false),
               gui_mode_(true), force_csv_output_(false), first_simulation_run_(true), 
               left_mouse_pressed_(false), mouse_press_x_(0.0), mouse_press_y_(0.0) {
 	app_instance = this;
+	// Create shared metrics that will be used by all components
+	shared_metrics_ = std::make_shared<Metrics>();
 }
 
 App::~App() {
@@ -70,7 +96,7 @@ bool App::initialize(int argc, char* argv[]) {
 	}
 	
 	// Setup command line options
-	cxxopts::Options options("Photron", "Monte Carlo Photon Transport Renderer");
+	cxxopts::Options options("Photron", "Photron - Monte Carlo Photon Transport Renderer");
 	
 	options.add_options()
 		("c,config", "Configuration file path (optional for GUI mode)", cxxopts::value<std::string>())
@@ -115,7 +141,10 @@ bool App::initialize(int argc, char* argv[]) {
 
 		// Always initialize Config (with defaults or from file)
 		if (has_config_file) {
-			Config::initialize(config_file_);
+			if (!Config::initialize(config_file_)) {
+				std::cerr << "Error: Failed to initialize configuration. Exiting." << std::endl;
+				return false;
+			}
 		} else {
 			Config::initialize(); // Initialize with defaults
 		}
@@ -147,6 +176,11 @@ bool App::initialize(int argc, char* argv[]) {
 		if (!initialize_gui()) {
 			std::cerr << "Failed to initialize GUI" << std::endl;
 			return false;
+		}
+
+		// If no config file was provided, auto-open the config dialog
+		if (!has_config_file) {
+			overlay_->open_config_dialog();
 		}
 
 		return true;
@@ -207,27 +241,49 @@ void App::setup_callbacks() {
 void App::setup_overlay_callbacks() {
 	// Set up file operation callbacks
 	overlay_->set_open_config_callback([this](const std::string& filepath) {
-		// Disable UI while loading
-		overlay_->set_ui_enabled(false);
+		// Wrap entire callback in try-catch to prevent crashes
+		try {
+			// Disable UI while loading
+			overlay_->set_ui_enabled(false);
 
-		// Update config file path
-		config_file_ = filepath;
-		
-		// Reinitialize Config with the new file
-		Config::shutdown();
-		Config::initialize(config_file_);
+			// Update config file path
+			config_file_ = filepath;
+			
+			// Reinitialize Config with the new file
+			Config::shutdown();
+			if (!Config::initialize(config_file_)) {
+				// Config parsing failed - reset simulator state and re-enable UI
+				simulator_.reset(); // Reset simulator so GUI shows "No configuration loaded"
+				ErrorHandler::instance().report_error("Failed to load configuration file: " + filepath);
+				// Auto-open the config dialog so user can try loading another file (deferred to next frame)
+				overlay_->open_config_dialog_deferred();
+				overlay_->set_ui_enabled(true);
+				return;
+			}
 
-		// Create simulator if it doesn't exist
-		if (!simulator_) {
-			// Create simulator without initializing it yet
-			simulator_ = std::make_unique<Simulator>();
-		}
+			// Create simulator if it doesn't exist
+			if (!simulator_) {
+				// Create simulator without initializing it yet
+				simulator_ = std::make_unique<Simulator>();
+				// Provide shared metrics to simulator
+				simulator_->set_shared_metrics(shared_metrics_);
+			}
 
-		// Load new configuration into simulator (only call this once)
-		simulator_->initialize(filepath.c_str());
+			// Load new configuration into simulator (only call this once)
+			auto init_result = simulator_->initialize(filepath.c_str());
+			if (!init_result.is_ok()) {
+				ErrorHandler::instance().report_error("Failed to initialize simulator: " + ErrorMessage::format(init_result.error()));
+				overlay_->set_ui_enabled(true);
+				return;
+			}
 
 		// Run simulation immediately
-		simulator_->simulate();
+		auto sim_result = simulator_->simulate();
+		if (!sim_result.is_ok()) {
+			ErrorHandler::instance().report_error("Simulation failed: " + ErrorMessage::format(sim_result.error()));
+			overlay_->set_ui_enabled(true);
+			return;
+		}
 		bool generate_csv = !gui_mode_ || (force_csv_output_ && first_simulation_run_);
 		simulator_->report(generate_csv);
 		if (first_simulation_run_) first_simulation_run_ = false; // Mark first run as complete
@@ -247,6 +303,17 @@ void App::setup_overlay_callbacks() {
 
 		// Re-enable UI
 		overlay_->set_ui_enabled(true);
+		
+		} catch (const std::exception& e) {
+			// Catch any unhandled exceptions to prevent crashes
+			// Use direct cerr to avoid potential recursive exceptions in ErrorHandler
+			std::cerr << "Exception in config loading callback: " << e.what() << std::endl;
+			overlay_->set_ui_enabled(true);
+		} catch (...) {
+			// Catch any other unknown exceptions
+			std::cerr << "Unknown exception in config loading callback" << std::endl;
+			overlay_->set_ui_enabled(true);
+		}
 	});
 
 	overlay_->set_run_simulation_callback([this]() {
@@ -277,8 +344,20 @@ void App::setup_overlay_callbacks() {
 
 		// Re-initialize with the same config file to clear data
 		if (!config_file_.empty()) {
-			simulator_->initialize(config_file_.c_str());
-			simulator_->simulate();
+			auto init_result = simulator_->initialize(config_file_.c_str());
+			if (!init_result.is_ok()) {
+				ErrorHandler::instance().report_error("Failed to reinitialize simulator: " + ErrorMessage::format(init_result.error()));
+				overlay_->set_ui_enabled(true); // Re-enable UI on error
+				return;
+			}
+			
+			auto sim_result = simulator_->simulate();
+			if (!sim_result.is_ok()) {
+				ErrorHandler::instance().report_error("Rerun simulation failed: " + ErrorMessage::format(sim_result.error()));
+				overlay_->set_ui_enabled(true); // Re-enable UI on error
+				return;
+			}
+			
 			simulator_->report(!gui_mode_); // Only generate CSV in headless mode (no CSV for GUI restarts)
 		}
 		else {
@@ -297,10 +376,10 @@ void App::setup_overlay_callbacks() {
 	overlay_->set_save_results_callback([this](const std::string& filepath) {
 		// Implement JSON results export
 		if (filepath.find(".json") != std::string::npos) {
-			save_results_as_json(filepath);
+			ResultsExporter::instance().export_json(*simulator_, filepath);
 		}
 		else {
-			save_results_as_text(filepath);
+			ResultsExporter::instance().export_text(*simulator_, filepath);
 		}
 	});
 	
@@ -534,228 +613,18 @@ void App::scroll_callback(GLFWwindow*, double xoffset, double yoffset) {
 }
 
 
-
-void App::save_results_as_json(const std::string& filepath) {
-	if (!simulator_) {
-		std::cerr << "No simulator available for saving results." << std::endl;
-		return;
-	}
-
-	// Create results directory if it doesn't exist
-	std::filesystem::path results_dir = std::filesystem::path(get_executable_directory()) / "out" / "results";
-	if (!std::filesystem::exists(results_dir)) {
-		std::filesystem::create_directories(results_dir);
-	}
-	
-	// Construct full path in results subfolder
-	std::filesystem::path full_path = results_dir / filepath;
-
-	std::ofstream file(full_path);
-	if (!file.is_open()) {
-		std::cerr << "Failed to open file for writing: " << full_path << std::endl;
-		return;
-	}
-
-	// Save simulation results as JSON
-	file << "{\n";
-	
-	// Sanitize config file path for JSON (escape backslashes)
-	std::string sanitized_config = config_file_;
-	std::replace(sanitized_config.begin(), sanitized_config.end(), '\\', '/');
-	
-	file << "  \"config_file\": \"" << sanitized_config << "\",\n";
-	file << "  \"medium_statistics\": [\n";
-
-	// Export per-medium statistics array
-	auto& mediums = simulator_->mediums;
-	for (size_t i = 0; i < mediums.size(); ++i) {
-		auto& medium = mediums[i];
-		const auto& metrics = medium.get_metrics();
-		const auto& volume = medium.get_volume();
-		const auto& dimensions = volume.dimensions();
-		
-		// Count surface voxels
-		size_t surface_count = 0;
-		for (uint64_t idx = 0; idx < volume.size(); ++idx) {
-			auto voxel = volume.at(static_cast<uint32_t>(idx));
-			if (voxel && voxel->is_surface_voxel) {
-				surface_count++;
-			}
-		}
-		
-		file << "    {\n";
-		file << "      \"medium_id\": " << (i + 1) << ",\n";
-		file << "      \"volume_statistics\": {\n";
-		file << "        \"grid_size\": [" << dimensions.x << ", " << dimensions.y << ", " << dimensions.z << "],\n";
-		file << "        \"voxel_size\": " << volume.voxel_size() << ",\n";
-		file << "        \"total_voxels\": " << volume.size() << ",\n";
-		file << "        \"surface_voxels\": " << surface_count << "\n";
-		file << "      },\n";
-		file << "      \"transport_statistics\": {\n";
-		file << "        \"total_photons\": " << simulator_->get_paths().size() << ",\n";
-		file << "        \"photons_entered\": " << medium.get_metrics().get_photons_entered() << ",\n";
-		file << "        \"scatter_events\": " << metrics.get_scatter_events() << ",\n";
-		file << "        \"path_length\": " << metrics.compute_path_length() << ",\n";
-		file << "        \"average_step_size\": " << metrics.compute_average_step_size() << ",\n";
-		file << "        \"diffusion_distance\": " << metrics.compute_diffusion_distance() << "\n";
-		file << "      },\n";
-		file << "      \"energy_conservation\": {\n";
-		file << "        \"total_absorption\": " << medium.get_metrics().get_total_absorption() << ",\n";
-		file << "        \"diffuse_reflection\": " << medium.get_metrics().get_diffuse_reflection() << ",\n";
-		file << "        \"specular_reflection\": " << medium.get_metrics().get_surface_reflection() << ",\n";
-		file << "        \"diffuse_transmission\": " << medium.get_metrics().get_diffuse_transmission() << ",\n";
-		file << "        \"specular_transmission\": " << medium.get_metrics().get_specular_transmission() << ",\n";
-		file << "        \"surface_refraction\": " << medium.get_metrics().get_surface_refraction() << "\n";
-		file << "      },\n";
-		file << "      \"tissue_properties\": [\n";
-		
-		// Export tissues for this medium
-		auto& tissues = medium.get_tissues();
-		for (size_t j = 0; j < tissues.size(); ++j) {
-			const auto& material = tissues[j];
-			file << "        {\n";
-			file << "          \"index\": " << j << ",\n";
-			file << "          \"hash\": " << material.get_optical_properties_hash() << ",\n";
-			file << "          \"eta\": " << material.eta() << ",\n";
-			file << "          \"mua\": " << material.mu_a() << ",\n";
-			file << "          \"mus\": " << material.mu_s() << ",\n";
-			file << "          \"ani\": " << material.g() << "\n";
-			file << "        }" << (j < tissues.size() - 1 ? "," : "") << "\n";
-		}
-		file << "      ]\n";
-		file << "    }" << (i < mediums.size() - 1 ? "," : "") << "\n";
-	}
-	file << "  ]\n";
-	file << "}\n";
-
-	file.close();
-	std::cout << "Results successfully to " << filepath << std::endl;
-	if (Config::get().log()) {
-		Logger::instance().log_info("Results successfully to " + filepath);
-	}
-}
-
-void App::save_results_as_text(const std::string& filepath) {
-	if (!simulator_) {
-		std::cerr << "No simulator available for saving results." << std::endl;
-		return;
-	}
-
-	// Create results directory if it doesn't exist
-	std::filesystem::path results_dir = std::filesystem::path(get_executable_directory()) / "out" / "results";
-	if (!std::filesystem::exists(results_dir)) {
-		std::filesystem::create_directories(results_dir);
-	}
-	
-	// Construct full path in results subfolder
-	std::filesystem::path full_path = results_dir / filepath;
-
-	std::ofstream file(full_path);
-	if (!file.is_open()) {
-		std::cerr << "Failed to open file for writing: " << full_path << std::endl;
-		return;
-	}
-
-	// Save simulation results as formatted text
-	file << "=== Photron Simulation Results ===\n\n";
-	file << "Configuration File: " << config_file_ << "\n";
-	file << "Timestamp: " << std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) << "\n\n";
-
-	// Per-medium statistics section (matching overlay format)
-	auto& mediums = simulator_->mediums;
-	for (size_t i = 0; i < mediums.size(); ++i) {
-		auto& medium = mediums[i];
-		const auto& metrics = medium.get_metrics();
-		const auto& volume = medium.get_volume();
-		const auto& dimensions = volume.dimensions();
-		
-		file << "Medium " << (i + 1) << "\n";
-		file << "Volume Statistics\n";
-		file << "  Volume Grid:         " << dimensions.x << "x" << dimensions.y << "x" << dimensions.z << "\n";
-		file << "  Total Voxels:        " << volume.size() << "\n";
-		
-		// Count surface voxels
-		size_t surface_count = 0;
-		for (uint64_t idx = 0; idx < volume.size(); ++idx) {
-			auto voxel = volume.at(static_cast<uint32_t>(idx));
-			if (voxel && voxel->is_surface_voxel) {
-				surface_count++;
-			}
-		}
-		file << "  Surface Voxels:      " << surface_count << "\n";
-		
-		file << "\nTransport Statistics\n";
-		file << "  Total photons:       " << simulator_->get_paths().size() << "\n";
-		file << "  Photons entered:     " << medium.get_metrics().get_photons_entered() << "\n";
-		file << "  Scatter events:      " << static_cast<int>(metrics.get_scatter_events()) << "\n";
-		file << "  Total path length:   " << std::fixed << std::setprecision(6) << metrics.compute_path_length() << "\n";
-		file << "  Average step size:   " << std::fixed << std::setprecision(6) << metrics.compute_average_step_size() << "\n";
-		file << "  Diffusion distance:  " << std::fixed << std::setprecision(6) << metrics.compute_diffusion_distance() << "\n";
-		
-		// Use unified energy conservation calculation (same as console output)
-		auto energy = simulator_->calculate_energy_conservation();
-		
-		file << "\nRadiance Properties\n";
-		file << "  Total absorption:    " << std::fixed << std::setprecision(6) << energy.total_absorption << "\n";
-		file << "  Total diffusion:     " << std::fixed << std::setprecision(6) << energy.total_diffusion << "\n";
-		file << "    Reflection:        " << std::fixed << std::setprecision(6) << energy.total_reflection << "\n";
-		file << "    Transmission:      " << std::fixed << std::setprecision(6) << energy.total_transmission << "\n";
-		
-		file << "\nEnergy Conservation\n";
-		
-		// Use consolidated percentage calculation from Metrics
-		auto percentages = simulator_->calculate_energy_percentages();
-		
-		if (percentages.baseline_energy > 0) {
-			file << "  Surface reflection:  " << std::fixed << std::setprecision(1) << percentages.surface_reflection_percent << "%\n";
-			file << "  Absorption:          " << std::fixed << std::setprecision(1) << percentages.absorption_percent << "%\n";
-			file << "  Reflection:          " << std::fixed << std::setprecision(1) << percentages.reflection_percent << "%\n";
-			file << "  Transmission:        " << std::fixed << std::setprecision(1) << percentages.transmission_percent << "%\n";
-			file << "  Total:               " << std::fixed << std::setprecision(1) << percentages.total_percent << "%\n";
-			
-			if (!percentages.is_conserved) {
-				file << "  WARNING: Energy not conserved!\n";
-			}
-		}
-		else {
-			file << "  Surface reflection:  0.0%\n";
-			file << "  Absorption:          0.0%\n";
-			file << "  Reflection:  		0.0%\n";
-			file << "  Transmission:        0.0%\n";
-			file << "  Total:               0.0%\n";
-		}
-		
-		// Add material properties for this medium
-		file << "\nTissue Properties\n";
-		auto& tissues = medium.get_tissues();
-		for (size_t idx = 0; idx < tissues.size(); ++idx) {
-			const auto& material = tissues[idx];
-			file << "  material " << idx << " (hash: " << material.get_optical_properties_hash() << "):\n";
-			file << "    Refractive Index (eta): " << material.eta() << "\n";
-			file << "    Absorption Coefficient (mua): " << material.mu_a() << " cm^-1\n";
-			file << "    Scattering Coefficient (mus): " << material.mu_s() << " cm^-1\n";
-			file << "    Anisotropy Factor (g): " << material.g() << "\n";
-		}
-		
-		if (i < mediums.size() - 1) {
-			file << "\n======================================\n\n";
-		}
-	}
-
-	file.close();
-	std::cout << "Results successfully to " << filepath << std::endl;
-	if (Config::get().log()) {
-		Logger::instance().log_info("Results successfully to " + filepath);
-	}
-}
-
 bool App::initialize_simulator() {
 	// Initialize simulator (Config should already be initialized by this point)
 	simulator_ = std::make_unique<Simulator>();
+	// Provide shared metrics to simulator
+	simulator_->set_shared_metrics(shared_metrics_);
 	
 	// No progress callbacks needed - simulation runs optimally without GUI interference
 	
-	if (!simulator_->initialize(config_file_.c_str())) {
+	auto result = simulator_->initialize(config_file_.c_str());
+	if (!result.is_ok()) {
+		// Use ErrorHandler to report the structured error
+		ErrorHandler::instance().report_error("Simulator initialization failed: " + ErrorMessage::format(result.error()));
 		return false;
 	}
 	
@@ -852,7 +721,12 @@ void App::run_simulation_with_progress() {
 	}
 	
 	// Run simulation
-	simulator_->simulate();
+	auto sim_result = simulator_->simulate();
+	if (!sim_result.is_ok()) {
+		ErrorHandler::instance().report_error("Simulation failed: " + ErrorMessage::format(sim_result.error()));
+		return;
+	}
+	
 	bool generate_csv = !gui_mode_ || (force_csv_output_ && first_simulation_run_);
 	simulator_->report(generate_csv);
 	if (first_simulation_run_) first_simulation_run_ = false; // Mark first run as complete
