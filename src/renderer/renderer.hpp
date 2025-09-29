@@ -149,7 +149,6 @@ private:
 	void invalidate_path_cache() const;
 	
 	std::string load_shader_source(const std::string& file_path);
-	GLuint compile_shader(const std::string& source, GLenum shader_type);
 	GLuint create_shader_program(const std::string& vertex_source, const std::string& fragment_source);
 
 	// Vertex structures for consolidated rendering

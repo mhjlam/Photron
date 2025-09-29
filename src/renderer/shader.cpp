@@ -1,4 +1,5 @@
 #include "shader.hpp"
+#include "shader_utils.hpp"
 
 #include <array>
 #include <fstream>
@@ -103,24 +104,7 @@ std::string Shader::read_file(const std::string& path) {
 }
 
 GLuint Shader::compile_shader(const std::string& source, GLenum type) {
-	GLuint shader = glCreateShader(type);
-	const char* source_cstr = source.c_str();
-
-	glShaderSource(shader, 1, &source_cstr, nullptr);
-	glCompileShader(shader);
-
-	GLint success;
-	glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-
-	if (!success) {
-		std::array<GLchar, 512> info_log{};
-		glGetShaderInfoLog(shader, static_cast<GLsizei>(info_log.size()), nullptr, info_log.data());
-		std::cerr << "Error: Shader compilation failed: " << info_log.data() << std::endl;
-		glDeleteShader(shader);
-		return 0;
-	}
-
-	return shader;
+	return ShaderUtils::compile_shader(source, type);
 }
 
 bool Shader::link_program(GLuint vertex_shader, GLuint fragment_shader) {

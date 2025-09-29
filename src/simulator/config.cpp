@@ -97,11 +97,11 @@ Result<void, ConfigError> Config::parse_config_file(const std::string& filename)
 		return Result<void, ConfigError>::ok();
 		
 	}
-	catch (const toml::parse_error& err) {
+	catch (const toml::parse_error&) {
 		// Store error details for higher-level handling
 		return Result<void, ConfigError>::error(ConfigError::ParseError);
 	}
-	catch (const std::exception& err) {
+	catch (const std::exception&) {
 		// Store error details for higher-level handling
 		return Result<void, ConfigError>::error(ConfigError::ParseError);
 	}

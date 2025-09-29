@@ -1,4 +1,6 @@
 #include "renderer.hpp"
+#include "shader_utils.hpp"
+#include "render_setup.hpp"
 
 #include <algorithm>
 #include <array>
@@ -1829,6 +1831,103 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 
 
 // ========================================
+// GEOMETRY SETUP HELPER FUNCTIONS FOR INSTANCED RENDERING
+// ========================================
+
+static bool setup_point_geometry(GLuint vbo) {
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	float point_vertex[3] = {0.0f, 0.0f, 0.0f}; // Single point at origin
+	glBufferData(GL_ARRAY_BUFFER, sizeof(point_vertex), point_vertex, GL_STATIC_DRAW);
+	
+	// Vertex position attribute (location 0)
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+	
+	return true;
+}
+
+static bool setup_line_geometry(GLuint vbo) {
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	float line_vertices[] = {
+		0.0f, 0.0f, 0.0f, // Start point
+		1.0f, 0.0f, 0.0f  // End point
+	};
+	glBufferData(GL_ARRAY_BUFFER, sizeof(line_vertices), line_vertices, GL_STATIC_DRAW);
+	
+	// Vertex position attribute (location 0) 
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+	
+	return true;
+}
+
+static bool setup_voxel_geometry(GLuint vbo) {
+	// Create unit cube geometry (centered at origin)
+	float vertices[] = {
+		// Front face (z = 0.5)
+		-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f, // bottom-left
+		 0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f, // bottom-right
+		 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f, // top-right
+		 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f, // top-right
+		-0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f, // top-left
+		-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f, // bottom-left
+		
+		// Back face (z = -0.5)
+		-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f, // bottom-left
+		 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f, // top-right
+		 0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f, // bottom-right
+		 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f, // top-right
+		-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f, // bottom-left
+		-0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f, // top-left
+		
+		// Left face (x = -0.5)
+		-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f, // top-right
+		-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f, // bottom-left
+		-0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f, // top-left
+		-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f, // bottom-left
+		-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f, // top-right
+		-0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f, // bottom-right
+		
+		// Right face (x = 0.5)
+		 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f, // top-left
+		 0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f, // top-right
+		 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f, // bottom-right
+		 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f, // bottom-right
+		 0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f, // bottom-left
+		 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f, // top-left
+		
+		// Bottom face (y = -0.5)
+		-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f, // top-right
+		 0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f, // top-left
+		 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f, // bottom-left
+		 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f, // bottom-left
+		-0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f, // bottom-right
+		-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f, // top-right
+		
+		// Top face (y = 0.5)
+		-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f, // top-left
+		 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f, // bottom-right
+		 0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f, // top-right
+		 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f, // bottom-right
+		-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f, // top-left
+		-0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f  // bottom-left
+	};
+	
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+	
+	// Position attribute (location 0)
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+	
+	// Normal attribute (location 1)
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+	glEnableVertexAttribArray(1);
+	
+	return true;
+}
+
+// ========================================
 // CONSOLIDATED SHADER-BASED RENDERING METHODS
 // ========================================
 
@@ -1973,122 +2072,83 @@ void Renderer::draw_triangles_with_clipping(const std::vector<glm::vec4>& clippi
 }
 
 bool Renderer::setup_line_rendering() {
-	// Create shader program
-	std::string vertex_source = load_shader_source("shaders/lines.vert");
-	std::string fragment_source = load_shader_source("shaders/lines.frag");
+	using namespace RenderSetup;
 
-	if (vertex_source.empty() || fragment_source.empty()) {
-		std::cerr << "Failed to load line shaders" << std::endl;
-		return false;
-	}
+	ShaderConfig shader_config{
+		"shaders/lines.vert",
+		"shaders/lines.frag", 
+		"line"
+	};
 
-	line_shader_program_ = create_shader_program(vertex_source, fragment_source);
-	if (!line_shader_program_) {
-		return false;
-	}
+	std::vector<UniformConfig> uniforms{
+		{"uMVP", &line_mvp_uniform_location_}
+	};
 
-	// PERFORMANCE: Cache uniform location to avoid glGetUniformLocation every frame
-	line_mvp_uniform_location_ = glGetUniformLocation(line_shader_program_, "uMVP");
+	std::vector<VertexAttributeConfig> vertex_attributes{
+		{0, 3, GL_FLOAT, GL_FALSE, sizeof(LineVertex), (void*)0},                                    // Position
+		{1, 4, GL_FLOAT, GL_FALSE, sizeof(LineVertex), (void*)offsetof(LineVertex, color)}          // Color
+	};
 
-	// Create VAO and VBO
-	glGenVertexArrays(1, &line_vao_);
-	glGenBuffers(1, &line_vbo_);
-
-	glBindVertexArray(line_vao_);
-	glBindBuffer(GL_ARRAY_BUFFER, line_vbo_);
-
-	// Position attribute (location 0)
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(LineVertex), (void*)0);
-	glEnableVertexAttribArray(0);
-
-	// Color attribute (location 1)
-	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(LineVertex), (void*)offsetof(LineVertex, color));
-	glEnableVertexAttribArray(1);
-
-	glBindVertexArray(0);
-	return true;
+	return setup_basic_rendering<LineVertex>(
+		shader_config, uniforms, vertex_attributes,
+		line_shader_program_, line_vao_, line_vbo_
+	);
 }
 
 bool Renderer::setup_point_rendering() {
-	// Create shader program
-	std::string vertex_source = load_shader_source("shaders/points.vert");
-	std::string fragment_source = load_shader_source("shaders/points.frag");
+	using namespace RenderSetup;
 
-	if (vertex_source.empty() || fragment_source.empty()) {
-		std::cerr << "Failed to load point shaders" << std::endl;
-		return false;
-	}
+	ShaderConfig shader_config{
+		"shaders/points.vert",
+		"shaders/points.frag", 
+		"point"
+	};
 
-	point_shader_program_ = create_shader_program(vertex_source, fragment_source);
-	if (!point_shader_program_) {
-		return false;
-	}
+	std::vector<UniformConfig> uniforms{
+		{"uMVP", &point_mvp_uniform_location_},
+		{"uPointSize", &point_size_uniform_location_}
+	};
 
-	// PERFORMANCE: Cache uniform locations to avoid glGetUniformLocation every frame
-	point_mvp_uniform_location_ = glGetUniformLocation(point_shader_program_, "uMVP");
-	point_size_uniform_location_ = glGetUniformLocation(point_shader_program_, "uPointSize");
+	std::vector<VertexAttributeConfig> vertex_attributes{
+		{0, 3, GL_FLOAT, GL_FALSE, sizeof(PointVertex), (void*)0},                                    // Position
+		{1, 4, GL_FLOAT, GL_FALSE, sizeof(PointVertex), (void*)offsetof(PointVertex, color)}          // Color
+	};
 
-	// Create VAO and VBO
-	glGenVertexArrays(1, &point_vao_);
-	glGenBuffers(1, &point_vbo_);
-
-	glBindVertexArray(point_vao_);
-	glBindBuffer(GL_ARRAY_BUFFER, point_vbo_);
-
-	// Position attribute (location 0)
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(PointVertex), (void*)0);
-	glEnableVertexAttribArray(0);
-
-	// Color attribute (location 1)
-	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(PointVertex), (void*)offsetof(PointVertex, color));
-	glEnableVertexAttribArray(1);
-
-	glBindVertexArray(0);
-	return true;
+	return setup_basic_rendering<PointVertex>(
+		shader_config, uniforms, vertex_attributes,
+		point_shader_program_, point_vao_, point_vbo_
+	);
 }
 
 bool Renderer::setup_triangle_rendering() {
-	// Create shader program
-	std::string vertex_source = load_shader_source("shaders/triangles.vert");
-	std::string fragment_source = load_shader_source("shaders/triangles.frag");
+	using namespace RenderSetup;
 
-	if (vertex_source.empty() || fragment_source.empty()) {
-		std::cerr << "Failed to load triangle shaders" << std::endl;
-		return false;
-	}
+	ShaderConfig shader_config{
+		"shaders/triangles.vert",
+		"shaders/triangles.frag", 
+		"triangle"
+	};
 
-	triangle_shader_program_ = create_shader_program(vertex_source, fragment_source);
-	if (!triangle_shader_program_) {
-		return false;
-	}
+	std::vector<UniformConfig> uniforms{
+		{"uMVP", &triangle_mvp_uniform_location_},
+		{"uNumClipPlanes", &triangle_num_planes_uniform_location_},
+		{"uClipPlanes", &triangle_clip_planes_uniform_location_}
+	};
 
-	// PERFORMANCE: Cache uniform locations to avoid glGetUniformLocation every frame
-	triangle_mvp_uniform_location_ = glGetUniformLocation(triangle_shader_program_, "uMVP");
-	triangle_num_planes_uniform_location_ = glGetUniformLocation(triangle_shader_program_, "uNumClipPlanes");
-	triangle_clip_planes_uniform_location_ = glGetUniformLocation(triangle_shader_program_, "uClipPlanes");
+	std::vector<VertexAttributeConfig> vertex_attributes{
+		{0, 3, GL_FLOAT, GL_FALSE, sizeof(TriangleVertex), (void*)0},                                    // Position
+		{1, 4, GL_FLOAT, GL_FALSE, sizeof(TriangleVertex), (void*)offsetof(TriangleVertex, color)}        // Color
+	};
 
-	// Create VAO and VBO
-	glGenVertexArrays(1, &triangle_vao_);
-	glGenBuffers(1, &triangle_vbo_);
-
-	glBindVertexArray(triangle_vao_);
-	glBindBuffer(GL_ARRAY_BUFFER, triangle_vbo_);
-
-	// Position attribute (location 0)
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(TriangleVertex), (void*)0);
-	glEnableVertexAttribArray(0);
-
-	// Color attribute (location 1)
-	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(TriangleVertex), (void*)offsetof(TriangleVertex, color));
-	glEnableVertexAttribArray(1);
-
-	glBindVertexArray(0);
-	return true;
+	return setup_basic_rendering<TriangleVertex>(
+		shader_config, uniforms, vertex_attributes,
+		triangle_shader_program_, triangle_vao_, triangle_vbo_
+	);
 }
 
 GLuint Renderer::create_shader_program(const std::string& vertex_source, const std::string& fragment_source) {
-	GLuint vertex_shader = compile_shader(vertex_source, GL_VERTEX_SHADER);
-	GLuint fragment_shader = compile_shader(fragment_source, GL_FRAGMENT_SHADER);
+	GLuint vertex_shader = ShaderUtils::compile_shader(vertex_source, GL_VERTEX_SHADER);
+	GLuint fragment_shader = ShaderUtils::compile_shader(fragment_source, GL_FRAGMENT_SHADER);
 
 	if (vertex_shader == 0 || fragment_shader == 0) {
 		if (vertex_shader)
@@ -2119,35 +2179,8 @@ GLuint Renderer::create_shader_program(const std::string& vertex_source, const s
 	return program;
 }
 
-GLuint Renderer::compile_shader(const std::string& source, GLenum shader_type) {
-	GLuint shader = glCreateShader(shader_type);
-	const char* source_cstr = source.c_str();
-	glShaderSource(shader, 1, &source_cstr, nullptr);
-	glCompileShader(shader);
-
-	GLint success;
-	glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-	if (!success) {
-		std::array<char, 512> info_log{};
-		glGetShaderInfoLog(shader, static_cast<GLsizei>(info_log.size()), nullptr, info_log.data());
-		std::cerr << "Shader compilation failed: " << info_log.data() << std::endl;
-		glDeleteShader(shader);
-		return 0;
-	}
-
-	return shader;
-}
-
 std::string Renderer::load_shader_source(const std::string& file_path) {
-	std::ifstream file(file_path);
-	if (!file.is_open()) {
-		std::cerr << "Failed to open shader file: " << file_path << std::endl;
-		return "";
-	}
-
-	std::stringstream buffer;
-	buffer << file.rdbuf();
-	return buffer.str();
+	return ShaderUtils::load_shader_source(file_path);
 }
 
 void Renderer::auto_manage_energy_labels(Settings& settings) {
@@ -3079,170 +3112,55 @@ void Renderer::end_voxel_instances(VoxelMode mode) {
 }
 
 bool Renderer::setup_voxel_instanced_rendering() {
-	// Load shaders
-	std::string vertex_source = load_shader_source("shaders/voxels.vert");
-	std::string fragment_source = load_shader_source("shaders/voxels.frag");
-	
-	if (vertex_source.empty() || fragment_source.empty()) {
-		std::cerr << "Failed to load voxel instanced shaders" << std::endl;
-		return false;
-	}
-	
-	voxel_shader_program_ = create_shader_program(vertex_source, fragment_source);
-	if (!voxel_shader_program_) {
-		return false;
-	}
+	using namespace RenderSetup;
 
-	// PERFORMANCE: Cache uniform location to avoid glGetUniformLocation every frame
-	voxel_mvp_uniform_location_ = glGetUniformLocation(voxel_shader_program_, "uMVP");
-	
-	// Create unit cube geometry (centered at origin)
-	float vertices[] = {
-		// Front face (z = 0.5)
-		-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f, // bottom-left
-		 0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f, // bottom-right
-		 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f, // top-right
-		 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f, // top-right
-		-0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f, // top-left
-		-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f, // bottom-left
-		
-		// Back face (z = -0.5)
-		-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f, // bottom-left
-		 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f, // top-right
-		 0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f, // bottom-right
-		 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f, // top-right
-		-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f, // bottom-left
-		-0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f, // top-left
-		
-		// Left face (x = -0.5)
-		-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f, // top-right
-		-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f, // bottom-left
-		-0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f, // top-left
-		-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f, // bottom-left
-		-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f, // top-right
-		-0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f, // bottom-right
-		
-		// Right face (x = 0.5)
-		 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f, // top-left
-		 0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f, // top-right
-		 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f, // bottom-right
-		 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f, // bottom-right
-		 0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f, // bottom-left
-		 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f, // top-left
-		
-		// Bottom face (y = -0.5)
-		-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f, // top-right
-		 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f, // bottom-left
-		 0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f, // top-left
-		 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f, // bottom-left
-		-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f, // top-right
-		-0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f, // bottom-right
-		
-		// Top face (y = 0.5)
-		-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f, // top-left
-		 0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f, // top-right
-		 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f, // bottom-right
-		 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f, // bottom-right
-		-0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f, // bottom-left
-		-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f  // top-left
+	ShaderConfig shader_config{
+		"shaders/voxels.vert",
+		"shaders/voxels.frag",
+		"voxel instanced"
 	};
-	
-	// Create VAO and VBO for cube geometry
-	glGenVertexArrays(1, &voxel_cube_vao_);
-	glGenBuffers(1, &voxel_cube_vbo_);
-	glGenBuffers(1, &voxel_instance_vbo_);
-	
-	glBindVertexArray(voxel_cube_vao_);
-	
-	// Setup cube geometry buffer
-	glBindBuffer(GL_ARRAY_BUFFER, voxel_cube_vbo_);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-	
-	// Position attribute (location 0)
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-	glEnableVertexAttribArray(0);
-	
-	// Normal attribute (location 1)  
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
-	glEnableVertexAttribArray(1);
-	
-	// Setup instance data buffer
-	glBindBuffer(GL_ARRAY_BUFFER, voxel_instance_vbo_);
-	
-	// Instance position (location 2)
-	glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(VoxelInstance), (void*)offsetof(VoxelInstance, position));
-	glEnableVertexAttribArray(2);
-	glVertexAttribDivisor(2, 1); // One per instance
-	
-	// Instance color (location 3)
-	glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(VoxelInstance), (void*)offsetof(VoxelInstance, color));
-	glEnableVertexAttribArray(3);
-	glVertexAttribDivisor(3, 1); // One per instance
-	
-	// Instance scale (location 4)
-	glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(VoxelInstance), (void*)offsetof(VoxelInstance, scale));
-	glEnableVertexAttribArray(4);
-	glVertexAttribDivisor(4, 1); // One per instance
-	
-	glBindVertexArray(0);
-	return true;
+
+	std::vector<UniformConfig> uniforms{
+		{"uMVP", &voxel_mvp_uniform_location_}
+	};
+
+	std::vector<VertexAttributeConfig> instance_attributes{
+		{2, 3, GL_FLOAT, GL_FALSE, sizeof(VoxelInstance), (void*)offsetof(VoxelInstance, position), 1}, // Instance position
+		{3, 4, GL_FLOAT, GL_FALSE, sizeof(VoxelInstance), (void*)offsetof(VoxelInstance, color), 1},    // Instance color
+		{4, 1, GL_FLOAT, GL_FALSE, sizeof(VoxelInstance), (void*)offsetof(VoxelInstance, scale), 1}     // Instance scale
+	};
+
+	return setup_instanced_rendering<VoxelInstance>(
+		shader_config, uniforms, setup_voxel_geometry, instance_attributes,
+		voxel_shader_program_, voxel_cube_vao_,
+		voxel_cube_vbo_, voxel_instance_vbo_
+	);
 }
 
 bool Renderer::setup_point_instanced_rendering() {
-	// Load shaders
-	std::string vertex_source = load_shader_source("shaders/points_instanced.vert");
-	std::string fragment_source = load_shader_source("shaders/points_instanced.frag");
-	
-	if (vertex_source.empty() || fragment_source.empty()) {
-		std::cerr << "Failed to load point instanced shaders" << std::endl;
-		return false;
-	}
-	
-	point_instanced_shader_program_ = create_shader_program(vertex_source, fragment_source);
-	if (!point_instanced_shader_program_) {
-		return false;
-	}
+	using namespace RenderSetup;
 
-	// PERFORMANCE: Cache uniform location to avoid glGetUniformLocation every frame
-	point_instanced_mvp_uniform_location_ = glGetUniformLocation(point_instanced_shader_program_, "uMVP");
+	ShaderConfig shader_config{
+		"shaders/points_instanced.vert",
+		"shaders/points_instanced.frag",
+		"point instanced"
+	};
 
-	// Create and bind VAO for instanced point rendering
-	glGenVertexArrays(1, &point_instanced_vao_);
-	glBindVertexArray(point_instanced_vao_);
+	std::vector<UniformConfig> uniforms{
+		{"uMVP", &point_instanced_mvp_uniform_location_}
+	};
 
-	// Generate VBOs for point vertex data and instance data
-	glGenBuffers(1, &point_instanced_vbo_);
-	glGenBuffers(1, &point_instance_vbo_);
+	std::vector<VertexAttributeConfig> instance_attributes{
+		{1, 3, GL_FLOAT, GL_FALSE, sizeof(PointInstance), (void*)offsetof(PointInstance, position), 1}, // Instance position
+		{2, 4, GL_FLOAT, GL_FALSE, sizeof(PointInstance), (void*)offsetof(PointInstance, color), 1},    // Instance color
+		{3, 1, GL_FLOAT, GL_FALSE, sizeof(PointInstance), (void*)offsetof(PointInstance, size), 1}      // Instance size
+	};
 
-	// Set up point vertex data (single point at origin)
-	glBindBuffer(GL_ARRAY_BUFFER, point_instanced_vbo_);
-	float point_vertex[3] = {0.0f, 0.0f, 0.0f}; // Single point at origin
-	glBufferData(GL_ARRAY_BUFFER, sizeof(point_vertex), point_vertex, GL_STATIC_DRAW);
-
-	// Vertex position attribute (location 0)
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-	glEnableVertexAttribArray(0);
-
-	// Set up instance data buffer (initially empty)
-	glBindBuffer(GL_ARRAY_BUFFER, point_instance_vbo_);
-	
-	// Instance position attribute (location 1)
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(PointInstance), (void*)offsetof(PointInstance, position));
-	glEnableVertexAttribArray(1);
-	glVertexAttribDivisor(1, 1); // One per instance
-
-	// Instance color attribute (location 2)
-	glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(PointInstance), (void*)offsetof(PointInstance, color));
-	glEnableVertexAttribArray(2);
-	glVertexAttribDivisor(2, 1); // One per instance
-
-	// Instance size attribute (location 3)
-	glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(PointInstance), (void*)offsetof(PointInstance, size));
-	glEnableVertexAttribArray(3);
-	glVertexAttribDivisor(3, 1); // One per instance
-
-	glBindVertexArray(0);
-	return true;
+	return setup_instanced_rendering<PointInstance>(
+		shader_config, uniforms, setup_point_geometry, instance_attributes,
+		point_instanced_shader_program_, point_instanced_vao_, 
+		point_instanced_vbo_, point_instance_vbo_
+	);
 }
 
 // Performance optimization: Cache energy range calculation to avoid expensive per-frame analysis
@@ -3394,70 +3312,30 @@ void Renderer::set_settings(const Settings& new_settings) {
 }
 
 bool Renderer::setup_line_instanced_rendering() {
-	// Load shaders
-	std::string vertex_source = load_shader_source("shaders/lines_instanced.vert");
-	std::string fragment_source = load_shader_source("shaders/lines_instanced.frag");
-	
-	if (vertex_source.empty() || fragment_source.empty()) {
-		std::cerr << "Failed to load line instanced shaders" << std::endl;
-		return false;
-	}
-	
-	line_instanced_shader_program_ = create_shader_program(vertex_source, fragment_source);
-	if (!line_instanced_shader_program_) {
-		return false;
-	}
-	
-	// PERFORMANCE: Cache uniform location to avoid glGetUniformLocation every frame
-	line_instanced_mvp_uniform_location_ = glGetUniformLocation(line_instanced_shader_program_, "uMVP");
-	
-	// Create line geometry (just two endpoints: 0 and 1)
-	float line_vertices[] = {
-		0.0f, 0.0f, 0.0f, // Start point (will be interpolated with instance data)
-		1.0f, 0.0f, 0.0f  // End point (will be interpolated with instance data)
+	using namespace RenderSetup;
+
+	ShaderConfig shader_config{
+		"shaders/lines_instanced.vert",
+		"shaders/lines_instanced.frag",
+		"line instanced"
 	};
-	
-	// Create VAO and VBO for line geometry
-	glGenVertexArrays(1, &line_instanced_vao_);
-	glGenBuffers(1, &line_instanced_vbo_);
-	glGenBuffers(1, &line_instance_vbo_);
-	
-	glBindVertexArray(line_instanced_vao_);
-	
-	// Set up line geometry (positions only)
-	glBindBuffer(GL_ARRAY_BUFFER, line_instanced_vbo_);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(line_vertices), line_vertices, GL_STATIC_DRAW);
-	
-	// Position attribute (location 0) - just x component used for interpolation
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-	glEnableVertexAttribArray(0);
-	
-	// Set up instance data buffer (empty for now)
-	glBindBuffer(GL_ARRAY_BUFFER, line_instance_vbo_);
-	glBufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_DYNAMIC_DRAW);
-	
-	// Instance start position (location 1)
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(LineInstance), (void*)offsetof(LineInstance, start));
-	glEnableVertexAttribArray(1);
-	glVertexAttribDivisor(1, 1); // One per instance
-	
-	// Instance end position (location 2)
-	glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(LineInstance), (void*)offsetof(LineInstance, end));
-	glEnableVertexAttribArray(2);
-	glVertexAttribDivisor(2, 1); // One per instance
-	
-	// Instance start color (location 3)
-	glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(LineInstance), (void*)offsetof(LineInstance, start_color));
-	glEnableVertexAttribArray(3);
-	glVertexAttribDivisor(3, 1); // One per instance
-	
-	// Instance end color (location 4)
-	glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(LineInstance), (void*)offsetof(LineInstance, end_color));
-	glEnableVertexAttribArray(4);
-	glVertexAttribDivisor(4, 1); // One per instance
-	
-	glBindVertexArray(0);
-	return true;
+
+	std::vector<UniformConfig> uniforms{
+		{"uMVP", &line_instanced_mvp_uniform_location_}
+	};
+
+	std::vector<VertexAttributeConfig> instance_attributes{
+		{1, 3, GL_FLOAT, GL_FALSE, sizeof(LineInstance), (void*)offsetof(LineInstance, start), 1},      // Instance start position
+		{2, 3, GL_FLOAT, GL_FALSE, sizeof(LineInstance), (void*)offsetof(LineInstance, end), 1},        // Instance end position
+		{3, 4, GL_FLOAT, GL_FALSE, sizeof(LineInstance), (void*)offsetof(LineInstance, start_color), 1}, // Instance start color
+		{4, 4, GL_FLOAT, GL_FALSE, sizeof(LineInstance), (void*)offsetof(LineInstance, end_color), 1}   // Instance end color
+	};
+
+	return setup_instanced_rendering<LineInstance>(
+		shader_config, uniforms, setup_line_geometry, instance_attributes,
+		line_instanced_shader_program_, line_instanced_vao_,
+		line_instanced_vbo_, line_instance_vbo_
+	);
 }
 
 /**
