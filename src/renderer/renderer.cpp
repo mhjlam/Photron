@@ -1336,11 +1336,19 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 		// Reset buffer upload flags when cache is invalidated
 		line_buffer_uploaded_ = false;
 		point_buffer_uploaded_ = false;
+		// PERFORMANCE: Also reset dynamic geometry buffer flags
+		triangle_buffer_uploaded_ = false;
+		line_geometry_buffer_uploaded_ = false;
+		point_geometry_buffer_uploaded_ = false;
 	} else if (current_photon_count > cached_photon_count_) {
 		// Incremental update - only process new photons
 		// Keep existing cache, just mark buffers for re-upload
 		line_buffer_uploaded_ = false;
 		point_buffer_uploaded_ = false;
+		// PERFORMANCE: Also reset dynamic geometry buffer flags
+		triangle_buffer_uploaded_ = false;
+		line_geometry_buffer_uploaded_ = false;
+		point_geometry_buffer_uploaded_ = false;
 	}
 	
 	// Only process photons if we have new ones to add
@@ -1787,10 +1795,11 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 		// PERFORMANCE: Minimize OpenGL state changes during camera movement
 		// Set up blending state once before rendering points
 		glEnable(GL_PROGRAM_POINT_SIZE);
-		glEnable(GL_BLEND);
+		enable_blending(); // Use state management helper
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		
-		glUseProgram(point_instanced_shader_program_);
+		// PERFORMANCE: Use state management helper to avoid redundant glUseProgram calls
+		use_shader_program(point_instanced_shader_program_);
 		
 		// PERFORMANCE: Use cached uniform location, compute MVP directly
 		glm::mat4 mvp = camera_.get_projection_matrix() * camera_.get_view_matrix();
@@ -1812,7 +1821,7 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 		glUseProgram(0);
 		
 		// PERFORMANCE: Restore OpenGL state once after rendering
-		glDisable(GL_BLEND);
+		disable_blending(); // Use state management helper
 		glDisable(GL_PROGRAM_POINT_SIZE);
 	}
 }
@@ -1825,6 +1834,8 @@ void Renderer::draw_paths_instanced(const Settings& settings) {
 
 void Renderer::begin_lines() {
 	line_vertices_.clear();
+	// PERFORMANCE: Mark buffer as needing upload since data changed
+	line_geometry_buffer_uploaded_ = false;
 }
 
 void Renderer::add_line(const glm::vec3& start, const glm::vec3& end, const glm::vec4& color) {
@@ -1836,15 +1847,20 @@ void Renderer::end_lines() {
 	if (line_vertices_.empty())
 		return;
 
-	glBindBuffer(GL_ARRAY_BUFFER, line_vbo_);
-	glBufferData(GL_ARRAY_BUFFER, line_vertices_.size() * sizeof(LineVertex), line_vertices_.data(), GL_DYNAMIC_DRAW);
+	// PERFORMANCE: Only upload buffer when line data has changed
+	if (!line_geometry_buffer_uploaded_) {
+		glBindBuffer(GL_ARRAY_BUFFER, line_vbo_);
+		glBufferData(GL_ARRAY_BUFFER, line_vertices_.size() * sizeof(LineVertex), line_vertices_.data(), GL_DYNAMIC_DRAW);
+		line_geometry_buffer_uploaded_ = true;
+	}
 }
 
 void Renderer::draw_lines() {
 	if (line_vertices_.empty() || !line_shader_program_)
 		return;
 
-	glUseProgram(line_shader_program_);
+	// PERFORMANCE: Use state management helper to avoid redundant glUseProgram calls
+	use_shader_program(line_shader_program_);
 
 	glm::mat4 mvp = camera_.get_mvp_matrix();
 	glUniformMatrix4fv(line_mvp_uniform_location_, 1, GL_FALSE, glm::value_ptr(mvp));
@@ -1856,6 +1872,8 @@ void Renderer::draw_lines() {
 
 void Renderer::begin_points() {
 	point_vertices_.clear();
+	// PERFORMANCE: Mark buffer as needing upload since data changed
+	point_geometry_buffer_uploaded_ = false;
 }
 
 void Renderer::add_point(const glm::vec3& position, const glm::vec4& color) {
@@ -1864,18 +1882,23 @@ void Renderer::add_point(const glm::vec3& position, const glm::vec4& color) {
 
 void Renderer::end_points() {
 	if (point_vertices_.empty())
-		return;
+			return;
 
-	glBindBuffer(GL_ARRAY_BUFFER, point_vbo_);
-	glBufferData(GL_ARRAY_BUFFER, point_vertices_.size() * sizeof(PointVertex), point_vertices_.data(),
-				 GL_DYNAMIC_DRAW);
+	// PERFORMANCE: Only upload buffer when point data has changed
+	if (!point_geometry_buffer_uploaded_) {
+		glBindBuffer(GL_ARRAY_BUFFER, point_vbo_);
+		glBufferData(GL_ARRAY_BUFFER, point_vertices_.size() * sizeof(PointVertex), point_vertices_.data(),
+					 GL_DYNAMIC_DRAW);
+		point_geometry_buffer_uploaded_ = true;
+	}
 }
 
 void Renderer::draw_points() {
 	if (point_vertices_.empty() || !point_shader_program_)
 		return;
 
-	glUseProgram(point_shader_program_);
+	// PERFORMANCE: Use state management helper to avoid redundant glUseProgram calls
+	use_shader_program(point_shader_program_);
 
 	glm::mat4 mvp = camera_.get_mvp_matrix();
 	glUniformMatrix4fv(point_mvp_uniform_location_, 1, GL_FALSE, glm::value_ptr(mvp));
@@ -1888,6 +1911,8 @@ void Renderer::draw_points() {
 
 void Renderer::begin_triangles() {
 	triangle_vertices_.clear();
+	// PERFORMANCE: Mark buffer as needing upload since data changed
+	triangle_buffer_uploaded_ = false;
 }
 
 void Renderer::add_triangle(const glm::vec3& v1, const glm::vec3& v2, const glm::vec3& v3, const glm::vec4& color) {
@@ -1900,9 +1925,13 @@ void Renderer::end_triangles() {
 	if (triangle_vertices_.empty())
 		return;
 
-	glBindBuffer(GL_ARRAY_BUFFER, triangle_vbo_);
-	glBufferData(GL_ARRAY_BUFFER, triangle_vertices_.size() * sizeof(TriangleVertex), triangle_vertices_.data(),
-				 GL_DYNAMIC_DRAW);
+	// PERFORMANCE: Only upload buffer when triangle data has changed
+	if (!triangle_buffer_uploaded_) {
+		glBindBuffer(GL_ARRAY_BUFFER, triangle_vbo_);
+		glBufferData(GL_ARRAY_BUFFER, triangle_vertices_.size() * sizeof(TriangleVertex), triangle_vertices_.data(),
+					 GL_DYNAMIC_DRAW);
+		triangle_buffer_uploaded_ = true;
+	}
 }
 
 void Renderer::draw_triangles() {
@@ -3344,6 +3373,10 @@ void Renderer::invalidate_path_instances_cache() {
 	// Reset buffer upload flags when cache is invalidated
 	line_buffer_uploaded_ = false;
 	point_buffer_uploaded_ = false;
+	// PERFORMANCE: Also reset dynamic geometry buffer flags
+	triangle_buffer_uploaded_ = false;
+	line_geometry_buffer_uploaded_ = false;
+	point_geometry_buffer_uploaded_ = false;
 }
 
 // PERFORMANCE: Smart settings update - only invalidate path cache when path-related settings change
@@ -3433,4 +3466,27 @@ bool Renderer::setup_line_instanced_rendering() {
 bool Renderer::is_point_inside_mesh(const glm::vec3& point, const Simulator& simulator) const {
 	glm::dvec3 dpoint(point.x, point.y, point.z);
 	return simulator.is_point_inside_geometry(dpoint);
+}
+
+// PERFORMANCE: OpenGL state management helpers to minimize redundant state changes
+
+void Renderer::use_shader_program(GLuint program_id) const {
+	if (current_shader_program_ != program_id) {
+		glUseProgram(program_id);
+		current_shader_program_ = program_id;
+	}
+}
+
+void Renderer::enable_blending() const {
+	if (!blend_enabled_) {
+		glEnable(GL_BLEND);
+		blend_enabled_ = true;
+	}
+}
+
+void Renderer::disable_blending() const {
+	if (blend_enabled_) {
+		glDisable(GL_BLEND);
+		blend_enabled_ = false;
+	}
 }

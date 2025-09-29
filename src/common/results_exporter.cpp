@@ -340,8 +340,9 @@ void ResultsExporter::write_medium_statistics_text(std::ostream& out, const Simu
     out << "  Average step size:   " << std::fixed << std::setprecision(6) << metrics.compute_average_step_size() << "\n";
     out << "  Diffusion distance:  " << std::fixed << std::setprecision(6) << metrics.compute_diffusion_distance() << "\n";
     
-    // Use unified energy conservation calculation (matching App::save_results_as_text)
-    auto energy = simulator.calculate_energy_conservation();
+    // Use unified energy display data (single call for both conservation and percentages)
+    auto energy_data = simulator.get_energy_display_data();
+    const auto& energy = energy_data.conservation;
     
     out << "\nRadiance Properties\n";
     out << "  Total absorption:    " << std::fixed << std::setprecision(6) << energy.total_absorption << "\n";
@@ -357,10 +358,11 @@ void ResultsExporter::write_energy_conservation_text(std::ostream& out, const Si
     
     out << "\nEnergy Conservation\n";
     
-    // Use consolidated percentage calculation from Metrics (matching App::save_results_as_text)
-    auto percentages = simulator.calculate_energy_percentages();
+    // Use unified energy display data (same data as used for radiance properties)
+    auto energy_data = simulator.get_energy_display_data();
+    const auto& percentages = energy_data.percentages;
     
-    if (percentages.baseline_energy > 0) {
+    if (energy_data.is_valid) {
         out << "  Surface reflection:  " << std::fixed << std::setprecision(1) << percentages.surface_reflection_percent << "%\n";
         out << "  Absorption:          " << std::fixed << std::setprecision(1) << percentages.absorption_percent << "%\n";
         out << "  Reflection:          " << std::fixed << std::setprecision(1) << percentages.reflection_percent << "%\n";

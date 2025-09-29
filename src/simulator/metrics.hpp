@@ -49,6 +49,14 @@ public:
 		bool is_conserved = true; // True if total_percent is close to 100%
 	};
 
+	// Unified energy display data structure for GUI and export
+	struct EnergyDisplayData {
+		EnergyConservation conservation;
+		EnergyConservationPercentages percentages;
+		bool is_valid = false;
+		uint64_t cached_version = 0;  // Track when data was cached
+	};
+
 public:
 	Metrics() = default;
 	~Metrics() = default;
@@ -76,6 +84,9 @@ public:
 	MediumEnergyData aggregate_medium_energy_data(const Simulator& simulator) const;
 	EnergyConservation calculate_energy_conservation(const Simulator& simulator) const;
 	EnergyConservationPercentages calculate_energy_percentages(const Simulator& simulator) const;
+	
+	// Unified energy display data (single call for GUI and export)
+	EnergyDisplayData get_energy_display_data(const Simulator& simulator) const;
 	
 	// Energy validation methods
 	bool is_energy_conserved(const Simulator& simulator, double tolerance_percent = 2.0) const;

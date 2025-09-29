@@ -174,11 +174,23 @@ std::string ShaderManager::load_shader_source(const std::string& file_path) {
 }
 
 GLint ShaderManager::get_uniform_location(const std::string& shader_name, const std::string& uniform_name) {
+	// PERFORMANCE: Create cache key combining shader and uniform names
+	std::string cache_key = shader_name + "::" + uniform_name;
+	
+	// Check cache first
+	auto cache_it = uniform_location_cache_.find(cache_key);
+	if (cache_it != uniform_location_cache_.end()) {
+		return cache_it->second;
+	}
+	
+	// Cache miss - find shader program and query uniform location
 	auto it = shader_programs_.find(shader_name);
 	if (it == shader_programs_.end()) {
 		std::cerr << "Shader not found: " << shader_name << std::endl;
 		return -1;
 	}
 
-	return glGetUniformLocation(it->second, uniform_name.c_str());
+	GLint location = glGetUniformLocation(it->second, uniform_name.c_str());
+	uniform_location_cache_[cache_key] = location; // Cache the result
+	return location;
 }

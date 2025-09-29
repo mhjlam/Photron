@@ -28,6 +28,9 @@ public:
 
 private:
 	std::unordered_map<std::string, GLuint> shader_programs_;
+	
+	// PERFORMANCE: Cache uniform locations to avoid repeated glGetUniformLocation calls
+	mutable std::unordered_map<std::string, GLint> uniform_location_cache_;
 
 	GLuint compile_shader(const std::string& source, GLenum shader_type);
 	GLuint create_program(const std::string& vertex_source, const std::string& fragment_source);

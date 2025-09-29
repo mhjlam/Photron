@@ -3123,20 +3123,12 @@ Metrics::MediumEnergyData Simulator::aggregate_medium_energy_data() const {
 	return shared_metrics_->aggregate_medium_energy_data(*this);
 }
 
-Metrics::EnergyConservation Simulator::calculate_energy_conservation() const {
+Metrics::EnergyDisplayData Simulator::get_energy_display_data() const {
 	if (!shared_metrics_) {
 		// Return empty data if metrics not initialized
-		return Metrics::EnergyConservation{};
+		return Metrics::EnergyDisplayData{};
 	}
-	return shared_metrics_->calculate_energy_conservation(*this);
-}
-
-Metrics::EnergyConservationPercentages Simulator::calculate_energy_percentages() const {
-	if (!shared_metrics_) {
-		// Return empty data if metrics not initialized
-		return Metrics::EnergyConservationPercentages{};
-	}
-	return shared_metrics_->calculate_energy_percentages(*this);
+	return shared_metrics_->get_energy_display_data(*this);
 }
 
 /***********************************************************

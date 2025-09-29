@@ -113,6 +113,11 @@ private:
 	void setup_opengl();
 	void update_camera();
 	void update_camera_target(const Simulator& simulator);
+	
+	// PERFORMANCE: OpenGL state management helpers
+	void use_shader_program(GLuint program_id) const;
+	void enable_blending() const;
+	void disable_blending() const;
 
 	// Shader-based drawing functions
 	void draw_volume(const Simulator& simulator);
@@ -267,6 +272,15 @@ private:
 	mutable bool point_buffer_uploaded_ {false};
 	mutable bool voxel_buffer_uploaded_ {false};    // Track voxel instance buffer state
 	mutable bool voxel_instances_dirty_ {true};     // Flag to force voxel recalculation
+	
+	// PERFORMANCE: Dynamic geometry buffer upload flags
+	mutable bool triangle_buffer_uploaded_ {false}; // Track dynamic triangle buffer state
+	mutable bool line_geometry_buffer_uploaded_ {false}; // Track dynamic line geometry buffer state  
+	mutable bool point_geometry_buffer_uploaded_ {false}; // Track dynamic point geometry buffer state
+	
+	// PERFORMANCE: OpenGL state tracking to minimize redundant state changes
+	mutable GLuint current_shader_program_ {0}; // Track currently bound shader program
+	mutable bool blend_enabled_ {false}; // Track current blend state
 	
 	// Store current voxel mode for camera-independent transparency
 	mutable VoxelMode current_voxel_mode_ {VoxelMode::Absorption};

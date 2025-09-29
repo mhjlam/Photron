@@ -476,8 +476,10 @@ void Overlay::render_control_panel(Simulator* simulator) {
 					
 					ImGui::Spacing();
 					
-					// Use unified energy conservation calculation (same as console output)
-					auto energy = simulator->calculate_energy_conservation();
+					// Use cached energy display data (single call, event-driven updates)
+					const auto& energy_data = get_cached_energy_data(simulator);
+					const auto& energy = energy_data.conservation;
+					const auto& percentages = energy_data.percentages;
 
 					ImGui::Text("Radiance Properties");
 					ImGui::Text("  Total absorption:    %s", format_8char(energy.total_absorption));
@@ -490,10 +492,7 @@ void Overlay::render_control_panel(Simulator* simulator) {
 					// Energy Conservation
 					ImGui::Text("Energy Conservation");
 					
-					// Use consolidated percentage calculation from Metrics
-					auto percentages = simulator->calculate_energy_percentages();
-					
-					if (percentages.baseline_energy > 0) {
+					if (energy_data.is_valid) {
 						// Energy conservation total as percentage with color coding
 						ImVec4 total_color = !percentages.is_conserved ? 
 							ImVec4(1.0f, 0.3f, 0.3f, 1.0f) :  // Red if not conserved
@@ -718,4 +717,26 @@ void Overlay::render_save_feedback() {
 		ImGui::PopStyleColor();
 	}
 	ImGui::End();
+}
+
+/***********************************************************
+ * ENERGY DATA CACHING
+ * Event-driven caching to eliminate per-frame energy calculations
+ ***********************************************************/
+const Metrics::EnergyDisplayData& Overlay::get_cached_energy_data(Simulator* simulator) const {
+	if (!simulator) {
+		// Return invalid data if no simulator
+		static const Metrics::EnergyDisplayData invalid_data{};
+		return invalid_data;
+	}
+	
+	const uint64_t current_version = simulator->get_simulation_version();
+	
+	// Check if we need to refresh the cache (version changed = new photons or rerun)
+	if (!cached_energy_data_ || cached_simulation_version_ != current_version) {
+		cached_energy_data_ = simulator->get_energy_display_data();
+		cached_simulation_version_ = current_version;
+	}
+	
+	return *cached_energy_data_;
 }

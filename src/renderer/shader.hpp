@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_map>
 
 #include <GL/glew.h>
 #include <glm/glm.hpp>
@@ -37,6 +38,9 @@ public:
 
 private:
 	GLuint program_id_ {0};
+	
+	// PERFORMANCE: Cache uniform locations to avoid repeated glGetUniformLocation calls
+	mutable std::unordered_map<std::string, GLint> uniform_location_cache_;
 
 	// Helper functions
 	std::string read_file(const std::string& path);

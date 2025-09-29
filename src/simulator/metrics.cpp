@@ -123,7 +123,7 @@ void Metrics::print_report(const class Simulator& simulator) {
 	// General Simulation Statistics (not per-medium)
 	const auto& config = Config::get();
     std::cout << "Total photons:         " << simulator.photons.size() << std::endl;
-    
+
 	std::cout << "Volume Grid:           " << config.nx() << "x" << config.ny() << "x" << config.nz() << std::endl;
 	std::cout << "Voxel Size:            " << config.vox_size() << std::endl;
 	
@@ -190,8 +190,10 @@ void Metrics::print_report(const class Simulator& simulator) {
 		
 		std::cout << std::endl;
 		
-		// Use unified energy conservation calculation (same as overlay)
-		auto energy = calculate_energy_conservation(simulator);
+		// Use unified energy display data (single call for both conservation and percentages)
+		auto energy_data = get_energy_display_data(simulator);
+		auto& energy = energy_data.conservation;
+		auto& percentages = energy_data.percentages;
 
 		std::cout << "Radiance Properties" << std::endl;
 		std::cout << "  Total absorption:    " << std::fixed << std::setprecision(6) 
@@ -208,10 +210,7 @@ void Metrics::print_report(const class Simulator& simulator) {
 		// Energy Conservation
 		std::cout << "Energy Conservation" << std::endl;
 		
-		// Use consolidated percentage calculation from Metrics
-		auto percentages = calculate_energy_percentages(simulator);
-		
-		if (percentages.baseline_energy > 0) {
+		if (energy_data.is_valid) {
 			std::cout << "  Specular reflection: " << std::fixed << std::setprecision(1) 
 			          << percentages.surface_reflection_percent << "%" << std::endl;
 			std::cout << "  Absorption:          " << std::fixed << std::setprecision(1) 
@@ -444,6 +443,24 @@ Metrics::EnergyConservationPercentages Metrics::calculate_energy_percentages(con
     percentages_cache_version_ = current_version;
     
     return percentages;
+}
+
+/***********************************************************
+ * UNIFIED ENERGY DISPLAY DATA
+ * Single method for both GUI and export to eliminate redundant calls
+ ***********************************************************/
+Metrics::EnergyDisplayData Metrics::get_energy_display_data(const Simulator& simulator) const {
+    EnergyDisplayData display_data;
+    
+    const uint64_t current_version = simulator.get_simulation_version();
+    display_data.cached_version = current_version;
+    
+    // Get both conservation and percentage data (uses existing caching)
+    display_data.conservation = calculate_energy_conservation(simulator);
+    display_data.percentages = calculate_energy_percentages(simulator);
+    display_data.is_valid = (display_data.percentages.baseline_energy > 0.0);
+    
+    return display_data;
 }
 
 /***********************************************************
@@ -693,8 +710,10 @@ void Metrics::export_simulation_log(const Simulator& simulator, std::ofstream& o
         
         ofs << std::endl;
         
-        // Use unified energy conservation calculation (same as console)
-        auto energy = calculate_energy_conservation(simulator);
+        // Use unified energy display data (single call for both conservation and percentages)
+        auto energy_data = get_energy_display_data(simulator);
+        auto& energy = energy_data.conservation;
+        auto& percentages = energy_data.percentages;
 
         ofs << "Radiance Properties" << std::endl;
         ofs << std::left << std::setw(28) << "  Total absorption:" << std::fixed << std::setprecision(6) 
@@ -711,9 +730,7 @@ void Metrics::export_simulation_log(const Simulator& simulator, std::ofstream& o
         // Energy Conservation (exact console format)
         ofs << "Energy Conservation" << std::endl;
         
-        auto percentages = calculate_energy_percentages(simulator);
-        
-        if (percentages.baseline_energy > 0) {
+        if (energy_data.is_valid) {
             ofs << std::left << std::setw(28) << "  Specular reflection:" << std::fixed << std::setprecision(1) 
                 << percentages.surface_reflection_percent << "%" << std::endl;
             ofs << std::left << std::setw(28) << "  Absorption:" << std::fixed << std::setprecision(1) 

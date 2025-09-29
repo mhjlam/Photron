@@ -87,9 +87,8 @@ public:
 	int get_combined_photons_entered() const;
 	
 	// Energy statistics management (delegated to Metrics)
-	Metrics::EnergyConservation calculate_energy_conservation() const;
-	Metrics::EnergyConservationPercentages calculate_energy_percentages() const;
 	Metrics::MediumEnergyData aggregate_medium_energy_data() const;
+	Metrics::EnergyDisplayData get_energy_display_data() const;  // Unified energy data access
 	
 	// Access to shared metrics for external components
 	std::shared_ptr<Metrics> get_shared_metrics() const { return shared_metrics_; }

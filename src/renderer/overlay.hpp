@@ -2,11 +2,13 @@
 
 #include <functional>
 #include <string>
+#include <optional>
 
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 
 #include "renderer/settings.hpp"
+#include "simulator/metrics.hpp"
 
 class Simulator;
 
@@ -105,4 +107,11 @@ private:
 	std::function<void()> reset_view_callback_;
 	std::function<void(bool)> camera_mode_changed_callback_;
 	std::vector<WorldText> world_text_queue_;
+	
+	// Energy data caching (avoids per-frame recalculation)
+	mutable std::optional<Metrics::EnergyDisplayData> cached_energy_data_;
+	mutable uint64_t cached_simulation_version_ = 0;
+	
+	// Helper method to get cached energy data with event-driven updates
+	const Metrics::EnergyDisplayData& get_cached_energy_data(Simulator* simulator) const;
 };

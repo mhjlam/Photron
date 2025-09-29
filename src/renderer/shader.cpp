@@ -149,5 +149,15 @@ GLint Shader::get_uniform_location(const std::string& name) {
 	if (program_id_ == 0) {
 		return -1;
 	}
-	return glGetUniformLocation(program_id_, name.c_str());
+	
+	// PERFORMANCE: Check cache first to avoid repeated glGetUniformLocation calls
+	auto it = uniform_location_cache_.find(name);
+	if (it != uniform_location_cache_.end()) {
+		return it->second;
+	}
+	
+	// Cache miss - query OpenGL and store result
+	GLint location = glGetUniformLocation(program_id_, name.c_str());
+	uniform_location_cache_[name] = location;
+	return location;
 }
