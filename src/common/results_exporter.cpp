@@ -1,4 +1,10 @@
 #include "results_exporter.hpp"
+
+// Add includes for complete type definitions
+#include "simulator/simulator.hpp"
+#include "simulator/medium.hpp"
+#include "simulator/photon.hpp"
+#include "simulator/metrics.hpp"
 #include "file_utils.hpp"
 #include "error_handler.hpp"
 #include "../simulator/simulator.hpp"

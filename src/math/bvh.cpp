@@ -1,5 +1,9 @@
 #include "bvh.hpp"
 
+// Add includes for implementation
+#include "ray.hpp"
+#include <glm/glm.hpp>
+
 #include <algorithm>
 #include <limits>
 #include <numeric>

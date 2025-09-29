@@ -2,6 +2,18 @@
 #include "shader_utils.hpp"
 #include "render_setup.hpp"
 
+// Add includes that were removed from the header
+#include "renderer/camera.hpp"
+#include "renderer/settings.hpp"
+#include "simulator/simulator.hpp"  // For complete Simulator type
+#include "simulator/voxel.hpp"      // For Voxel type
+#include "simulator/photon.hpp"     // For Photon and PhotonNode types
+#include "simulator/medium.hpp"     // For Medium type
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
 #include <algorithm>
 #include <array>
 #include <fstream>

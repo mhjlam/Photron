@@ -1,4 +1,9 @@
 #include "metrics.hpp"
+
+// Add includes for complete type definitions
+#include "simulator/photon.hpp"
+#include "simulator/voxel.hpp"
+
 #include "../common/file_utils.hpp"
 #include "../common/result.hpp"
 #include "../common/error_types.hpp"

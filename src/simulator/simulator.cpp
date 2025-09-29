@@ -1,5 +1,18 @@
 #include "simulator.hpp"
 
+// Add includes that were removed from the header
+#include "math/cuboid.hpp"
+#include "math/triangle.hpp"
+#include "math/voxel_dda3d.hpp"
+#include "simulator/config.hpp"
+#include "simulator/logger.hpp"
+#include "simulator/layer.hpp"
+#include "simulator/photon.hpp"
+#include "simulator/material.hpp"
+#include "simulator/voxel.hpp"
+#include "simulator/volume.hpp"
+#include "simulator/medium.hpp"
+
 #include "common/result.hpp"
 #include "common/error_types.hpp"
 #include "common/error_handler.hpp"

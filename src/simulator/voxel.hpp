@@ -3,7 +3,7 @@
 #include <glm/glm.hpp>
 #include "simulator/material.hpp"
 
-struct Voxel
+class Voxel
 {
 private:
 	// Volume fraction thresholds for classification

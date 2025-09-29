@@ -35,7 +35,7 @@ namespace RenderSetup {
         GLboolean normalized;
         GLsizei stride;
         const void* pointer;
-        GLuint divisor = 0; // 0 = per vertex, 1 = per instance
+        GLuint divisor{0}; // 0 = per vertex, 1 = per instance
     };
 
     /**

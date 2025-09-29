@@ -1,15 +1,18 @@
 #pragma once
 
+// Standard library includes
 #include <memory>
 #include <vector>
 #include <set>
 #include <string>
 
+// Third-party includes for interface types
 #include <glm/glm.hpp>
 
-#include "math/concepts.hpp"
+// Project includes for member types
 #include "math/triangle.hpp"
 #include "simulator/voxel.hpp"
+#include "math/concepts.hpp"
 
 // Source properties (moved from Photon class to avoid circular dependencies)
 struct Source
@@ -53,12 +56,12 @@ public:
 	enum class ExitType { NONE, REFLECTED, TRANSMITTED };
 	ExitType exit_type {ExitType::NONE};
 
-	std::shared_ptr<PhotonNode> prev = nullptr; // previous internal vertex
-	std::shared_ptr<PhotonNode> next = nullptr; // next internal vertex
-	std::shared_ptr<PhotonNode> emit = nullptr; // external vertex
+	std::shared_ptr<PhotonNode> prev{nullptr}; // previous internal vertex
+	std::shared_ptr<PhotonNode> next{nullptr}; // next internal vertex
+	std::shared_ptr<PhotonNode> emit{nullptr}; // external vertex
 	
 	// Optional connection to associated emitter (when this node represents an exit point)
-	std::shared_ptr<Emitter> emitter = nullptr;
+	std::shared_ptr<Emitter> emitter{nullptr};
 
 	PhotonNode(double xx, double yy, double zz, double v) noexcept : position(xx, yy, zz), value(v) {}
 	PhotonNode(const glm::dvec3& pos, double v) noexcept : position(pos), value(v) {}
@@ -105,8 +108,8 @@ public:
 	Source source;
 
 	// Path tracking (integrated from PhotonPath)
-	std::shared_ptr<PhotonNode> path_head = nullptr;
-	std::shared_ptr<PhotonNode> path_last = nullptr;
+	std::shared_ptr<PhotonNode> path_head{nullptr};
+	std::shared_ptr<PhotonNode> path_last{nullptr};
 	uint64_t num_seg_int {1}; // internal segments
 	uint64_t num_seg_ext {1}; // emittant segments
 

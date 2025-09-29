@@ -1,28 +1,27 @@
 #pragma once
 
-#include <fstream>
+// Standard library includes
 #include <functional>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <vector>
 #include <concepts>
-#include <ranges>
-#include <thread>
-#include <mutex>
 #include <atomic>
 #include <future>
 
-#include <GL/glew.h>
-#include <GLFW/glfw3.h>
+// Third-party includes for interface types
 #include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
 
+// Project includes for member types
 #include "renderer/camera.hpp"
 #include "renderer/settings.hpp"
 
+// Forward declarations
 class Simulator;
+
+// Forward declare OpenGL types
+using GLuint = unsigned int;
+using GLint = int;
 
 class Renderer
 {
@@ -142,11 +141,6 @@ private:
 	// Performance optimization: Cache energy range calculation
 	void update_cached_energy_range(const Settings& settings) const;
 	void invalidate_energy_cache() const;
-	
-	// Performance optimization: Cache photon path instances
-	void cache_path_instances(const Settings& settings);
-	void invalidate_path_cache();
-	void invalidate_path_cache() const;
 	
 	std::string load_shader_source(const std::string& file_path);
 	GLuint create_shader_program(const std::string& vertex_source, const std::string& fragment_source);

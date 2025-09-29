@@ -1,4 +1,7 @@
 #include "volume.hpp"
+
+// Add includes for complete type definitions
+#include "simulator/voxel.hpp"
 #include "../common/result.hpp"
 #include "../common/error_types.hpp"
 

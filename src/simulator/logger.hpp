@@ -1,13 +1,17 @@
 #pragma once
 
+// Standard library includes
 #include <fstream>
 #include <string>
 #include <sstream>
 #include <chrono>
 #include <iomanip>
+
+// Third-party includes for interface types
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 
-// Forward declaration for Config (needed by FAST_LOG macros)
+// Forward declarations
 class Config;
 
 class Logger {
@@ -17,14 +21,14 @@ public:
     void initialize(const std::string& csv_filepath, const std::string& log_filepath, bool enable_logging = true);
 
     void log_photon_event(int photon_id, const std::string& event, 
-                         const glm::dvec3& position, const glm::dvec3& direction, 
-                         double weight, const glm::ivec3& voxel_coords = glm::ivec3(-1),
-                         int medium_id = -1, double energy = 0.0,
-                         const std::string& description = "");
+                          const glm::dvec3& position, const glm::dvec3& direction, 
+                          double weight, const glm::ivec3& voxel_coords = glm::ivec3(-1),
+                          int medium_id = -1, double energy = 0.0,
+                          const std::string& description = "");
 
     void log_voxel_emittance(int photon_id, const glm::dvec3& position, const glm::dvec3& direction,
-                           double weight, const glm::ivec3& voxel_coords, double emittance, 
-                           const std::string& surface_type = "");
+                             double weight, const glm::ivec3& voxel_coords, double emittance, 
+                             const std::string& surface_type = "");
 
     // General logging methods for replacing log console output
     void log_info(const std::string& message);
@@ -54,7 +58,7 @@ public:
 private:
     std::ofstream csv_file_;
     std::ofstream log_file_;
-    bool logging_enabled_ = false;
+    bool logging_enabled_ {false};
     
     Logger() = default;
 

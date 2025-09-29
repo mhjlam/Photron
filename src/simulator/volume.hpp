@@ -10,19 +10,19 @@
 #include "simulator/layer.hpp"  // Full include instead of forward declaration
 
 // Forward declarations
-struct Voxel;
+class Voxel;
 class Simulator;
 
 /**
  * @brief Classification result from Distance Field Based voxelization
  */
 struct VoxelClassification {
-	bool is_inside_geometry = false;    // Whether voxel intersects any geometry
-	bool is_boundary_voxel = false;     // Whether voxel intersects geometry boundary (partial volume)
-	bool is_surface_voxel = false;      // Whether voxel is at external surface (to ambient)
-	double volume_fraction = 0.0;       // Fraction of voxel inside geometry [0,1]
-	uint32_t dominant_tissue_id = 0;    // Tissue ID of dominant layer
-	uint8_t dominant_layer_id = 0;      // Layer ID of dominant layer
+	bool is_inside_geometry{false};    // Whether voxel intersects any geometry
+	bool is_boundary_voxel{false};     // Whether voxel intersects geometry boundary (partial volume)
+	bool is_surface_voxel{false};      // Whether voxel is at external surface (to ambient)
+	double volume_fraction{0.0};       // Fraction of voxel inside geometry [0,1]
+	uint32_t dominant_tissue_id{0};    // Tissue ID of dominant layer
+	uint8_t dominant_layer_id{0};      // Layer ID of dominant layer
 };
 
 /**

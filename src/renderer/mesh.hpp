@@ -1,14 +1,21 @@
 #pragma once
 
+// Standard library includes
 #include <memory>
 #include <vector>
 
+// Third-party includes for interface types
+#include <GL/glew.h>  // For GL constants
 #include <glm/glm.hpp>
 
+// Project includes for member types
 #include "renderer/index_buffer.hpp"
-#include "renderer/vertex.hpp"
+#include "renderer/vertex.hpp"  // For RenderVertex type
 #include "renderer/vertex_array.hpp"
 #include "renderer/vertex_buffer.hpp"
+
+// Forward declare OpenGL types and constants
+using GLuint = unsigned int;
 
 enum class PrimitiveType
 {

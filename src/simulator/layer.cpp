@@ -1,5 +1,9 @@
 #include "layer.hpp"
 
+// Add includes that were removed from the header
+#include "math/math.hpp"
+#include "math/ray.hpp"
+
 #include <algorithm>
 #include <iostream>
 #include <limits>
@@ -193,5 +197,20 @@ void Layer::validate_and_fix_normals() {
 	}
 
 	// Rebuild spatial acceleration structure with corrected normals
+	bvh_.build(mesh);
+}
+
+void Layer::update_geometry() noexcept {
+	calculate_bounds();
+	bvh_.build(mesh);
+}
+
+void Layer::add_triangle(const Triangle& triangle) {
+	mesh.push_back(triangle);
+	if (has_bounds_) {
+		// Update bounds
+		extend_bounds(triangle);
+	}
+	// Rebuild BVH when triangles are added
 	bvh_.build(mesh);
 }

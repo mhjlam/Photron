@@ -1,15 +1,19 @@
 #pragma once
 
+// Standard library includes
 #include <functional>
 #include <string>
 #include <optional>
 
+// Third-party includes for interface types
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 
+// Project includes for member types
 #include "renderer/settings.hpp"
 #include "simulator/metrics.hpp"
 
+// Forward declarations
 class Simulator;
 
 enum class FileDialogMode
@@ -110,7 +114,7 @@ private:
 	
 	// Energy data caching (avoids per-frame recalculation)
 	mutable std::optional<Metrics::EnergyDisplayData> cached_energy_data_;
-	mutable uint64_t cached_simulation_version_ = 0;
+	mutable uint64_t cached_simulation_version_ {0};
 	
 	// Helper method to get cached energy data with event-driven updates
 	const Metrics::EnergyDisplayData& get_cached_energy_data(Simulator* simulator) const;

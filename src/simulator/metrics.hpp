@@ -46,15 +46,15 @@ public:
 		double transmission_percent = 0.0;
 		double total_percent = 0.0;
 		double total_accounted = 0.0;
-		bool is_conserved = true; // True if total_percent is close to 100%
+		bool is_conserved{true}; // True if total_percent is close to 100%
 	};
 
 	// Unified energy display data structure for GUI and export
 	struct EnergyDisplayData {
 		EnergyConservation conservation;
 		EnergyConservationPercentages percentages;
-		bool is_valid = false;
-		uint64_t cached_version = 0;  // Track when data was cached
+		bool is_valid{false};
+		uint64_t cached_version{0};  // Track when data was cached
 	};
 
 public:
@@ -203,9 +203,9 @@ private:
 	mutable std::optional<MediumEnergyData> cached_medium_energy_;
 	mutable std::optional<EnergyConservation> cached_conservation_;
 	mutable std::optional<EnergyConservationPercentages> cached_percentages_;
-	mutable uint64_t medium_energy_cache_version_ = 0;
-	mutable uint64_t conservation_cache_version_ = 0;
-	mutable uint64_t percentages_cache_version_ = 0;
+	mutable uint64_t medium_energy_cache_version_{0};
+	mutable uint64_t conservation_cache_version_{0};
+	mutable uint64_t percentages_cache_version_{0};
 	
 	// Helper methods for energy statistics (moved from EnergyStatisticsManager)
 	void write_percentage_line(std::ofstream& ofs, const std::string& label, double percent) const;

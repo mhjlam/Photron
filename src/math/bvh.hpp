@@ -1,13 +1,32 @@
 #pragma once
 
+// Standard library includes
 #include <memory>
 #include <vector>
 
-#include "concepts.hpp"
-#include "cuboid.hpp"
-#include "math.hpp"
-#include "ray.hpp"
-#include "triangle.hpp"
+// Third-party includes for interface types
+#include <glm/fwd.hpp>
+
+// Project includes for member types
+#include "cuboid.hpp"  // Needed for BVHNode member
+#include "triangle.hpp"  // Needed for Triangle usage
+#include "concepts.hpp"  // Needed for template concepts
+
+// Forward declarations
+class Ray;
+#include <memory>
+#include <vector>
+
+// Forward declarations
+class Cuboid;
+class Ray;
+class Triangle;
+
+// Use GLM forward declaration header instead of manual declarations
+#include <glm/fwd.hpp>
+
+// Only include essential headers
+#include "concepts.hpp"  // Needed for template concepts
 
 /**
  * BVH Node - can be either internal or leaf

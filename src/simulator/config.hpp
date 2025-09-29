@@ -1,5 +1,6 @@
 #pragma once
 
+// Standard library includes
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
@@ -7,14 +8,19 @@
 #include <vector>
 #include <span>
 
+// Third-party includes for interface types
 #include <toml++/toml.h>
+#include <glm/glm.hpp>
 
-#include "common/error_types.hpp"
-#include "common/result.hpp"
+// Project includes for concepts
 #include "math/concepts.hpp"
-#include "simulator/layer.hpp"
-#include "simulator/photon.hpp"
-#include "simulator/material.hpp"
+
+// Forward declarations
+class Layer;
+struct Source;
+class Material;
+template<typename T, typename E> class Result;
+enum class ConfigError;
 
 class Config
 {

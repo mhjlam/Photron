@@ -1,5 +1,12 @@
 #include "config.hpp"
 
+// Add includes that were removed from the header
+#include "common/error_types.hpp"
+#include "common/result.hpp"
+#include "simulator/layer.hpp"
+#include "simulator/photon.hpp"
+#include "simulator/material.hpp"
+
 #include <fstream>
 #include <iostream>
 #include <limits>

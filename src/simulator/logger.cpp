@@ -1,5 +1,9 @@
 #include "logger.hpp"
 
+// Add includes for implementation
+#include "config.hpp"
+#include <glm/glm.hpp>  // For complete GLM types
+
 Logger& Logger::instance() {
     static Logger logger;
     return logger;

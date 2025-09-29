@@ -1,15 +1,16 @@
 #pragma once
 
+// Standard library includes
 #include <vector>
 #include <memory>
 
+// Project includes for member types
 #include "simulator/layer.hpp"
 #include "simulator/volume.hpp"
 #include "simulator/metrics.hpp"
 #include "simulator/config.hpp"
 #include "simulator/material.hpp"
 #include "math/range.hpp"
-
 
 class Medium
 {

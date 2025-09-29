@@ -48,7 +48,7 @@ private:
     std::string format_message(Level level, const std::string& message) const;
     std::string get_level_string(Level level) const;
     
-    bool logging_enabled_ = false; // Set by App during initialization
+    bool logging_enabled_ {false}; // Set by App during initialization
 };
 
 // Convenience macros for common patterns

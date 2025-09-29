@@ -1,5 +1,6 @@
 #pragma once
 
+// Standard library includes
 #include <functional>
 #include <list>
 #include <map>
@@ -7,25 +8,27 @@
 #include <string>
 #include <vector>
 
-#include "math/cuboid.hpp"
-#include "math/range.hpp"
-#include "math/triangle.hpp"
-#include "math/voxel_dda3d.hpp"
-#include "simulator/config.hpp"
-#include "simulator/logger.hpp"
-#include "simulator/layer.hpp"
-#include "simulator/metrics.hpp"
-#include "simulator/photon.hpp"
-#include "simulator/material.hpp"
-#include "simulator/voxel.hpp"
-#include "simulator/volume.hpp"
-#include "simulator/medium.hpp"
+// Forward declarations
+class Cuboid;
+class Triangle;
+class VoxelDDA3D;
+class Config;
+class Logger;
+class Layer;
+class Photon;
+class Material;
+class Voxel;  // Make consistent with voxel.hpp
+class Volume;
+class Medium;
+class Random;
+struct Source;
+struct Emitter;
 
+// Include essential headers for interface
+#include "math/range.hpp"  // Needed for Range3 in interface
+#include "simulator/metrics.hpp"  // Needed for member variable
 #include "common/result.hpp"
 #include "common/error_types.hpp"
-
-// Forward declaration for Random class
-class Random;
 
 class Simulator
 {
@@ -59,7 +62,7 @@ public:
 	std::vector<std::unique_ptr<VoxelDDA3D>> medium_ddas_;
 
 	// Version tracking for renderer cache optimization
-	mutable uint64_t simulation_version_ = 0;
+	mutable uint64_t simulation_version_{0};
 	
 	// Get current simulation version (increments when data changes)
 	uint64_t get_simulation_version() const { return simulation_version_; }

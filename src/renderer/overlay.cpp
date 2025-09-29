@@ -1,5 +1,12 @@
 #include "overlay.hpp"
 
+// Add includes for complete type definitions
+#include "simulator/medium.hpp"
+#include "simulator/volume.hpp"
+#include "simulator/voxel.hpp"
+#include "simulator/photon.hpp"
+#include "simulator/simulator.hpp"
+
 #include <cstring>
 #include <filesystem>
 #include <iostream>

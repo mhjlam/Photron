@@ -5,15 +5,18 @@
 #include <span>
 #include <vector>
 
-#include "math/bvh.hpp"
-#include "math/concepts.hpp"
-#include "math/math.hpp"
-#include "math/range.hpp"
-#include "math/ray.hpp"
-#include "math/triangle.hpp"
+// Include types needed for member variables and interface
+#include "math/bvh.hpp"    // Needed for BVH member
+#include "math/range.hpp"  // Needed for Range3 member
+#include "math/triangle.hpp"  // Needed for Triangle vector
+#include "math/concepts.hpp"  // Needed for template concepts
 
-struct Layer
+// Forward declarations for types only used in method signatures
+class Ray;
+
+class Layer
 {
+public:
 	uint8_t id {0};
 	uint8_t tissue_id {0};
 	std::vector<Triangle> mesh;
@@ -30,21 +33,10 @@ struct Layer
 	Layer& operator=(Layer&&) = default;
 
 	// Update the mesh geometry based on the mesh triangles
-	void update_geometry() noexcept {
-		calculate_bounds();
-		bvh_.build(mesh);
-	}
+	void update_geometry() noexcept;
 
 	// Add a triangle to the mesh
-	void add_triangle(const Triangle& triangle) {
-		mesh.push_back(triangle);
-		if (has_bounds_) {
-			// Update bounds
-			extend_bounds(triangle);
-		}
-		// Rebuild BVH when triangles are added
-		bvh_.build(mesh);
-	}
+	void add_triangle(const Triangle& triangle);
 
 	// Set all triangles at once
 	template<TriangleContainer Container>

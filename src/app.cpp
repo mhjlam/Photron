@@ -1,4 +1,13 @@
 #include "app.hpp"
+
+// Add includes for complete type definitions
+#include "renderer/overlay.hpp"
+#include "renderer/renderer.hpp"
+#include "renderer/camera.hpp"
+#include "renderer/settings.hpp"
+#include "simulator/simulator.hpp"
+#include "simulator/metrics.hpp"
+
 #include "common/file_utils.hpp"
 
 #include <algorithm>

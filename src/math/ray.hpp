@@ -3,13 +3,12 @@
 #include <span>
 #include <utility>
 #include <vector>
-
-#include "math.hpp"
+#include <glm/glm.hpp>  // Include GLM for member variables
 
 // Forward declarations
 class Triangle;
 class Cuboid;
-struct Layer;
+class Layer;
 
 class Ray
 {

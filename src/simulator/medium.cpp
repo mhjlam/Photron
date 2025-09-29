@@ -1,4 +1,9 @@
 #include "medium.hpp"
+
+// Add includes for complete type definitions
+#include "simulator/photon.hpp"  // For Source struct
+#include "math/ray.hpp"           // For Ray class
+
 #include "common/file_utils.hpp"
 #include "common/error_handler.hpp"
 #include "common/error_types.hpp"

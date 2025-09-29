@@ -1,4 +1,7 @@
 #include "error_handler.hpp"
+
+// Add GLM include for complete type definitions
+#include <glm/glm.hpp>
 #include "../simulator/logger.hpp"
 #include <chrono>
 #include <iomanip>
