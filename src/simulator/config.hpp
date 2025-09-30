@@ -1,3 +1,13 @@
+/**
+ * @file config.hpp
+ * @brief Global configuration management system
+ * 
+ * The Config class provides centralized configuration management for the entire
+ * Photron application using TOML format files. It handles simulation parameters,
+ * geometry definitions, material properties, and runtime options with validation
+ * and default value support.
+ */
+
 #pragma once
 
 // Standard library includes
@@ -22,32 +32,78 @@ class Material;
 template<typename T, typename E> class Result;
 enum class ConfigError;
 
+/**
+ * @class Config
+ * @brief Singleton configuration management system with TOML support
+ * 
+ * The Config class serves as the single source of truth for all application
+ * configuration data. It provides:
+ * 
+ * **TOML Configuration Loading:**
+ * - Hierarchical configuration structure
+ * - Type-safe parameter parsing
+ * - Comprehensive validation and error reporting
+ * - Default value fallback mechanisms
+ * 
+ * **Parameter Categories:**
+ * - **Simulation**: Photon count, random seeds, algorithm parameters
+ * - **Geometry**: Voxel dimensions, layer definitions, material properties
+ * - **Sources**: Light source configurations and emission parameters
+ * - **Output**: File paths, logging levels, result formats
+ * 
+ * **Key Features:**
+ * - Thread-safe singleton access pattern
+ * - Immutable configuration after initialization
+ * - Structured error reporting for invalid configurations
+ * - Memory-efficient storage with move semantics
+ * 
+ * **Configuration File Structure:**
+ * ```toml
+ * [general]
+ * photons = 1000000
+ * voxel_size = 0.01
+ * 
+ * [source]
+ * position = [0.0, 0.0, 1.0]
+ * direction = [0.0, 0.0, -1.0]
+ * 
+ * [[material]]
+ * name = "skin"
+ * mua = 0.1
+ * mus = 10.0
+ * ```
+ */
 class Config
 {
 private:
+	/// Singleton instance pointer (managed automatically)
 	static std::unique_ptr<Config> instance_;
+	/// Initialization state flag to prevent double-initialization
 	static bool initialized_;
 
-	uint32_t nx_ {0};          		// number of voxels in the x direction
-	uint32_t ny_ {0};          		// number of voxels in the y direction
-	uint32_t nz_ {0};          		// number of voxels in the z direction
+	// Voxel grid parameters
+	uint32_t nx_ {0};          		///< Number of voxels in X direction
+	uint32_t ny_ {0};          		///< Number of voxels in Y direction
+	uint32_t nz_ {0};          		///< Number of voxels in Z direction
 
-	double vox_size_ {0.0};      	// uniform size of each voxel (dx=dy=dz)
+	double vox_size_ {0.0};      	///< Uniform voxel edge length (cubic voxels: dx=dy=dz)
 
-	uint64_t num_layers_ {0};  		// number of layers
-	uint64_t num_voxels_ {0};  		// number of voxels
-	uint64_t num_photons_ {0}; 		// number of photons
-	uint64_t num_sources_ {0}; 		// number of light sources
+	// Simulation parameters
+	uint64_t num_layers_ {0};  		///< Number of material layers in simulation
+	uint64_t num_voxels_ {0};  		///< Total number of voxels (nx * ny * nz)
+	uint64_t num_photons_ {0}; 		///< Number of Monte Carlo photons to simulate
+	uint64_t num_sources_ {0}; 		///< Number of configured light sources
 
-	bool log_ {false};         		// display logging debug and progress messages
-	bool deterministic_ {false};   	// use deterministic random seed for reproducible results
+	// Runtime control flags
+	bool log_ {false};         		///< Enable logging and progress messages
+	bool deterministic_ {false};   	///< Use fixed random seed for reproducible results
 	
 	// Configuration metadata
-	std::string config_filename_;  	// path to the configuration file
+	std::string config_filename_;  	///< Path to loaded configuration file (for reference)
 	
-	// Parsing configuration data
-	std::vector<Source> sources_;
-	std::vector<Material> materials_;
+	// Parsed configuration objects
+	std::vector<Source> sources_;    ///< Light source configurations
+	std::vector<Material> materials_; ///< Material property definitions
 	std::vector<Layer> layers_;
 
 	// TOML parsing helper methods
@@ -130,7 +186,7 @@ public:
 	[[nodiscard]] std::vector<Layer>&& move_layers() { return std::move(layers_); }
 	[[nodiscard]] std::vector<Material>&& move_materials() { return std::move(materials_); }
 
-	// Note: Direct access to vectors is preferred, but move semantics needed for Layer transfer
+	// Direct access to vectors is preferred, but move semantics needed for Layer transfer
 
 	// Setters
 	void set_nx(uint32_t nx) noexcept { nx_ = nx; }

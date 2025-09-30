@@ -1,9 +1,18 @@
+/**
+ * @file ray.hpp
+ * @brief Ray casting and geometric intersection algorithms
+ *
+ * Provides high-performance ray-geometry intersection tests for Monte Carlo
+ * photon transport and 3D rendering applications.
+ */
+
 #pragma once
 
 #include <span>
 #include <utility>
 #include <vector>
-#include <glm/glm.hpp>  // Include GLM for member variables
+
+#include <glm/glm.hpp>
 
 // Forward declarations
 class Triangle;
@@ -34,11 +43,15 @@ public:
 
 	double intersect_layer(const Layer& layer, glm::dvec3& intersection) const;
 
-	// C++20: Use span for better array interface without copying
 	void intersect_triangles(std::span<Triangle> triangles, std::vector<glm::dvec3>& intersections) const;
-	double intersect_first_triangle(std::span<Triangle> triangles, glm::dvec3& intersection,
+
+	double intersect_first_triangle(std::span<Triangle> triangles,
+									glm::dvec3& intersection,
 									Triangle& hit_triangle) const;
-	double intersect_first_triangle(std::span<const Layer> layers, glm::dvec3& intersection,
-												Triangle& hit_triangle) const;
+
+	double intersect_first_triangle(std::span<const Layer> layers,
+									glm::dvec3& intersection,
+									Triangle& hit_triangle) const;
+
 	double intersect_cuboid_internal(Cuboid& cuboid, glm::dvec3& intersection, glm::dvec3& normal) const;
 };

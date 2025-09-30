@@ -1,3 +1,12 @@
+/**
+ * @file random.hpp
+ * @brief High-quality pseudo-random number generation for Monte Carlo simulation
+ *
+ * Provides thread-safe random number generation using modern C++ facilities.
+ * Optimized for Monte Carlo photon transport with fast uniform distribution
+ * sampling and proper seeding mechanisms.
+ */
+
 #pragma once
 
 #include <cstdint>
@@ -43,7 +52,8 @@ public:
 
 		std::vector<std::uint32_t> status;
 		std::istringstream iss(oss.str());
-		std::copy(std::istream_iterator<std::uint32_t>(iss), std::istream_iterator<std::uint32_t>(),
+		std::copy(std::istream_iterator<std::uint32_t>(iss),
+				  std::istream_iterator<std::uint32_t>(),
 				  std::back_inserter(status));
 
 		return status;

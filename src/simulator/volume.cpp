@@ -1,3 +1,13 @@
+/**
+ * @file volume.cpp
+ * @brief Implementation of 3D voxel grid for Monte Carlo simulation
+ * 
+ * Implements the Volume class which manages a 3D grid of voxels for
+ * photon transport simulation. Provides efficient memory management,
+ * safe bounds checking, and coordinate transformation utilities for
+ * spatial discretization of the simulation domain.
+ */
+
 #include "volume.hpp"
 
 // Add includes for complete type definitions
@@ -16,14 +26,16 @@
 #include "simulator/simulator.hpp"
 #include "logger.hpp"
 
-// Default constructor
+// Volume constructors and lifecycle management
+
 Volume::Volume() : dimensions_ {0, 0, 0}, total_voxels_ {0}, voxel_size_ {0.0} {
+	// Default constructor creates empty volume
 }
 
-// Parameterized constructor
 Volume::Volume(double voxel_size, uint32_t num_x, uint32_t num_y, uint32_t num_z) :
 	dimensions_(num_x, num_y, num_z), total_voxels_(static_cast<uint64_t>(num_x) * num_y * num_z),
 	voxel_size_(voxel_size), voxels_() {
+	// Validate input parameters
 	if (voxel_size <= 0.0) {
 		throw std::invalid_argument("Voxel size must be positive");
 	}
@@ -32,42 +44,41 @@ Volume::Volume(double voxel_size, uint32_t num_x, uint32_t num_y, uint32_t num_z
 		throw std::invalid_argument("Grid dimensions must be positive");
 	}
 
-	// Check for potential overflow
+	// Check for potential integer overflow
 	if (total_voxels_ / num_x / num_y != num_z) {
 		throw std::overflow_error("Grid dimensions would cause integer overflow");
 	}
 
+	// Initialize voxel grid structure
 	initialize_voxels();
 }
 
-// Destructor
 Volume::~Volume() {
+	// Clean up voxel memory
 	cleanup_voxels();
 }
 
-// Move constructor
 Volume::Volume(Volume&& other) noexcept :
 	dimensions_(other.dimensions_), total_voxels_(other.total_voxels_), voxel_size_(other.voxel_size_),
 	voxels_(std::move(other.voxels_)) {
-	// Reset the moved-from object
+	// Reset moved-from object to valid empty state
 	other.dimensions_ = glm::uvec3(0, 0, 0);
 	other.total_voxels_ = 0;
 	other.voxel_size_ = 0.0;
 }
 
-// Move assignment operator
 Volume& Volume::operator=(Volume&& other) noexcept {
 	if (this != &other) {
 		// Clean up current resources
 		cleanup_voxels();
 
-		// Move data from other
+		// Transfer ownership from other volume
 		dimensions_ = other.dimensions_;
 		total_voxels_ = other.total_voxels_;
 		voxel_size_ = other.voxel_size_;
 		voxels_ = std::move(other.voxels_);
 
-		// Reset the moved-from object
+		// Reset moved-from object
 		other.dimensions_ = glm::uvec3(0, 0, 0);
 		other.total_voxels_ = 0;
 		other.voxel_size_ = 0.0;
@@ -75,8 +86,10 @@ Volume& Volume::operator=(Volume&& other) noexcept {
 	return *this;
 }
 
-// Grid access operators
+// Grid access operators with bounds checking
+
 Voxel* Volume::operator()(uint32_t x, uint32_t y, uint32_t z) {
+	// Validate coordinates before access
 	if (!is_valid_coordinate(x, y, z)) {
 		throw std::out_of_range("Voxel coordinate out of bounds");
 	}
@@ -84,14 +97,15 @@ Voxel* Volume::operator()(uint32_t x, uint32_t y, uint32_t z) {
 }
 
 const Voxel* Volume::operator()(uint32_t x, uint32_t y, uint32_t z) const {
+	// Const version of coordinate access
 	if (!is_valid_coordinate(x, y, z)) {
 		throw std::out_of_range("Voxel coordinate out of bounds");
 	}
 	return voxels_[calculate_index(x, y, z)].get();
 }
 
-// Safe access methods with bounds checking
 Voxel* Volume::at(uint32_t x, uint32_t y, uint32_t z) {
+	// Safe access method with bounds checking
 	if (!is_valid_coordinate(x, y, z)) {
 		throw std::out_of_range("Voxel coordinate out of bounds");
 	}
@@ -135,7 +149,7 @@ void Volume::clear() {
 
 // Private helper methods for grid management
 void Volume::initialize_voxels() {
-	// Modern C++20: Pre-allocate and use emplace_back for better performance
+	// Pre-allocate and use emplace_back for better performance
 	voxels_.clear();
 	voxels_.reserve(total_voxels_);
 
@@ -276,7 +290,7 @@ VoxelClassification Volume::distance_field_voxelization(const glm::dvec3& voxel_
 	// Key parameters for distance field voxelization
 	const double SURFACE_THRESHOLD = voxel_size.x * 0.5;  // Half voxel size
 	
-	// DEBUG: Check for voxels near the problematic area
+	// Check for voxels near the problematic area
 	bool is_debug_voxel = Config::get().log() && 
 		voxel_center.x > -0.1 && voxel_center.x < 0.0 && 
 		voxel_center.y > -0.15 && voxel_center.y < -0.1 && 

@@ -1,3 +1,13 @@
+/**
+ * @file metrics.cpp
+ * @brief Implementation of simulation metrics collection and analysis
+ * 
+ * Implements the Metrics class which tracks simulation performance, energy
+ * conservation, path statistics, and provides export functionality for
+ * results analysis. Features modern C++20 algorithms and efficient
+ * statistical calculations.
+ */
+
 #include "metrics.hpp"
 
 // Add includes for complete type definitions
@@ -27,42 +37,50 @@
 #include "../app.hpp" // For output path utilities
 
 void Metrics::increment_scatters() {
+	// Track scattering event statistics
 	scatter_events_++;
 }
 
 void Metrics::add_vertex(double x, double y, double z) {
+	// Collect photon path vertices for analysis
 	path_vertices_.push_back(glm::dvec3(x, y, z));
 }
 
 void Metrics::add_step_size(double s) {
+	// Collect step size data for statistical analysis
 	step_sizes_.push_back(s);
 }
 
 void Metrics::collect_data(double at, double rs, double rd, double sr, double ts, double td) {
+	// Collect energy conservation data from simulation
 	(void)sr; // Suppress unused parameter warning
 	(void)ts; // Suppress unused parameter warning
 	
+	// Store primary energy components
 	total_absorption_ = at;
 	total_reflection_ = rd;      // Diffuse reflection (energy that entered medium and exited back)
 	total_transmission_ = td;    // Diffuse transmission (energy that entered medium and exited forward)
 	total_diffusion_ = rd + td;  // Total diffuse emittance (reflection + transmission)
 
+	// Store surface interaction components
 	surface_reflection_ = rs;    // Specular reflection (energy reflected at surface, never entered)
 	(void)sr; // Unused parameter - suppress warning
 	(void)ts; // Unused parameter - suppress warning
 	surface_refraction_ = sr;    // Energy entering medium at surface
 
+	// Calculate derived metrics from collected data
 	path_length_ = compute_path_length();
 	average_step_size_ = compute_average_step_size();
 	diffusion_distance_ = compute_diffusion_distance();
 }
 
 double Metrics::compute_diffusion_distance() const {
+	// Calculate spatial extent of photon diffusion
 	if (path_vertices_.empty()) {
 		return 0.0;
 	}
 
-	// Modern C++20: Use ranges::minmax_element for better performance
+	// Use modern C++20 ranges for efficient min/max calculation
 	const auto [min_x, max_x] = std::ranges::minmax_element(path_vertices_, 
 		[](const glm::dvec3& a, const glm::dvec3& b) noexcept { return a.x < b.x; });
 	const auto [min_y, max_y] = std::ranges::minmax_element(path_vertices_, 
@@ -70,6 +88,7 @@ double Metrics::compute_diffusion_distance() const {
 	const auto [min_z, max_z] = std::ranges::minmax_element(path_vertices_, 
 		[](const glm::dvec3& a, const glm::dvec3& b) noexcept { return a.z < b.z; });
 
+	// Calculate 3D bounding box diagonal as diffusion distance
 	const double dx = max_x->x - min_x->x;
 	const double dy = max_y->y - min_y->y;
 	const double dz = max_z->z - min_z->z;
@@ -78,10 +97,12 @@ double Metrics::compute_diffusion_distance() const {
 }
 
 double Metrics::compute_average_step_size() const {
+	// Calculate mean step size from collected samples
 	if (step_sizes_.empty()) {
 		return 0;
 	}
 
+	// Use accumulation for numerical stability
 	double total_step_size = 0;
 	size_t num_steps = step_sizes_.size();
 
@@ -92,10 +113,12 @@ double Metrics::compute_average_step_size() const {
 }
 
 double Metrics::compute_path_length() const {
+	// Calculate total photon path length from vertex sequence
 	if (path_vertices_.empty()) {
 		return 0;
 	}
 
+	// Sum distances between consecutive vertices
 	double path_len = 0;
 	for (std::size_t i = 1; i < path_vertices_.size(); ++i) {
 		glm::dvec3 diff = path_vertices_[i] - path_vertices_[i - 1];
@@ -305,11 +328,11 @@ void Metrics::normalize_raw_values(double divisor) {
 	surface_refraction_ /= divisor;
 	diffuse_transmission_ /= divisor;
 	specular_transmission_ /= divisor;
-	// Update totals after normalization
+	// Recalculate totals after normalization
 	total_reflection_ = diffuse_reflection_ + surface_reflection_;
 	total_transmission_ = diffuse_transmission_ + specular_transmission_;
 	total_diffusion_ = diffuse_reflection_ + total_transmission_;
-	// Note: path_length_, total_steps_, and photons_entered_ are not normalized
+	// path_length_, total_steps_, and photons_entered_ are not normalized
 }
 
 void Metrics::reset_raw_absorption_and_diffuse() {
@@ -317,7 +340,7 @@ void Metrics::reset_raw_absorption_and_diffuse() {
 	diffuse_reflection_ = 0.0;
 	diffuse_transmission_ = 0.0;
 	specular_transmission_ = 0.0;
-	// Update totals after reset
+	// Recalculate totals after reset
 	total_reflection_ = diffuse_reflection_ + surface_reflection_;
 	total_transmission_ = diffuse_transmission_ + specular_transmission_;
 	total_diffusion_ = diffuse_reflection_ + total_transmission_;
@@ -468,9 +491,9 @@ Metrics::EnergyDisplayData Metrics::get_energy_display_data(const Simulator& sim
     return display_data;
 }
 
-/***********************************************************
- * ENERGY CONSERVATION VALIDATION
- ***********************************************************/
+// =============================================================================
+// ENERGY CONSERVATION VALIDATION
+// =============================================================================
 bool Metrics::is_energy_conserved(const Simulator& simulator, double tolerance_percent) const {
     auto percentages = calculate_energy_percentages(simulator);
     return std::abs(percentages.total_percent - 100.0) <= tolerance_percent;
@@ -481,9 +504,9 @@ double Metrics::get_conservation_error_percent(const Simulator& simulator) const
     return std::abs(percentages.total_percent - 100.0);
 }
 
-/***********************************************************
- * REPORTING METHODS
- ***********************************************************/
+// =============================================================================
+// REPORTING METHODS
+// =============================================================================
 void Metrics::export_energy_conservation_log(const Simulator& simulator, std::ofstream& ofs) const {
     ofs << "Energy Conservation Percentages" << std::endl;
     ofs << "################################################################" << std::endl;
@@ -564,9 +587,9 @@ std::string Metrics::get_energy_summary_text(const Simulator& simulator) const {
  * Note: get_combined_* methods removed - use aggregate_medium_energy_data() directly
  ***********************************************************/
 
-/***********************************************************
- * HELPER METHODS
- ***********************************************************/
+// =============================================================================
+// HELPER METHODS
+// =============================================================================
 void Metrics::write_percentage_line(std::ofstream& ofs, const std::string& label, double percent) const {
     ofs << std::left << std::setw(25) << (label + ":") 
         << std::fixed << std::setprecision(1) << percent << "%" << std::endl;
@@ -846,9 +869,9 @@ void Metrics::export_csv_files(const Simulator& simulator) const {
     }
 }
 
-/***********************************************************
- * HELPER METHODS FOR RESULTS EXPORT
- ***********************************************************/
+// =============================================================================
+// HELPER METHODS FOR RESULTS EXPORT
+// =============================================================================
 std::string Metrics::get_output_filename(const std::string& base_name, const std::string& extension) const {
     return App::get_output_path(base_name + "." + extension);
 }

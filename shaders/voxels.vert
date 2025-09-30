@@ -12,7 +12,7 @@ layout(location = 4) in float aInstanceScale;
 uniform mat4 uMVP;
 
 // Outputs to fragment shader
-out vec4 vColor;
+out vec4 vertexColor;
 
 void main()
 {
@@ -21,5 +21,5 @@ void main()
     gl_Position = uMVP * vec4(worldPos, 1.0);
     
     // Pass color to fragment shader
-    vColor = aInstanceColor;
+    vertexColor = aInstanceColor;
 }

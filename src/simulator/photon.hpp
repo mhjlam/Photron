@@ -1,3 +1,12 @@
+/**
+ * @file photon.hpp
+ * @brief Photon data structures and path tracking for Monte Carlo simulation
+ * 
+ * Defines the core data structures for representing photons, light sources,
+ * and photon path segments during Monte Carlo photon transport simulation.
+ * The design supports both real-time visualization and detailed physics calculations.
+ */
+
 #pragma once
 
 // Standard library includes
@@ -14,38 +23,92 @@
 #include "simulator/voxel.hpp"
 #include "math/concepts.hpp"
 
-// Source properties (moved from Photon class to avoid circular dependencies)
+/**
+ * @struct Source
+ * @brief Light source configuration for photon launching
+ * 
+ * Represents a configured light source that defines how photons are
+ * launched into the simulation geometry. Supports various source types
+ * including point sources, beam sources, and surface-based sources.
+ */
 struct Source
 {
-	uint64_t id {0};                     // identifier
-	glm::dvec3 origin {0.0};             // origin
-	glm::dvec3 direction {0.0};          // direction of incidence
-	glm::dvec3 specular_direction {0.0}; // direction of specular reflectance
-	glm::dvec3 intersect {0.0};          // intersection point
-	Triangle triangle;                   // triangle at intersection point
+	uint64_t id {0};                     ///< Unique identifier for this source
+	glm::dvec3 origin {0.0};             ///< Launch origin in world coordinates
+	glm::dvec3 direction {0.0};          ///< Initial direction vector (normalized)
+	glm::dvec3 specular_direction {0.0}; ///< Direction for specular reflectance calculations
+	glm::dvec3 intersect {0.0};          ///< Intersection point with geometry
+	Triangle triangle;                   ///< Associated triangle for surface sources
 
+	/**
+	 * @brief Default constructor creates uninitialized source
+	 */
 	Source() = default;
+	
+	/**
+	 * @brief Construct source with basic parameters
+	 * 
+	 * @param i Unique source identifier
+	 * @param p Launch origin position
+	 * @param v Initial direction vector
+	 */
 	explicit Source(uint64_t i, const glm::dvec3& p, const glm::dvec3& v) noexcept : 
 		id(i), origin(p), direction(v) {}
 };
 
-// Emitted photon
+/**
+ * @struct Emitter
+ * @brief Photon exit point data for energy visualization
+ * 
+ * Represents a photon that has exited the simulation geometry.
+ * Used for visualizing energy distribution and validating energy conservation.
+ * The exit classification helps distinguish between different physical processes.
+ */
 struct Emitter
 {
-	uint64_t id;
-	glm::dvec3 position;
-	glm::dvec3 direction;
-	double weight;
+	uint64_t id;           ///< Unique photon identifier
+	glm::dvec3 position;   ///< Exit position in world coordinates
+	glm::dvec3 direction;  ///< Exit direction vector
+	double weight;         ///< Remaining photon weight at exit
 	
-	// Exit classification for accurate energy labeling
-	enum class ExitType { NONE, REFLECTED, TRANSMITTED };
-	ExitType exit_type {ExitType::NONE};
+	/**
+	 * @enum ExitType
+	 * @brief Classification of photon exit mechanism
+	 * 
+	 * Distinguishes between different physical processes that cause
+	 * photon termination for accurate energy accounting and visualization.
+	 */
+	enum class ExitType { 
+		NONE,        ///< No specific classification (internal use)
+		REFLECTED,   ///< Photon exited via surface reflection
+		TRANSMITTED  ///< Photon exited via transmission through boundary
+	};
+	ExitType exit_type {ExitType::NONE}; ///< Exit mechanism classification
 
+	/**
+	 * @brief Construct emitter with complete photon exit data
+	 * 
+	 * @tparam P Point3D concept-compliant position type
+	 * @tparam V Vector3D concept-compliant direction type
+	 * @param i Unique photon identifier
+	 * @param p Exit position
+	 * @param d Exit direction
+	 * @param w Photon weight at exit
+	 * @param exit_classification Physical exit mechanism
+	 */
 	template<Point3D P, Vector3D V>
 	explicit constexpr Emitter(uint64_t i, const P& p, const V& d, double w, ExitType exit_classification = ExitType::NONE) noexcept :
 		id(i), position(static_cast<glm::dvec3>(p)), direction(static_cast<glm::dvec3>(d)), weight(w), exit_type(exit_classification) {}
 };
 
+/**
+ * @class PhotonNode
+ * @brief Individual segment of a photon's path through the medium
+ * 
+ * Represents a single step or event in a photon's journey through the simulation.
+ * PhotonNodes are linked together to form complete photon paths for visualization
+ * and analysis. Each node captures the photon state at a specific point in time.
+ */
 class PhotonNode
 {
 public:

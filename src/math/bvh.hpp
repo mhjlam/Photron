@@ -1,32 +1,26 @@
+/**
+ * @file bvh.hpp
+ * @brief Bounding Volume Hierarchy for accelerated ray-triangle intersection
+ *
+ * Provides high-performance BVH implementation with Surface Area Heuristic (SAH)
+ * optimization for efficient ray-triangle mesh intersection queries.
+ */
+
 #pragma once
 
-// Standard library includes
 #include <memory>
 #include <vector>
 
-// Third-party includes for interface types
 #include <glm/fwd.hpp>
 
-// Project includes for member types
-#include "cuboid.hpp"  // Needed for BVHNode member
-#include "triangle.hpp"  // Needed for Triangle usage
-#include "concepts.hpp"  // Needed for template concepts
-
-// Forward declarations
-class Ray;
-#include <memory>
-#include <vector>
+#include "concepts.hpp"
+#include "cuboid.hpp"
+#include "triangle.hpp"
 
 // Forward declarations
 class Cuboid;
 class Ray;
 class Triangle;
-
-// Use GLM forward declaration header instead of manual declarations
-#include <glm/fwd.hpp>
-
-// Only include essential headers
-#include "concepts.hpp"  // Needed for template concepts
 
 /**
  * BVH Node - can be either internal or leaf
@@ -62,8 +56,11 @@ private:
 	[[nodiscard]] int find_best_split(std::vector<int>& triangle_indices, int& best_axis) const;
 
 	// Ray intersection traversal
-	[[nodiscard]] bool intersect_recursive(const BVHNode* node, const Ray& ray, double& closest_t,
-										   glm::dvec3& intersection, Triangle& hit_triangle) const;
+	[[nodiscard]] bool intersect_recursive(const BVHNode* node,
+										   const Ray& ray,
+										   double& closest_t,
+										   glm::dvec3& intersection,
+										   Triangle& hit_triangle) const;
 
 	// Point-in-mesh testing traversal
 	[[nodiscard]] int count_intersections_recursive(const BVHNode* node, const Ray& ray, const glm::dvec3& point) const;
@@ -91,7 +88,9 @@ public:
 	void build(const std::vector<Triangle>& triangles);
 
 	// Find closest ray-triangle intersection
-	[[nodiscard]] bool intersect(const Ray& ray, double& distance, glm::dvec3& intersection,
+	[[nodiscard]] bool intersect(const Ray& ray,
+								 double& distance,
+								 glm::dvec3& intersection,
 								 Triangle& hit_triangle) const;
 
 	// Test if point is inside the mesh using ray casting

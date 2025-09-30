@@ -1,9 +1,19 @@
+/**
+ * @file photon.cpp
+ * @brief Implementation of photon data structures and path tracking
+ * 
+ * Implements photon transport data structures including the main Photon class
+ * and photon path management. Handles linked-list based path tracking for
+ * visualization and analysis, source data management, and photon lifecycle.
+ */
+
 #include "photon.hpp"
 
 // Photon constructor implementations
 Photon::Photon(uint64_t i, const glm::dvec3& src_origin, const glm::dvec3& src_direction) noexcept 
 	: id(i) 
 {
+	// Initialize basic photon with source origin and direction
 	source.origin = src_origin;
 	source.direction = src_direction;
 }
@@ -13,6 +23,7 @@ Photon::Photon(uint64_t i, const glm::dvec3& src_origin, const glm::dvec3& src_d
 			   const Triangle& src_triangle) noexcept 
 	: id(i) 
 {
+	// Initialize photon with complete source data including surface properties
 	source.origin = src_origin;
 	source.direction = src_direction;
 	source.specular_direction = spec_direction;
@@ -23,10 +34,13 @@ Photon::Photon(uint64_t i, const glm::dvec3& src_origin, const glm::dvec3& src_d
 // Path management methods (integrated from PhotonPath)
 void Photon::add_internal_vertex(std::shared_ptr<PhotonNode> vert) noexcept 
 {
+	// Build linked list of internal scattering vertices
 	if (!path_head) {
+		// First vertex initializes the path
 		path_head = vert;
 		path_last = vert;
 	} else {
+		// Append vertex to existing path chain
 		path_last->next = vert;
 		vert->prev = path_last;
 		path_last = vert;
@@ -36,6 +50,7 @@ void Photon::add_internal_vertex(std::shared_ptr<PhotonNode> vert) noexcept
 
 void Photon::add_external_vertex(std::shared_ptr<PhotonNode> vert) noexcept 
 {
+	// Add external emission/exit vertex to current path segment
 	if (path_last) {
 		path_last->emit = vert;
 		vert->prev = path_last;
@@ -45,36 +60,41 @@ void Photon::add_external_vertex(std::shared_ptr<PhotonNode> vert) noexcept
 
 void Photon::initialize_path(const glm::dvec3& start_pos, double path_weight) 
 {
+	// Initialize photon path with entry point and weight
 	path_head = std::make_shared<PhotonNode>(start_pos, path_weight);
 	path_last = path_head;
 	num_seg_int = 1;
 	num_seg_ext = 1;
 }
 
-// Source methods
+// Source data management methods
 void Photon::set_source_data(const Source& src_data) 
 {
+	// Set complete source information
 	source = src_data;
 }
 
 void Photon::set_source_data(uint64_t src_id, const glm::dvec3& origin, const glm::dvec3& src_direction) 
 {
+	// Set basic source properties
 	source.id = src_id;
 	source.origin = origin;  
 	source.direction = src_direction;
 }
 
-// Path analysis methods
+// Path analysis methods for entrance/exit tracking
 glm::dvec3 Photon::get_entrance_position() const noexcept {
+	// Return photon entry position from path head
 	return path_head ? path_head->position : glm::dvec3(0.0);
 }
 
 glm::dvec3 Photon::get_entrance_direction() const noexcept {
+	// Return initial photon direction from source
 	return source.direction;
 }
 
 glm::dvec3 Photon::get_exit_position() const noexcept {
-	// Find the first exit point in the path chain
+	// Find first exit point by traversing path chain
 	if (!path_head) return glm::dvec3(0.0);
 	
 	auto current = path_head;
@@ -89,7 +109,7 @@ glm::dvec3 Photon::get_exit_position() const noexcept {
 
 glm::dvec3 Photon::get_exit_direction() const noexcept
 {
-	// Find the first exit direction in the path chain  
+	// Find first exit direction by traversing path chain
 	if (!path_head) return glm::dvec3(0.0);
 	
 	auto current = path_head;

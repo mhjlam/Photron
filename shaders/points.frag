@@ -1,18 +1,18 @@
-#version 450 core
+#version 330 core
 
-in vec4 vColor;
+// Inputs from vertex shader
+in vec4 vertexColor;
+
+// Output
 out vec4 FragColor;
 
 void main() {
-    // Make points circular instead of square
+    // Create circular points by discarding fragments outside circle
     vec2 coord = gl_PointCoord - vec2(0.5);
-    if (length(coord) > 0.5) {
+    if (dot(coord, coord) > 0.25) {
         discard;
     }
     
-    // Add some shading for better visibility
-    float dist = length(coord) * 2.0;
-    float alpha = 1.0 - (dist * dist * 0.3);
-    
-    FragColor = vec4(vColor.rgb, vColor.a * alpha);
+    // Output the color directly without lighting
+    FragColor = vertexColor;
 }

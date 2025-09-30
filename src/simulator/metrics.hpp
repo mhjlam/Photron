@@ -1,3 +1,12 @@
+/**
+ * @file metrics.hpp
+ * @brief Comprehensive simulation metrics and energy conservation tracking
+ * 
+ * The Metrics class provides detailed tracking and analysis of Monte Carlo
+ * photon transport simulation results, including energy conservation validation,
+ * statistical analysis, and performance monitoring.
+ */
+
 #pragma once
 
 #include <vector>
@@ -14,82 +23,229 @@
 class Simulator;
 class Medium;
 
+/**
+ * @class Metrics
+ * @brief Comprehensive simulation metrics and energy conservation analysis
+ * 
+ * The Metrics class serves as the central repository for all simulation
+ * statistics and provides energy conservation validation. It tracks:
+ * 
+ * - **Energy Statistics**: Absorption, reflection, and transmission measurements
+ * - **Performance Metrics**: Execution time, photon processing rates
+ * - **Conservation Analysis**: Validates energy conservation laws
+ * - **Statistical Summaries**: Mean path lengths, scattering events, etc.
+ * - **Progress Tracking**: Real-time simulation progress monitoring
+ * 
+ * The class ensures that the fundamental principle of energy conservation
+ * is maintained throughout the simulation by tracking all energy pathways
+ * and providing detailed analysis of any discrepancies.
+ */
 class Metrics
 {
 public:
-	// Energy data structures
+	/**
+	 * @struct MediumEnergyData
+	 * @brief Energy statistics for a single medium layer
+	 * 
+	 * Tracks all forms of energy interaction within a specific medium
+	 * including absorption, scattering, and boundary interactions.
+	 */
 	struct MediumEnergyData {
-		double total_absorption = 0.0;
-		double specular_reflection = 0.0;
-		double diffuse_reflection = 0.0;
-		double surface_refraction = 0.0;
-		double specular_transmission = 0.0;
-		double diffuse_transmission = 0.0;
-		double scatter_events = 0.0;
+		double total_absorption = 0.0;      ///< Total energy absorbed within the medium
+		double specular_reflection = 0.0;   ///< Energy lost to specular reflection at boundaries
+		double diffuse_reflection = 0.0;    ///< Energy lost to diffuse reflection at boundaries  
+		double surface_refraction = 0.0;    ///< Energy transmitted through boundaries via refraction
+		double specular_transmission = 0.0; ///< Energy transmitted via specular transmission
+		double diffuse_transmission = 0.0;  ///< Energy transmitted via diffuse transmission
+		double scatter_events = 0.0;        ///< Number of scattering events within medium
 	};
 
+	/**
+	 * @struct EnergyConservation
+	 * @brief Global energy conservation tracking across all media
+	 * 
+	 * Provides comprehensive energy accounting to validate that the
+	 * fundamental principle of energy conservation is maintained.
+	 */
 	struct EnergyConservation {
-		double total_absorption = 0.0;
-		double total_reflection = 0.0; 
-		double total_transmission = 0.0;
-		double surface_reflection = 0.0;
-		double surface_refraction = 0.0;
-		double total_energy = 0.0;
-		double total_diffusion = 0.0;
+		double total_absorption = 0.0;      ///< Total energy absorbed across all media
+		double total_reflection = 0.0;      ///< Total energy reflected from all surfaces
+		double total_transmission = 0.0;    ///< Total energy transmitted through all boundaries
+		double surface_reflection = 0.0;    ///< Energy reflected at medium interfaces
+		double surface_refraction = 0.0;    ///< Energy refracted at medium interfaces
+		double total_energy = 0.0;          ///< Total input energy (should equal sum of outputs)
+		double total_diffusion = 0.0;       ///< Total diffusive energy transport
 	};
 
+	/**
+	 * @struct EnergyConservationPercentages
+	 * @brief Percentage-based energy conservation analysis
+	 * 
+	 * Converts absolute energy values to percentages for easy validation
+	 * of energy conservation laws and identification of energy leaks.
+	 */
 	struct EnergyConservationPercentages {
-		double baseline_energy = 0.0;
-		double surface_reflection_percent = 0.0;
-		double absorption_percent = 0.0;
-		double reflection_percent = 0.0;
-		double transmission_percent = 0.0;
-		double total_percent = 0.0;
-		double total_accounted = 0.0;
-		bool is_conserved{true}; // True if total_percent is close to 100%
+		double baseline_energy = 0.0;           ///< Reference energy level (100%)
+		double surface_reflection_percent = 0.0; ///< Surface reflection as percentage of input
+		double absorption_percent = 0.0;        ///< Absorption as percentage of input
+		double reflection_percent = 0.0;        ///< Total reflection as percentage of input
+		double transmission_percent = 0.0;      ///< Total transmission as percentage of input
+		double total_percent = 0.0;             ///< Sum of all energy pathways as percentage
+		double total_accounted = 0.0;           ///< Total accounted energy
+		bool is_conserved{true};                ///< True if total_percent is approximately 100%
 	};
 
-	// Unified energy display data structure for GUI and export
+	/**
+	 * @struct EnergyDisplayData
+	 * @brief Unified energy data structure for GUI display and export
+	 * 
+	 * Combines conservation data and percentage analysis with caching
+	 * support for efficient real-time display updates.
+	 */
 	struct EnergyDisplayData {
-		EnergyConservation conservation;
-		EnergyConservationPercentages percentages;
-		bool is_valid{false};
-		uint64_t cached_version{0};  // Track when data was cached
+		EnergyConservation conservation;     ///< Absolute energy conservation data
+		EnergyConservationPercentages percentages; ///< Percentage-based analysis
+		bool is_valid{false};                ///< True if data is current and valid
+		uint64_t cached_version{0};          ///< Simulation version when data was cached
 	};
 
 public:
+	/**
+	 * @brief Construct a new Metrics object with default values
+	 */
 	Metrics() = default;
+	
+	/**
+	 * @brief Destroy the Metrics object
+	 */
 	~Metrics() = default;
 
-	// Data collection methods
+	/**
+	 * @brief Add a vertex position for path length calculation
+	 * @param x X coordinate of photon position
+	 * @param y Y coordinate of photon position  
+	 * @param z Z coordinate of photon position
+	 */
 	void add_vertex(double x, double y, double z);
+	
+	/**
+	 * @brief Add a step size measurement for average calculation
+	 * @param s Step size in millimeters
+	 */
 	void add_step_size(double s);
+	
+	/**
+	 * @brief Increment the scatter event counter
+	 */
 	void increment_scatters();
 
+	/**
+	 * @brief Collect energy distribution data from simulation
+	 * @param at Absorption coefficient
+	 * @param rs Specular reflection coefficient
+	 * @param rd Diffuse reflection coefficient
+	 * @param sr Surface refraction coefficient
+	 * @param ts Specular transmission coefficient
+	 * @param td Diffuse transmission coefficient
+	 */
 	void collect_data(double at, double rs, double rd, double sr, double ts, double td);
+	
+	/**
+	 * @brief Calculate total diffusion distance from collected vertices
+	 * @return double Total path length in millimeters
+	 */
 	double compute_diffusion_distance() const;
+	
+	/**
+	 * @brief Calculate average step size from collected measurements
+	 * @return double Average step size in millimeters
+	 */
 	double compute_average_step_size() const;
+	
+	/**
+	 * @brief Calculate total path length from collected data
+	 * @return double Total path length in millimeters
+	 */
 	double compute_path_length() const;
 
+	/**
+	 * @brief Start timing measurement for performance analysis
+	 */
 	void start_clock();
+	
+	/**
+	 * @brief Stop timing measurement and record elapsed time
+	 */
 	void stop_clock();
 
+	/**
+	 * @brief Write metrics data to output file
+	 */
 	void write_to_file();
-	void print_report(const class Simulator& simulator); // Unified energy conservation reporting
+	
+	/**
+	 * @brief Print comprehensive simulation report with energy conservation analysis
+	 * @param simulator Reference to simulator for energy data access
+	 */
+	void print_report(const class Simulator& simulator);
+	
+	/**
+	 * @brief Reset all metrics to initial state
+	 */
 	void reset();
+	
+	/**
+	 * @brief Normalize raw energy values by photon count
+	 * @param divisor Number of photons for normalization
+	 */
 	void normalize_raw_values(double divisor);
+	
+	/**
+	 * @brief Reset absorption and diffuse reflection accumulators
+	 */
 	void reset_raw_absorption_and_diffuse();
 
-	// Energy statistics methods (moved from EnergyStatisticsManager)
+	/**
+	 * @brief Aggregate energy data across all mediums in simulation
+	 * @param simulator Reference to simulator for medium access
+	 * @return MediumEnergyData Combined energy statistics
+	 */
 	MediumEnergyData aggregate_medium_energy_data(const Simulator& simulator) const;
+	
+	/**
+	 * @brief Calculate energy conservation for validation
+	 * @param simulator Reference to simulator for energy data access
+	 * @return EnergyConservation Energy conservation analysis
+	 */
 	EnergyConservation calculate_energy_conservation(const Simulator& simulator) const;
+	
+	/**
+	 * @brief Calculate energy distribution percentages
+	 * @param simulator Reference to simulator for energy data access
+	 * @return EnergyConservationPercentages Percentage breakdown of energy pathways
+	 */
 	EnergyConservationPercentages calculate_energy_percentages(const Simulator& simulator) const;
 	
-	// Unified energy display data (single call for GUI and export)
+	/**
+	 * @brief Get unified energy data for GUI display and export
+	 * @param simulator Reference to simulator for energy data access
+	 * @return EnergyDisplayData Formatted energy data for visualization
+	 */
 	EnergyDisplayData get_energy_display_data(const Simulator& simulator) const;
 	
-	// Energy validation methods
+	/**
+	 * @brief Validate energy conservation within tolerance
+	 * @param simulator Reference to simulator for validation
+	 * @param tolerance_percent Acceptable error percentage (default 2.0%)
+	 * @return bool True if energy is conserved within tolerance
+	 */
 	bool is_energy_conserved(const Simulator& simulator, double tolerance_percent = 2.0) const;
+	
+	/**
+	 * @brief Calculate energy conservation error percentage
+	 * @param simulator Reference to simulator for error analysis
+	 * @return double Conservation error as percentage
+	 */
 	double get_conservation_error_percent(const Simulator& simulator) const;
 	
 	// Energy reporting methods

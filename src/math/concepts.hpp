@@ -1,3 +1,11 @@
+/**
+ * @file concepts.hpp
+ * @brief C++20 concepts for type constraints and generic programming
+ *
+ * Provides modern C++20 concepts for enforcing compile-time constraints
+ * on template parameters, improving code safety and error messages.
+ */
+
 #pragma once
 
 #include <algorithm>

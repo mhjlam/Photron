@@ -34,46 +34,125 @@ inline glm::vec3 to_float(const glm::dvec3& v) {
 }
 
 inline glm::vec4 to_float(const glm::dvec4& v) {
-	return glm::vec4(static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z),
-					 static_cast<float>(v.w));
+	return glm::vec4(
+		static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z), static_cast<float>(v.w));
 }
 
 /**
- * @brief Centralized mathematical and numerical constants
- * 
- * All mathematical constants and epsilon values used throughout the codebase.
- * Use these instead of defining local constants to maintain consistency.
+ * @namespace MathConstants
+ * @brief Centralized mathematical and numerical constants for consistent precision
+ *
+ * Provides all mathematical constants and epsilon values used throughout the codebase.
+ * Using these centralized constants instead of local definitions ensures numerical
+ * consistency across different modules and prevents precision-related bugs.
+ *
+ * **Mathematical Constants:**
+ * - Standard trigonometric constants (π, 2π, π/2, etc.)
+ * - Inverse constants for efficient division avoidance
+ * - Degree/radian conversion factors
+ *
+ * **Precision Constants:**
+ * - Geometric epsilon for spatial calculations
+ * - Boundary epsilon for photon-surface interactions
+ * - Simulation-specific thresholds and tolerances
+ *
+ * All constants are `constexpr` for compile-time evaluation and optimal performance.
  */
-namespace MathConstants 
+namespace MathConstants
 {
-	// Mathematical constants
-	constexpr double PI = std::numbers::pi;
-	constexpr double TWO_PI = 2.0 * PI;
-	constexpr double HALF_PI = PI / 2.0;
-	constexpr double INV_PI = 1.0 / PI;
-	constexpr double INV_TWO_PI = 1.0 / TWO_PI;
+/// Mathematical constant π (3.14159...)
+constexpr double PI = std::numbers::pi;
 
-	// Numerical precision constants
-	constexpr double GEOMETRIC_EPSILON = 1e-12;  // Used for geometric calculations
-	constexpr double BOUNDARY_EPSILON = 2e-9;    // Used for photon boundary nudging
-}
+/// Mathematical constant 2π for full rotations
+constexpr double TWO_PI = 2.0 * PI;
 
+/// Mathematical constant π/2 for right angles
+constexpr double HALF_PI = PI / 2.0;
+
+/// Inverse of π for efficient multiplication instead of division
+constexpr double INV_PI = 1.0 / PI;
+
+/// Inverse of 2π for efficient angle normalization
+constexpr double INV_TWO_PI = 1.0 / TWO_PI;
+
+/// Conversion factor from radians to degrees (180/π)
+constexpr double RAD_TO_DEG = 180.0 / PI;
+
+/// Conversion factor from degrees to radians (π/180)
+constexpr double DEG_TO_RAD = PI / 180.0;
+
+/// Numerical epsilon for geometric calculations and comparisons
+constexpr double GEOMETRIC_EPSILON = 1e-12;
+
+/// Larger epsilon for photon boundary nudging to prevent precision issues
+constexpr double BOUNDARY_EPSILON = 2e-9;
+
+/// MCML photon weight termination threshold for simulation efficiency
+constexpr double MCML_WEIGHT_THRESHOLD = 1e-4;
+
+/// Standard epsilon for photon position nudging to avoid surface precision issues
+constexpr double PHOTON_NUDGE_EPSILON = 1e-6;
+
+/// Epsilon for surface interaction calculations
+constexpr double SURFACE_NUDGE_EPSILON = 1e-6;
+
+/// Minimum photon step size threshold for simulation stability
+constexpr double STEP_SIZE_THRESHOLD = 1e-10;
+
+/// High precision threshold for normalization and distance calculations
+constexpr double PRECISION_THRESHOLD = 1e-12;
+
+/// Energy threshold for voxel rendering and emittance detection (float precision)
+constexpr float ENERGY_THRESHOLD = 1e-8f;
+
+/// UV coordinate matching epsilon for renderer texture operations
+constexpr float UV_MATCH_EPSILON = 0.001f;
+
+/// Vertex proximity threshold for geometric calculations
+constexpr double VERTEX_THRESHOLD = 1e-6;
+
+/// Ray intersection epsilon for avoiding self-intersection artifacts
+constexpr double RAY_INTERSECTION_EPSILON = 1e-12;
+} // namespace MathConstants
+
+/**
+ * @namespace GeometricUtils
+ * @brief Robust geometric utility functions with C++20 concepts
+ *
+ * Provides type-safe geometric operations using modern C++20 concepts for
+ * compile-time type checking. All functions are designed to handle floating-point
+ * precision issues gracefully and consistently.
+ */
 namespace GeometricUtils
 {
-
 /**
- * @brief Safe floating-point equality comparison with epsilon tolerance
- * @note Now uses C++20 concepts for compile-time type checking
+ * @brief Safe floating-point equality comparison with configurable tolerance
+ *
+ * Compares two floating-point values for approximate equality using an epsilon
+ * tolerance to handle floating-point precision limitations. Uses C++20 concepts
+ * to ensure type safety at compile time.
+ *
+ * @tparam T Floating-point type (enforced by FloatingPoint concept)
+ * @param a First value to compare
+ * @param b Second value to compare
+ * @param epsilon Tolerance for equality comparison
+ * @return true if values are approximately equal within tolerance
  */
 template<FloatingPoint T>
-constexpr bool approximately_equal(T a, T b,
-								   T epsilon = static_cast<T>(MathConstants::GEOMETRIC_EPSILON)) noexcept {
+constexpr bool approximately_equal(T a, T b, T epsilon = static_cast<T>(MathConstants::GEOMETRIC_EPSILON)) noexcept {
 	return std::abs(a - b) <= epsilon;
 }
 
 /**
- * @brief Safe floating-point zero comparison
- * @note Enhanced with C++20 concepts and constexpr
+ * @brief Safe floating-point zero comparison with configurable tolerance
+ *
+ * Tests if a floating-point value is approximately zero using epsilon tolerance.
+ * Essential for robust geometric calculations where exact zero comparisons fail.
+ *
+ * @tparam T Floating-point type (enforced by FloatingPoint concept)
+ * @param value Value to test against zero
+ * @param epsilon Tolerance for zero comparison
+ * @return true if value is approximately zero within tolerance
  */
 template<FloatingPoint T>
 constexpr bool approximately_zero(T value, T epsilon = static_cast<T>(MathConstants::GEOMETRIC_EPSILON)) noexcept {
@@ -147,12 +226,13 @@ inline void create_orthonormal_basis(const glm::dvec3& w, glm::dvec3& u, glm::dv
  * @brief Clamp value to range with epsilon tolerance for boundaries
  */
 template<typename T>
-inline T clamp_with_epsilon(T value, T min_val, T max_val,
-							T epsilon = static_cast<T>(MathConstants::GEOMETRIC_EPSILON)) {
-	if (value < min_val + epsilon)
-		return min_val;
-	if (value > max_val - epsilon)
-		return max_val;
+inline T clamp_with_epsilon(T value, T min, T max, T epsilon = static_cast<T>(MathConstants::GEOMETRIC_EPSILON)) {
+	if (value < min + epsilon) {
+		return min;
+	}
+	if (value > max - epsilon) {
+		return max;
+	}
 	return value;
 }
 

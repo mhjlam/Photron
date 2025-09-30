@@ -1,33 +1,38 @@
+/**
+ * @file config.cpp
+ * @brief Implementation of TOML-based configuration system with structured error handling
+ *
+ * Implements the singleton Config class providing centralized configuration management
+ * for the Photron Monte Carlo simulation. Handles TOML parsing, validation, and
+ * provides type-safe access to all configuration parameters.
+ */
+
 #include "config.hpp"
 
-// Add includes that were removed from the header
-#include "common/error_types.hpp"
-#include "common/result.hpp"
-#include "simulator/layer.hpp"
-#include "simulator/photon.hpp"
-#include "simulator/material.hpp"
-
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <limits>
 #include <sstream>
 #include <utility>
-#include <filesystem>
 
 #include <toml++/toml.h>
-#include "common/error_types.hpp"
 
-#include "logger.hpp"
-#include "common/result.hpp"
 #include "common/error_handler.hpp"
 #include "common/error_types.hpp"
+#include "common/result.hpp"
+#include "logger.hpp"
 #include "math/triangle.hpp"
+#include "simulator/layer.hpp"
+#include "simulator/material.hpp"
+#include "simulator/photon.hpp"
 
-// Static member definitions
+// Static member definitions for singleton pattern
 std::unique_ptr<Config> Config::instance_ = nullptr;
 bool Config::initialized_ = false;
 
 void Config::initialize() {
+	// Create default configuration instance
 	if (!initialized_) {
 		instance_ = std::unique_ptr<Config>(new Config());
 		initialized_ = true;
@@ -35,8 +40,11 @@ void Config::initialize() {
 }
 
 bool Config::initialize(const std::string& config_file) {
+	// Initialize with TOML configuration file
 	if (!initialized_) {
 		instance_ = std::unique_ptr<Config>(new Config());
+
+		// Parse and validate configuration file
 		auto result = instance_->parse_config_file(config_file);
 		if (!result.is_ok()) {
 			ErrorHandler::instance().report_error(ErrorMessage::format(result.error(), "Config initialization failed"));
@@ -54,16 +62,13 @@ bool Config::is_initialized() {
 }
 
 Config& Config::get() {
+	// Provide safe access to singleton with fallback handling
 	if (!initialized_ || !instance_) {
-		// Instead of throwing, create a temporary fallback instance
-		// This prevents crashes during error recovery
-		
-		// Create a minimal fallback config to prevent crashes
+		// Create emergency fallback instance to prevent crashes during error recovery
 		static std::unique_ptr<Config> fallback_instance = nullptr;
 		if (!fallback_instance) {
 			fallback_instance = std::unique_ptr<Config>(new Config());
-			// Initialize with minimal default values to prevent further crashes
-			// Set some safe defaults to prevent issues
+			// Set minimal defaults to prevent cascading failures
 			fallback_instance->config_filename_ = "No Configuration Loaded";
 		}
 		return *fallback_instance;
@@ -72,25 +77,25 @@ Config& Config::get() {
 }
 
 void Config::shutdown() {
+	// Clean singleton shutdown
 	instance_.reset();
 	initialized_ = false;
 }
 
-// Structured error handling version
 Result<void, ConfigError> Config::parse_config_file(const std::string& filename) {
-	// Check if file exists
+	// Validate file existence before parsing
 	if (!std::filesystem::exists(filename)) {
 		return Result<void, ConfigError>::error(ConfigError::FileNotFound);
 	}
 
 	try {
-		// Store the config filename
+		// Store configuration source for reference
 		config_filename_ = filename;
-		
-		// Parse TOML file
+
+		// Parse TOML configuration file
 		toml::table config = toml::parse_file(filename);
-		
-		// Parse each configuration section
+
+		// Parse each configuration section with validation
 		if (!parse_general_config(config)) {
 			return Result<void, ConfigError>::error(ConfigError::ValidationError);
 		}
@@ -100,9 +105,8 @@ Result<void, ConfigError> Config::parse_config_file(const std::string& filename)
 		if (!parse_layer_configs(config)) {
 			return Result<void, ConfigError>::error(ConfigError::GeometryError);
 		}
-		
+
 		return Result<void, ConfigError>::ok();
-		
 	}
 	catch (const toml::parse_error&) {
 		// Store error details for higher-level handling
@@ -125,15 +129,15 @@ bool Config::parse_general_config(const toml::table& config) {
 	if (auto photons = general["photons"].value<uint64_t>()) {
 		num_photons_ = *photons;
 	}
-	
+
 	if (auto voxel_size = general["voxel_size"].value<double>()) {
 		vox_size_ = *voxel_size;
 	}
-	
+
 	if (auto log = general["log"].value<bool>()) {
 		log_ = *log;
 	}
-	
+
 	if (auto deterministic = general["deterministic"].value<bool>()) {
 		deterministic_ = *deterministic;
 	}
@@ -156,12 +160,11 @@ bool Config::parse_source_config(const toml::table& config) {
 		if (!validate_array_size(*position_arr, 3, "Source position")) {
 			return false;
 		}
-		src.origin = glm::dvec3(
-			position_arr->at(0).value_or<double>(0.0),
-			position_arr->at(1).value_or<double>(0.0),
-			position_arr->at(2).value_or<double>(0.0)
-		);
-	} else {
+		src.origin = glm::dvec3(position_arr->at(0).value_or<double>(0.0),
+								position_arr->at(1).value_or<double>(0.0),
+								position_arr->at(2).value_or<double>(0.0));
+	}
+	else {
 		ErrorHandler::instance().report_error("Source position must be an array of 3 numbers");
 		return false;
 	}
@@ -171,12 +174,11 @@ bool Config::parse_source_config(const toml::table& config) {
 		if (!validate_array_size(*direction_arr, 3, "Source direction")) {
 			return false;
 		}
-		src.direction = glm::dvec3(
-			direction_arr->at(0).value_or<double>(0.0),
-			direction_arr->at(1).value_or<double>(0.0),
-			direction_arr->at(2).value_or<double>(0.0)
-		);
-	} else {
+		src.direction = glm::dvec3(direction_arr->at(0).value_or<double>(0.0),
+								   direction_arr->at(1).value_or<double>(0.0),
+								   direction_arr->at(2).value_or<double>(0.0));
+	}
+	else {
 		ErrorHandler::instance().report_error("Source direction must be an array of 3 numbers");
 		return false;
 	}
@@ -235,7 +237,9 @@ bool Config::parse_layer_configs(const toml::table& config) {
 
 		// Validate required material properties
 		if (!has_eta || !has_mua || !has_mus || !has_ani) {
-			ErrorHandler::instance().report_error("Layer " + std::to_string((int)layer.id) + " is missing required material properties. All layers must define: eta, mua, mus, ani");
+			ErrorHandler::instance().report_error(
+				"Layer " + std::to_string((int)layer.id)
+				+ " is missing required material properties. All layers must define: eta, mua, mus, ani");
 			return false;
 		}
 
@@ -246,8 +250,9 @@ bool Config::parse_layer_configs(const toml::table& config) {
 		if (!validate_range(eta, 1.0, 3.0, "refractive index (eta)", layer.id)) {
 			return false;
 		}
-		if (!validate_range(mua, 0.0, std::numeric_limits<double>::max(), "absorption coefficient (mua)", layer.id) ||
-		    !validate_range(mus, 0.0, std::numeric_limits<double>::max(), "scattering coefficient (mus)", layer.id)) {
+		if (!validate_range(mua, 0.0, std::numeric_limits<double>::max(), "absorption coefficient (mua)", layer.id)
+			|| !validate_range(
+				mus, 0.0, std::numeric_limits<double>::max(), "scattering coefficient (mus)", layer.id)) {
 			return false;
 		}
 
@@ -259,7 +264,8 @@ bool Config::parse_layer_configs(const toml::table& config) {
 		// Parse vertices
 		if (auto vertices_arr = (*layer_table)["vertices"].as_array()) {
 			vertices = parse_vertices(*vertices_arr);
-		} else {
+		}
+		else {
 			ErrorHandler::instance().report_error("Layer " + std::to_string((int)layer.id) + " missing vertices array");
 			return false;
 		}
@@ -267,21 +273,23 @@ bool Config::parse_layer_configs(const toml::table& config) {
 		// Parse faces
 		if (auto faces_arr = (*layer_table)["faces"].as_array()) {
 			faces = parse_faces(*faces_arr);
-		} else {
+		}
+		else {
 			ErrorHandler::instance().report_error("Layer " + std::to_string((int)layer.id) + " missing faces array");
 			return false;
 		}
 
 		// Validate geometry
-		if (!validate_geometry_size(vertices.size(), 4, "vertices", layer.id) ||
-		    !validate_geometry_size(faces.size(), 4, "faces", layer.id)) {
+		if (!validate_geometry_size(vertices.size(), 4, "vertices", layer.id)
+			|| !validate_geometry_size(faces.size(), 4, "faces", layer.id)) {
 			return false;
 		}
 
 		// Build triangle mesh
 		for (const auto& face : faces) {
 			if (face.x >= vertices.size() || face.y >= vertices.size() || face.z >= vertices.size()) {
-				ErrorHandler::instance().report_error("Layer " + std::to_string((int)layer.id) + " has face with invalid vertex index");
+				ErrorHandler::instance().report_error("Layer " + std::to_string((int)layer.id)
+													  + " has face with invalid vertex index");
 				return false;
 			}
 
@@ -303,9 +311,8 @@ bool Config::parse_layer_configs(const toml::table& config) {
 
 		if (log_) {
 			std::ostringstream debug_msg;
-			debug_msg << "Created material " << (int)layer.tissue_id 
-			          << " for layer " << (int)layer.id
-			          << " (eta=" << eta << ", mua=" << mua << ", mus=" << mus << ", ani=" << ani << ")";
+			debug_msg << "Created material " << (int)layer.tissue_id << " for layer " << (int)layer.id
+					  << " (eta=" << eta << ", mua=" << mua << ", mus=" << mus << ", ani=" << ani << ")";
 			Logger::instance().log_info(debug_msg.str());
 		}
 
@@ -320,22 +327,14 @@ glm::dvec3 Config::parse_vec3(const toml::array& arr) const {
 	if (arr.size() != 3) {
 		throw std::runtime_error("Vec3 array must have exactly 3 elements");
 	}
-	return glm::dvec3(
-		arr[0].value_or<double>(0.0),
-		arr[1].value_or<double>(0.0),
-		arr[2].value_or<double>(0.0)
-	);
+	return glm::dvec3(arr[0].value_or<double>(0.0), arr[1].value_or<double>(0.0), arr[2].value_or<double>(0.0));
 }
 
 glm::uvec3 Config::parse_uvec3(const toml::array& arr) const {
 	if (arr.size() != 3) {
 		throw std::runtime_error("UVec3 array must have exactly 3 elements");
 	}
-	return glm::uvec3(
-		arr[0].value_or<uint32_t>(0),
-		arr[1].value_or<uint32_t>(0),
-		arr[2].value_or<uint32_t>(0)
-	);
+	return glm::uvec3(arr[0].value_or<uint32_t>(0), arr[1].value_or<uint32_t>(0), arr[2].value_or<uint32_t>(0));
 }
 
 std::vector<glm::dvec3> Config::parse_vertices(const toml::array& vertices_array) const {
@@ -345,7 +344,8 @@ std::vector<glm::dvec3> Config::parse_vertices(const toml::array& vertices_array
 	for (const auto& vertex_node : vertices_array) {
 		if (auto vertex_arr = vertex_node.as_array()) {
 			vertices.push_back(parse_vec3(*vertex_arr));
-		} else {
+		}
+		else {
 			throw std::runtime_error("Each vertex must be an array of 3 numbers");
 		}
 	}
@@ -360,7 +360,8 @@ std::vector<glm::uvec3> Config::parse_faces(const toml::array& faces_array) cons
 	for (const auto& face_node : faces_array) {
 		if (auto face_arr = face_node.as_array()) {
 			faces.push_back(parse_uvec3(*face_arr));
-		} else {
+		}
+		else {
 			throw std::runtime_error("Each face must be an array of 3 vertex indices");
 		}
 	}
@@ -375,7 +376,8 @@ std::vector<glm::dvec3> Config::parse_normals(const toml::array& normals_array) 
 	for (const auto& normal_node : normals_array) {
 		if (auto normal_arr = normal_node.as_array()) {
 			normals.push_back(glm::normalize(parse_vec3(*normal_arr)));
-		} else {
+		}
+		else {
 			throw std::runtime_error("Each normal must be an array of 3 numbers");
 		}
 	}
@@ -394,7 +396,8 @@ bool Config::validate_range(T value, T min, T max, const std::string& param_name
 		}
 		if (max == std::numeric_limits<T>::max()) {
 			error_msg << ". Must be >= " << min;
-		} else {
+		}
+		else {
 			error_msg << ". Must be between " << min << " and " << max;
 		}
 		ErrorHandler::instance().report_error(ErrorMessage::format(ConfigError::ValidationError, error_msg.str()));
@@ -405,7 +408,8 @@ bool Config::validate_range(T value, T min, T max, const std::string& param_name
 
 bool Config::validate_array_size(const toml::array& arr, size_t expected_size, const std::string& param_name) const {
 	if (arr.size() != expected_size) {
-		ErrorHandler::instance().report_error(param_name + " must be an array of " + std::to_string(expected_size) + " numbers");
+		ErrorHandler::instance().report_error(param_name + " must be an array of " + std::to_string(expected_size)
+											  + " numbers");
 		return false;
 	}
 	return true;
@@ -414,7 +418,8 @@ bool Config::validate_array_size(const toml::array& arr, size_t expected_size, c
 bool Config::validate_geometry_size(size_t actual_size, size_t min_size, const std::string& type, int layer_id) const {
 	if (actual_size < min_size) {
 		std::ostringstream error_msg;
-		error_msg << "Layer " << layer_id << " must have at least " << min_size << " " << type << " for a valid polyhedron";
+		error_msg << "Layer " << layer_id << " must have at least " << min_size << " " << type
+				  << " for a valid polyhedron";
 		ErrorHandler::instance().report_error(ErrorMessage::format(ConfigError::GeometryError, error_msg.str()));
 		return false;
 	}
@@ -423,11 +428,14 @@ bool Config::validate_geometry_size(size_t actual_size, size_t min_size, const s
 
 // Structured error validation method implementations
 template<typename T>
-Result<void, ConfigError> Config::validate_range_structured(T value, T min, T max, const std::string& param_name, int layer_id) const {
+Result<void, ConfigError> Config::validate_range_structured(
+	T value, T min, T max, const std::string& param_name, int layer_id) const {
 	if (value < min || value > max) {
 		std::ostringstream error_msg;
 		error_msg << "Validation failed for parameter '" << param_name << "'";
-		if (layer_id >= 0) error_msg << " in layer " << layer_id;
+		if (layer_id >= 0) {
+			error_msg << " in layer " << layer_id;
+		}
 		error_msg << ": value " << value << " not in range [" << min << ", " << max << "]";
 		ErrorHandler::instance().report_error(ErrorMessage::format(ConfigError::InvalidValue, error_msg.str()));
 		return Result<void, ConfigError>::error(ConfigError::InvalidValue);
@@ -435,20 +443,27 @@ Result<void, ConfigError> Config::validate_range_structured(T value, T min, T ma
 	return Result<void, ConfigError>::ok();
 }
 
-Result<void, ConfigError> Config::validate_array_size_structured(const toml::array& arr, size_t expected_size, const std::string& param_name) const {
+Result<void, ConfigError> Config::validate_array_size_structured(const toml::array& arr,
+																 size_t expected_size,
+																 const std::string& param_name) const {
 	if (arr.size() != expected_size) {
-		std::cerr << "Array validation failed for parameter '" << param_name 
-			  << "': array has " << arr.size() << " elements, expected " << expected_size << std::endl;
+		std::cerr << "Array validation failed for parameter '" << param_name << "': array has " << arr.size()
+				  << " elements, expected " << expected_size << std::endl;
 		return Result<void, ConfigError>::error(ConfigError::ValidationError);
 	}
 	return Result<void, ConfigError>::ok();
 }
 
-Result<void, ConfigError> Config::validate_geometry_size_structured(size_t actual_size, size_t min_size, const std::string& type, int layer_id) const {
+Result<void, ConfigError> Config::validate_geometry_size_structured(size_t actual_size,
+																	size_t min_size,
+																	const std::string& type,
+																	int layer_id) const {
 	if (actual_size < min_size) {
 		std::ostringstream error_msg;
 		error_msg << "Geometry validation failed for " << type << " geometry";
-		if (layer_id >= 0) error_msg << " in layer " << layer_id;
+		if (layer_id >= 0) {
+			error_msg << " in layer " << layer_id;
+		}
 		error_msg << ": has " << actual_size << " elements, minimum required is " << min_size;
 		ErrorHandler::instance().report_error(ErrorMessage::format(ConfigError::GeometryError, error_msg.str()));
 		return Result<void, ConfigError>::error(ConfigError::GeometryError);
@@ -457,9 +472,14 @@ Result<void, ConfigError> Config::validate_geometry_size_structured(size_t actua
 }
 
 // Explicit template instantiations
-template bool Config::validate_range<double>(double value, double min, double max, const std::string& param_name, int layer_id) const;
+template bool Config::validate_range<double>(
+	double value, double min, double max, const std::string& param_name, int layer_id) const;
 
-// Structured error template instantiations  
-template Result<void, ConfigError> Config::validate_range_structured<double>(double, double, double, const std::string&, int) const;
+// Structured error template instantiations
+template Result<void, ConfigError> Config::validate_range_structured<double>(
+	double, double, double, const std::string&, int) const;
+
 template Result<void, ConfigError> Config::validate_range_structured<int>(int, int, int, const std::string&, int) const;
-template Result<void, ConfigError> Config::validate_range_structured<size_t>(size_t, size_t, size_t, const std::string&, int) const;
+
+template Result<void, ConfigError> Config::validate_range_structured<size_t>(
+	size_t, size_t, size_t, const std::string&, int) const;

@@ -1,28 +1,46 @@
 #version 450 core
 
-layout(location = 0) in vec3 aPosition;
-layout(location = 1) in vec4 aColor;
+// Base triangle vertex (local coordinates)
+layout (location = 0) in vec3 aPosition;
 
+// Per-instance attributes  
+layout (location = 1) in vec3 aInstanceV0;
+layout (location = 2) in vec3 aInstanceV1;
+layout (location = 3) in vec3 aInstanceV2;
+layout (location = 4) in vec4 aInstanceColor;
+layout (location = 5) in vec3 aInstanceNormal;
+
+// Uniforms
 uniform mat4 uMVP;
-uniform vec4 uClipPlanes[6]; // Support up to 6 clipping planes
-uniform int uNumClipPlanes;  // Number of active clipping planes
 
-out vec4 vColor;
-out float gl_ClipDistance[6]; // Built-in clipping distances
+// Output to fragment shader
+out vec4 vertexColor;
+out vec3 worldPos;
+out vec3 worldNormal;
 
 void main() {
-    gl_Position = uMVP * vec4(aPosition, 1.0);
-    vColor = aColor;
+    // Transform base vertex using barycentric coordinates
+    vec3 worldPosition;
     
-    // Calculate clip distances for each active plane
-    for (int i = 0; i < uNumClipPlanes && i < 6; i++) {
-        // Plane equation: ax + by + cz + d = 0
-        // Distance from point to plane: ax + by + cz + d
-        gl_ClipDistance[i] = dot(aPosition, uClipPlanes[i].xyz) + uClipPlanes[i].w;
+    // Map base triangle (0,0,0), (1,0,0), (0,1,0) to instance triangle
+    if (aPosition.x == 0.0 && aPosition.y == 0.0) {
+        // First vertex maps to v0
+        worldPosition = aInstanceV0;
+    }
+    else if (aPosition.x == 1.0 && aPosition.y == 0.0) {
+        // Second vertex maps to v1
+        worldPosition = aInstanceV1;
+    }
+    else {
+        // Third vertex maps to v2
+        worldPosition = aInstanceV2;
     }
     
-    // Disable unused clip planes
-    for (int i = uNumClipPlanes; i < 6; i++) {
-        gl_ClipDistance[i] = 1.0; // Always positive = not clipped
-    }
+    // Transform to clip space
+    gl_Position = uMVP * vec4(worldPosition, 1.0);
+    
+    // Pass through instance data
+    vertexColor = aInstanceColor;
+    worldPos = worldPosition;
+    worldNormal = aInstanceNormal;
 }

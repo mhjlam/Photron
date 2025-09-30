@@ -1,3 +1,12 @@
+/**
+ * @file volume.hpp
+ * @brief 3D voxel grid management for Monte Carlo simulation domain
+ *
+ * Provides efficient 3D voxel grid operations including grid access,
+ * voxelization algorithms, and volume fraction calculations for
+ * accurate Monte Carlo photon transport simulation.
+ */
+
 #pragma once
 
 #include <cstdint>
@@ -38,9 +47,27 @@ struct VoxelClassification {
 class Volume
 {
 public:
-	// Constructors and destructor
+	/**
+	 * @brief Default constructor for empty volume
+	 * 
+	 * Creates uninitialized volume with zero dimensions.
+	 * Must call initialization method before use.
+	 */
 	Volume();
+
+	/**
+	 * @brief Constructor for volume with specified dimensions and voxel size
+	 * 
+	 * Allocates and initializes voxel grid with given parameters.
+	 * Total voxels = num_x * num_y * num_z.
+	 * 
+	 * @param voxel_size Physical size of each cubic voxel
+	 * @param num_x Number of voxels in X dimension
+	 * @param num_y Number of voxels in Y dimension  
+	 * @param num_z Number of voxels in Z dimension
+	 */
 	Volume(double voxel_size, uint32_t num_x, uint32_t num_y, uint32_t num_z);
+
 	~Volume();
 
 	// Delete copy constructor and copy assignment (non-copyable due to unique ownership)
@@ -58,7 +85,17 @@ public:
 	Voxel* at(uint32_t x, uint32_t y, uint32_t z);
 	const Voxel* at(uint32_t x, uint32_t y, uint32_t z) const;
 
-	// Linear indexing
+	/**
+	 * @brief Convert 3D voxel coordinates to linear array index
+	 * 
+	 * Computes linear index using row-major ordering: index = z*nx*ny + y*nx + x.
+	 * Essential for efficient voxel storage and access in 1D array.
+	 * 
+	 * @param x X coordinate in voxel grid
+	 * @param y Y coordinate in voxel grid
+	 * @param z Z coordinate in voxel grid
+	 * @return Linear index for voxel storage array
+	 */
 	uint32_t calculate_index(uint32_t x, uint32_t y, uint32_t z) const;
 	Voxel* at(uint32_t linear_index);
 	const Voxel* at(uint32_t linear_index) const;
@@ -74,7 +111,12 @@ public:
 
 	constexpr const glm::uvec3& dimensions() const { return dimensions_; }
 
-	// Grid management
+	/**
+	 * @brief Clear all voxel data and reset volume to empty state
+	 * 
+	 * Deallocates all voxels, resets dimensions to zero, and
+	 * prepares volume for reinitialization or destruction.
+	 */
 	void clear();
 	inline bool is_valid_coordinate(uint32_t x, uint32_t y, uint32_t z) const {
 		return x < dimensions_.x && y < dimensions_.y && z < dimensions_.z;
@@ -147,16 +189,37 @@ private:
 	double voxel_size_ {0.0};                    ///< Size of each voxel (uniform cubic voxels)
 	std::vector<std::unique_ptr<Voxel>> voxels_; ///< Linear storage for voxel smart pointers
 
-	// Private helper methods for grid management
+	/**
+	 * @brief Initialize voxel storage and allocate memory
+	 * 
+	 * Allocates vector storage for voxel pointers and initializes
+	 * each voxel with proper coordinates and default values.
+	 */
 	void initialize_voxels();
+
+	/**
+	 * @brief Clean up voxel storage and release memory
+	 * 
+	 * Properly deallocates all voxel objects and clears storage
+	 * vectors to prevent memory leaks.
+	 */
 	void cleanup_voxels();
 	inline bool is_valid_index(uint32_t linear_index) const {
 		return linear_index < total_voxels_;
 	}
 
-	// Private helper methods for volume calculation
 	/**
-	 * @brief Recursive subdivision method for volume calculation.
+	 * @brief Recursive subdivision algorithm for accurate volume fraction calculation
+	 * 
+	 * Adaptively subdivides voxel regions to compute precise volume fractions
+	 * for complex geometries. Uses recursive refinement until convergence.
+	 * 
+	 * @param min_corner Minimum corner of subdivision region
+	 * @param max_corner Maximum corner of subdivision region
+	 * @param layers Vector of mesh layers to test against
+	 * @param depth Current recursion depth
+	 * @param max_depth Maximum allowed recursion depth
+	 * @return Volume fraction [0.0, 1.0] for the subdivision region
 	 */
 	double subdivide_test(const glm::dvec3& min_corner, const glm::dvec3& max_corner, 
 		const std::vector<Layer>& layers, int depth, int max_depth) const;

@@ -1,3 +1,13 @@
+/**
+ * @file medium.hpp
+ * @brief Multi-layered medium representation for Monte Carlo photon transport
+ * 
+ * The Medium class represents a complete multi-layered material system with
+ * heterogeneous optical properties. It manages voxelized geometry, layer
+ * definitions, material properties, and energy statistics for photon transport
+ * simulation in complex biological or synthetic materials.
+ */
+
 #pragma once
 
 // Standard library includes
@@ -12,36 +22,98 @@
 #include "simulator/material.hpp"
 #include "math/range.hpp"
 
+/**
+ * @class Medium
+ * @brief Multi-layered medium with voxelized geometry for photon transport simulation
+ * 
+ * The Medium class represents a complete heterogeneous material system consisting
+ * of multiple layers with varying optical properties. Key responsibilities include:
+ * 
+ * - **Layer Management**: Defines and manages multiple material layers with different properties
+ * - **Voxelization**: Converts geometric layer definitions into discrete voxel grids
+ * - **Material Properties**: Associates optical properties (absorption, scattering) with spatial regions
+ * - **Energy Tracking**: Monitors energy deposition and transport statistics
+ * - **Boundary Handling**: Manages interfaces between different material layers
+ * 
+ * The class supports complex geometries including:
+ * - Planar layers (typical biological tissues)
+ * - Curved interfaces
+ * - Embedded objects and inclusions
+ * - Varying voxel resolutions
+ * 
+ * Each medium maintains its own coordinate system and can be combined with
+ * other media for more complex simulation scenarios.
+ */
 class Medium
 {
 public:
-    // Constructor
+    /**
+     * @brief Construct a new Medium with configuration reference
+     * 
+     * Initializes the medium structure based on the provided configuration.
+     * The configuration defines layer geometry, material properties, and
+     * voxelization parameters.
+     * 
+     * @param config Reference to global configuration object
+     */
     Medium(Config& config);
     
-    // Destructor
+    /**
+     * @brief Default destructor
+     */
     ~Medium() = default;
 
-    // Move semantics
-    Medium(Medium&&) = default;
-    Medium& operator=(Medium&&) = default;
+    // Move semantics (copy disabled due to Volume complexity)
+    Medium(Medium&&) = default;                ///< Move constructor
+    Medium& operator=(Medium&&) = default;     ///< Move assignment
     
-    // Delete copy semantics due to Volume
-    Medium(const Medium&) = delete;
-    Medium& operator=(const Medium&) = delete;
+    Medium(const Medium&) = delete;            ///< Copy constructor disabled
+    Medium& operator=(const Medium&) = delete; ///< Copy assignment disabled
 
-    // Initialize the medium with given configuration
+    /**
+     * @brief Initialize medium geometry and data structures
+     * 
+     * Performs complete initialization of the medium including layer setup,
+     * volume allocation, and material property assignment. Must be called
+     * before using the medium for simulation.
+     * 
+     * @return true if initialization succeeded, false otherwise
+     */
     bool initialize();
 
-    // Voxelize the layers into the volume
+    /**
+     * @brief Convert layer definitions into discrete voxel representation
+     * 
+     * Discretizes the continuous layer geometry into a regular voxel grid
+     * with appropriate material property assignment. This is a critical step
+     * that affects both simulation accuracy and performance.
+     * 
+     * @return true if voxelization succeeded, false otherwise
+     */
     bool voxelize_layers();
     
-    // Reset simulation data
+    /**
+     * @brief Reset all simulation data for new run
+     * 
+     * Clears energy deposition data, photon counts, and other simulation
+     * state while preserving geometry and material properties.
+     */
     void reset_simulation_data();
     
-    // Normalize recorded values
+    /**
+     * @brief Normalize recorded energy values by photon count
+     * 
+     * Applies normalization to accumulated energy data to obtain
+     * per-photon statistics and physical units.
+     */
     void normalize();
     
-    // Write results to files
+    /**
+     * @brief Export simulation results to output files
+     * 
+     * Writes energy deposition maps, statistical summaries, and
+     * visualization data to configured output files.
+     */
     void write_results() const;
 
     // Getters

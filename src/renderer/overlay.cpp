@@ -1,58 +1,68 @@
+/**
+ * @file overlay.cpp
+ * @brief Implementation of ImGui-based user interface overlay
+ *
+ * Implements the Overlay class providing comprehensive GUI controls for
+ * Monte Carlo simulation parameters, real-time visualization settings,
+ * and results analysis. Features optimized caching for performance and
+ * intuitive file dialog management.
+ */
+
 #include "overlay.hpp"
 
 // Add includes for complete type definitions
-#include "simulator/medium.hpp"
-#include "simulator/volume.hpp"
-#include "simulator/voxel.hpp"
-#include "simulator/photon.hpp"
-#include "simulator/simulator.hpp"
-
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <iostream>
-#include <cmath>
 #include <limits>
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 
-#include "simulator/simulator.hpp"
 #include "simulator/config.hpp"
+#include "simulator/medium.hpp"
+#include "simulator/photon.hpp"
+#include "simulator/simulator.hpp"
+#include "simulator/volume.hpp"
+#include "simulator/voxel.hpp"
 
-// Optimized 8-character decimal formatter with change-based caching
-struct CachedFormat {
-	double last_value = -999999.0; // Use impossible value instead of NaN
+// Optimized numerical formatting with multi-slot caching
+struct CachedFormat
+{
+	double last_value = -999999.0; // Use impossible value for invalid state
 	char cached_string[16] = {0};
 	bool is_valid = false;
 };
 
-static CachedFormat format_cache[16]; // Multiple cache slots for different values
+// Multiple cache slots for concurrent value formatting
+static CachedFormat format_cache[16];
 static int cache_slot = 0;
 
 static const char* format_8char(double value) {
-	// Find existing cache slot for this value or use next available slot
+	// Find existing cache slot or allocate new one
 	CachedFormat* slot = nullptr;
-	
-	// First, check if we already have this value cached
+
+	// Check if value is already cached for reuse
 	for (int i = 0; i < 16; i++) {
 		if (format_cache[i].is_valid && std::abs(format_cache[i].last_value - value) < 1e-9) {
 			slot = &format_cache[i];
 			break;
 		}
 	}
-	
-	// If not found, use the next cache slot (round-robin)
+
+	// Use round-robin cache allocation for new values
 	if (!slot) {
 		slot = &format_cache[cache_slot];
 		cache_slot = (cache_slot + 1) % 16;
 	}
-	
-	// Only recalculate if value changed or slot is invalid
+
+	// Recalculate format only if value changed
 	if (!slot->is_valid || std::abs(slot->last_value - value) >= 1e-9) {
 		slot->last_value = value;
 		slot->is_valid = true;
-		
+
 		// Try precision from 6 down to 0 until it fits in 8 characters
 		bool formatted = false;
 		for (int precision = 6; precision >= 0 && !formatted; precision--) {
@@ -61,22 +71,22 @@ static const char* format_8char(double value) {
 				formatted = true;
 			}
 		}
-		
-		// If still too long, try without decimal point
+
+		// Fallback formatting for very large numbers
 		if (!formatted) {
 			snprintf(slot->cached_string, sizeof(slot->cached_string), "%.0f", value);
-			
-			// If still too long, truncate
+
+			// Truncate if still too long
 			if (strlen(slot->cached_string) > 8) {
 				slot->cached_string[8] = '\0';
 			}
 		}
 	}
-	
+
 	return slot->cached_string;
 }
 
-// Helper function for ImGui tooltips
+// ImGui helper function for consistent tooltips
 static void HelpMarker(const char* desc) {
 	ImGui::TextDisabled("(?)");
 	if (ImGui::IsItemHovered()) {
@@ -89,20 +99,20 @@ static void HelpMarker(const char* desc) {
 }
 
 Overlay::Overlay() :
-	ui_enabled_(true), show_file_dialog_(false), deferred_open_config_(false),
-	file_dialog_mode_(FileDialogMode::LoadConfig), current_directory_("config/"),
+	ui_enabled_(true), show_file_dialog_(false), deferred_open_config_(false), current_directory_("config/"),
 	show_save_feedback_(false), save_feedback_timer_(0.0f) {
+	// Initialize file path buffer and dialog state
 	std::fill(std::begin(file_path_buffer_), std::end(file_path_buffer_), '\0');
 	file_path_.clear();
 }
 
 Overlay::~Overlay() {
+	// Clean shutdown of ImGui systems
 	shutdown();
 }
 
 void Overlay::open_config_dialog() {
 	show_file_dialog_ = true;
-	file_dialog_mode_ = FileDialogMode::LoadConfig;
 }
 
 void Overlay::open_config_dialog_deferred() {
@@ -161,7 +171,6 @@ void Overlay::handle_keyboard_shortcuts(bool has_simulator) {
 	// Ctrl+O: Load Config (always available)
 	if (ctrl_pressed && ImGui::IsKeyPressed(ImGuiKey_O)) {
 		show_file_dialog_ = true;
-		file_dialog_mode_ = FileDialogMode::LoadConfig;
 	}
 
 	// R: Run Simulation (only when simulator available)
@@ -192,21 +201,20 @@ void Overlay::render() {
 	// Check for deferred dialog opening
 	if (deferred_open_config_) {
 		show_file_dialog_ = true;
-		file_dialog_mode_ = FileDialogMode::LoadConfig;
 		deferred_open_config_ = false;
 	}
 
 	// Handle keyboard shortcuts
 	handle_keyboard_shortcuts(false); // No simulator available
 
-	render_main_menu_bar(false); // No simulator available
+	render_main_menu_bar(false);      // No simulator available
 	render_control_panel();
 
 	// Render file dialog if needed
 	if (show_file_dialog_) {
 		render_file_dialog();
 	}
-	
+
 	// Render save feedback if needed
 	render_save_feedback();
 
@@ -224,7 +232,6 @@ void Overlay::render_with_simulator(Simulator& simulator) {
 	// Check for deferred dialog opening
 	if (deferred_open_config_) {
 		show_file_dialog_ = true;
-		file_dialog_mode_ = FileDialogMode::LoadConfig;
 		deferred_open_config_ = false;
 	}
 
@@ -234,14 +241,14 @@ void Overlay::render_with_simulator(Simulator& simulator) {
 	// Handle keyboard shortcuts
 	handle_keyboard_shortcuts(true); // Simulator is available
 
-	render_main_menu_bar(true); // Simulator is available
+	render_main_menu_bar(true);      // Simulator is available
 	render_control_panel(&simulator);
 
 	// Render file dialog if needed
 	if (show_file_dialog_) {
 		render_file_dialog();
 	}
-	
+
 	// Render save feedback if needed
 	render_save_feedback();
 
@@ -253,12 +260,11 @@ void Overlay::render_with_simulator(Simulator& simulator) {
 void Overlay::render_main_menu_bar(bool has_simulator) {
 	if (ImGui::BeginMainMenuBar()) {
 		if (ImGui::BeginMenu("File")) {
-			if (ImGui::MenuItem("Load Config...", "Ctrl+O", false, ui_enabled_)) {
+			if (ImGui::MenuItem("Load...", "Ctrl+O", false, ui_enabled_)) {
 				show_file_dialog_ = true;
-				file_dialog_mode_ = FileDialogMode::LoadConfig;
 			}
 			ImGui::Separator();
-			if (ImGui::MenuItem("Exit")) {
+			if (ImGui::MenuItem("Exit", "ESC")) {
 				glfwSetWindowShouldClose(glfwGetCurrentContext(), GLFW_TRUE);
 			}
 			ImGui::EndMenu();
@@ -272,18 +278,18 @@ void Overlay::render_main_menu_bar(bool has_simulator) {
 			ImGui::EndMenu();
 		}
 		if (ImGui::BeginMenu("Simulation")) {
-			if (ImGui::MenuItem("Add Photon", "R", false, ui_enabled_ && has_simulator)) {
+			if (ImGui::MenuItem("Launch Photon", "R", false, ui_enabled_ && has_simulator)) {
 				if (run_simulation_callback_) {
 					run_simulation_callback_();
 				}
 			}
-			if (ImGui::MenuItem("Re-Run Simulation", "Ctrl+R", false, ui_enabled_ && has_simulator)) {
+			if (ImGui::MenuItem("Rerun Simulation", "Ctrl+R", false, ui_enabled_ && has_simulator)) {
 				if (rerun_simulation_callback_) {
 					rerun_simulation_callback_();
 				}
 			}
 			ImGui::Separator();
-			if (ImGui::MenuItem("Save Results", "Ctrl+S", false, ui_enabled_ && has_simulator)) {
+			if (ImGui::MenuItem("Save Statistics", "Ctrl+S", false, ui_enabled_ && has_simulator)) {
 				if (direct_save_results_callback_) {
 					direct_save_results_callback_();
 				}
@@ -299,13 +305,13 @@ void Overlay::render_main_menu_bar(bool has_simulator) {
 			std::filesystem::path path(config_path);
 			config_name = path.filename().string();
 		}
-		
+
 		float text_width = ImGui::CalcTextSize(config_name.c_str()).x;
 		ImGui::SetCursorPosX((menu_bar_width - text_width) * 0.5f);
 		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f)); // Gray color
 		ImGui::Text("%s", config_name.c_str());
 		ImGui::PopStyleColor();
-		
+
 		// Add controls help in the upper-right corner
 		ImGui::SetCursorPosX(menu_bar_width - 30);
 		ImGui::Text("?");
@@ -313,11 +319,10 @@ void Overlay::render_main_menu_bar(bool has_simulator) {
 			ImGui::BeginTooltip();
 			ImGui::Text("Controls");
 			ImGui::Separator();
-			ImGui::Text("ESC: Exit application");
 			ImGui::Text("Orbit Mode:");
 			ImGui::BulletText("Left Mouse: Hold to orbit");
 			ImGui::BulletText("Right Mouse: Hold to zoom");
-			ImGui::BulletText("Scroll Wheel: Move along the medium layers");
+			ImGui::BulletText("Scroll Wheel: Move along the Y axis");
 			ImGui::Text("Free Mode:");
 			ImGui::BulletText("WASD: Move forward/back/left/right");
 			ImGui::BulletText("Space/Shift: Move up/down");
@@ -336,7 +341,7 @@ void Overlay::render_control_panel(Simulator* simulator) {
 
 	// Set window position and size to be larger to accommodate more information
 	ImGui::SetNextWindowPos(ImVec2(10, 30), ImGuiCond_FirstUseEver);
-	ImGui::SetNextWindowSize(ImVec2(240, 720), ImGuiCond_Always); // Force size update every time
+	ImGui::SetNextWindowSize(ImVec2(240, 720), ImGuiCond_Always); // Set size every time
 
 	// Create non-movable, non-resizable window like VolRec
 	ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
@@ -356,11 +361,12 @@ void Overlay::render_control_panel(Simulator* simulator) {
 
 		// Energy Labels - auto-disabled after 10 photons (handled by renderer)
 		bool many_photons = (simulator && simulator->photons.size() > 10);
-		
+
 		ImGui::Checkbox("Energy Labels", &settings_.draw_labels);
 		ImGui::SameLine();
 		if (many_photons) {
-			HelpMarker("Energy labels are auto-disabled after 10 photons to prevent clutter, but you can manually enable them");
+			HelpMarker(
+				"Energy labels are auto-disabled after 10 photons to prevent clutter, but you can manually enable them");
 		}
 		else {
 			HelpMarker("Show energy percentage labels at interaction points");
@@ -419,27 +425,27 @@ void Overlay::render_control_panel(Simulator* simulator) {
 		// Simulation Info Section
 		if (simulator) {
 			ImGui::SeparatorText("Simulation Statistics");
-			
+
 			// General Simulation Statistics
 			const auto& config = Config::get();
 			ImGui::Text("Total Photons:       %llu", simulator->photons.size());
 			ImGui::Text("Volume Grid:         %dx%dx%d", config.nx(), config.ny(), config.nz());
 			ImGui::Text("Voxel Size:          %s", format_8char(config.vox_size()));
-			
+
 			// Calculate overall voxel statistics (using first medium for now)
 			auto& mediums = simulator->mediums;
 			if (!mediums.empty()) {
 				const auto& volume = mediums[0].get_volume();
 				size_t total_voxels = volume.size();
 				size_t material_voxels = 0;
-				
+
 				for (uint64_t idx = 0; idx < volume.size(); ++idx) {
 					auto voxel = volume.at(static_cast<uint32_t>(idx));
 					if (voxel && voxel->material) {
 						material_voxels++;
 					}
 				}
-				
+
 				ImGui::Text("Total Voxels:        %zu", total_voxels);
 				ImGui::Text("Empty Voxels:        %zu", total_voxels - material_voxels);
 			}
@@ -449,7 +455,7 @@ void Overlay::render_control_panel(Simulator* simulator) {
 			for (size_t i = 0; i < mediums.size(); ++i) {
 				auto& medium = mediums[i];
 				auto& metrics = medium.get_metrics();
-				
+
 				// Medium header with ID
 				std::string medium_name = "Medium " + std::to_string(i + 1);
 				if (ImGui::CollapsingHeader(medium_name.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -457,7 +463,7 @@ void Overlay::render_control_panel(Simulator* simulator) {
 					const auto& volume = medium.get_volume();
 					size_t material_voxels = 0;
 					size_t surface_voxels = 0;
-					
+
 					for (uint64_t idx = 0; idx < volume.size(); ++idx) {
 						auto voxel = volume.at(static_cast<uint32_t>(idx));
 						if (voxel && voxel->material) {
@@ -472,7 +478,7 @@ void Overlay::render_control_panel(Simulator* simulator) {
 					ImGui::Text("  Medium Voxels:       %zu", material_voxels);
 					ImGui::Text("  Surface Voxels:      %zu", surface_voxels);
 					ImGui::Spacing();
-					
+
 					// Transport Statistics (8-character adaptive formatting)
 					ImGui::Text("Transport Statistics");
 					ImGui::Text("  Photons entered:     %d", metrics.get_photons_entered());
@@ -480,9 +486,9 @@ void Overlay::render_control_panel(Simulator* simulator) {
 					ImGui::Text("  Total path length:   %s", format_8char(metrics.compute_path_length()));
 					ImGui::Text("  Average step size:   %s", format_8char(metrics.compute_average_step_size()));
 					ImGui::Text("  Diffusion distance:  %s", format_8char(metrics.compute_diffusion_distance()));
-					
+
 					ImGui::Spacing();
-					
+
 					// Use cached energy display data (single call, event-driven updates)
 					const auto& energy_data = get_cached_energy_data(simulator);
 					const auto& energy = energy_data.conservation;
@@ -493,17 +499,16 @@ void Overlay::render_control_panel(Simulator* simulator) {
 					ImGui::Text("  Total diffusion:     %s", format_8char(energy.total_diffusion));
 					ImGui::Text("    Reflection:        %s", format_8char(energy.total_reflection));
 					ImGui::Text("    Transmission:      %s", format_8char(energy.total_transmission));
-					
+
 					ImGui::Spacing();
-					
+
 					// Energy Conservation
 					ImGui::Text("Energy Conservation");
-					
+
 					if (energy_data.is_valid) {
-						// Energy conservation total as percentage with color coding
-						ImVec4 total_color = !percentages.is_conserved ? 
-							ImVec4(1.0f, 0.3f, 0.3f, 1.0f) :  // Red if not conserved
-							ImVec4(0.3f, 1.0f, 0.3f, 1.0f);   // Green if conserved
+						// Energy conservation total as percentage with color coding (red/green)
+						ImVec4 total_color = (!percentages.is_conserved) ? ImVec4(1.0f, 0.3f, 0.3f, 1.0f)
+																		 : ImVec4(0.3f, 1.0f, 0.3f, 1.0f);
 
 						ImGui::Text("  Specularity:         %7.1f%%", percentages.surface_reflection_percent);
 						ImGui::Text("  Absorption:          %7.1f%%", percentages.absorption_percent);
@@ -528,8 +533,7 @@ void Overlay::render_control_panel(Simulator* simulator) {
 }
 
 void Overlay::render_file_dialog() {
-	const char* title =
-		(file_dialog_mode_ == FileDialogMode::LoadConfig) ? "Load Configuration File" : "Save Results File";
+	const char* title = "Load Configuration File";
 
 	// Center the dialog on the screen
 	ImGuiIO& io = ImGui::GetIO();
@@ -550,60 +554,37 @@ void Overlay::render_file_dialog() {
 		ImGui::Separator();
 
 		// Quick access buttons for common directories and files
-		if (file_dialog_mode_ == FileDialogMode::LoadConfig) {
-			ImGui::Text("Available Config Files:");
-			ImGui::BeginChild("ConfigList", ImVec2(0, 200), true);
+		ImGui::Text("Available Config Files:");
+		ImGui::BeginChild("ConfigList", ImVec2(0, 200), true);
 
-			// Dynamically list all .in files in the config directory
-			try {
-				for (const auto& entry : std::filesystem::directory_iterator("config")) {
-					if (entry.is_regular_file()) {
-						const auto& path = entry.path();
-						if (path.extension() == ".toml") {
-							std::string file_str = path.string();
-							if (ImGui::Selectable(file_str.c_str())) {
-								file_path_ = file_str;
-								std::strncpy(file_path_buffer_, file_path_.c_str(), sizeof(file_path_buffer_) - 1);
-								file_path_buffer_[sizeof(file_path_buffer_) - 1] = '\0';
-							}
+		// Dynamically list all .in files in the config directory
+		try {
+			for (const auto& entry : std::filesystem::directory_iterator("config")) {
+				if (entry.is_regular_file()) {
+					const auto& path = entry.path();
+					if (path.extension() == ".toml") {
+						std::string file_str = path.string();
+						if (ImGui::Selectable(file_str.c_str())) {
+							file_path_ = file_str;
+							std::strncpy(file_path_buffer_, file_path_.c_str(), sizeof(file_path_buffer_) - 1);
+							file_path_buffer_[sizeof(file_path_buffer_) - 1] = '\0';
 						}
 					}
 				}
 			}
-			catch (const std::exception& e) {
-				ImGui::TextColored(ImVec4(1, 0, 0, 1), "Error reading config directory!");
-				std::cerr << "Error accessing config directory: " << e.what() << std::endl;
-			}
-			ImGui::EndChild();
 		}
-		else { // Save Results
-			ImGui::Text("Save as:");
-			if (ImGui::Button("simulation.json")) {
-				file_path_ = "simulation.json";
-				std::strncpy(file_path_buffer_, file_path_.c_str(), sizeof(file_path_buffer_) - 1);
-				file_path_buffer_[sizeof(file_path_buffer_) - 1] = '\0';
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("simulation.txt")) {
-				file_path_ = "simulation.txt";
-				std::strncpy(file_path_buffer_, file_path_.c_str(), sizeof(file_path_buffer_) - 1);
-				file_path_buffer_[sizeof(file_path_buffer_) - 1] = '\0';
-			}
+		catch (const std::exception& e) {
+			ImGui::TextColored(ImVec4(1, 0, 0, 1), "Error reading config directory!");
+			std::cerr << "Error accessing config directory: " << e.what() << std::endl;
 		}
+		ImGui::EndChild();
 
 		ImGui::Separator();
 
 		// Dialog buttons
 		if (ImGui::Button("OK") && !file_path_.empty()) {
-			if (file_dialog_mode_ == FileDialogMode::LoadConfig) {
-				if (open_config_callback_) {
-					open_config_callback_(file_path_);
-				}
-			}
-			else {
-				if (save_results_callback_) {
-					save_results_callback_(file_path_);
-				}
+			if (open_config_callback_) {
+				open_config_callback_(file_path_);
 			}
 			show_file_dialog_ = false;
 			std::fill(std::begin(file_path_buffer_), std::end(file_path_buffer_), '\0');
@@ -656,9 +637,10 @@ void Overlay::render_world_text_overlays() {
 			}
 
 			// Convert glm::vec4 color to ImU32
-			ImU32 color =
-				IM_COL32(static_cast<int>(world_text.color.r * 255), static_cast<int>(world_text.color.g * 255),
-						 static_cast<int>(world_text.color.b * 255), static_cast<int>(world_text.color.a * 255));
+			ImU32 color = IM_COL32(static_cast<int>(world_text.color.r * 255),
+								   static_cast<int>(world_text.color.g * 255),
+								   static_cast<int>(world_text.color.b * 255),
+								   static_cast<int>(world_text.color.a * 255));
 
 			// Position text using direct screen coordinates (already calculated relative to viewport)
 			ImVec2 text_pos(world_text.screen_x, world_text.screen_y);
@@ -667,8 +649,8 @@ void Overlay::render_world_text_overlays() {
 			for (int dx = -1; dx <= 1; dx++) {
 				for (int dy = -1; dy <= 1; dy++) {
 					if (dx != 0 || dy != 0) {
-						draw_list->AddText(ImVec2(text_pos.x + dx, text_pos.y + dy), IM_COL32_BLACK,
-										   world_text.text.c_str());
+						draw_list->AddText(
+							ImVec2(text_pos.x + dx, text_pos.y + dy), IM_COL32_BLACK, world_text.text.c_str());
 					}
 				}
 			}
@@ -687,37 +669,35 @@ void Overlay::show_save_feedback(const std::string& message) {
 }
 
 void Overlay::render_save_feedback() {
-	if (!show_save_feedback_) return;
-	
-	// Update timer
+	if (!show_save_feedback_)
+		return;
+
+	// Advance timer
 	ImGuiIO& io = ImGui::GetIO();
 	save_feedback_timer_ -= io.DeltaTime;
-	
+
 	if (save_feedback_timer_ <= 0.0f) {
 		show_save_feedback_ = false;
 		return;
 	}
-	
+
 	// Render feedback popup in center of screen
 	ImGuiViewport* viewport = ImGui::GetMainViewport();
 	ImVec2 center = viewport->GetCenter();
 	ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-	
+
 	ImGui::SetNextWindowBgAlpha(0.9f);
-	if (ImGui::Begin("Save Status", nullptr, 
-		ImGuiWindowFlags_AlwaysAutoResize | 
-		ImGuiWindowFlags_NoDecoration | 
-		ImGuiWindowFlags_NoMove)) {
-		
+	auto flags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove;
+	if (ImGui::Begin("Save Status", nullptr, flags)) {
 		// White text
 		ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "%s", save_feedback_message_.c_str());
-		
+
 		// Calculate text width to make progress bar match
 		float text_width = ImGui::CalcTextSize(save_feedback_message_.c_str()).x;
-		
+
 		// Progress bar showing completion (0% to 100%)
 		float progress = 1.0f - (save_feedback_timer_ / 3.0f);
-		
+
 		// Set nice pastel blue color for progress bar
 		ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.6f, 0.8f, 1.0f, 0.8f)); // Pastel blue
 		ImGui::ProgressBar(progress, ImVec2(text_width, 0.0f));
@@ -733,17 +713,17 @@ void Overlay::render_save_feedback() {
 const Metrics::EnergyDisplayData& Overlay::get_cached_energy_data(Simulator* simulator) const {
 	if (!simulator) {
 		// Return invalid data if no simulator
-		static const Metrics::EnergyDisplayData invalid_data{};
+		static const Metrics::EnergyDisplayData invalid_data {};
 		return invalid_data;
 	}
-	
+
 	const uint64_t current_version = simulator->get_simulation_version();
-	
+
 	// Check if we need to refresh the cache (version changed = new photons or rerun)
 	if (!cached_energy_data_ || cached_simulation_version_ != current_version) {
 		cached_energy_data_ = simulator->get_energy_display_data();
 		cached_simulation_version_ = current_version;
 	}
-	
+
 	return *cached_energy_data_;
 }

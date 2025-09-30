@@ -1,19 +1,16 @@
+/**
+ * @file app.cpp
+ * @brief Implementation of the main application controller
+ *
+ * Contains the complete implementation of the App class, including initialization,
+ * main loop management, and coordination between simulation and rendering subsystems.
+ */
+
 #include "app.hpp"
-
-// Add includes for complete type definitions
-#include "renderer/overlay.hpp"
-#include "renderer/renderer.hpp"
-#include "renderer/camera.hpp"
-#include "renderer/settings.hpp"
-#include "simulator/simulator.hpp"
-#include "simulator/metrics.hpp"
-
-#include "common/file_utils.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -25,33 +22,33 @@
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
-#include "app.hpp"
 
-#include "common/results_exporter.hpp"
 #include "common/error_handler.hpp"
-#include "common/result.hpp"
 #include "common/error_types.hpp"
+#include "common/file_utils.hpp"
+#include "common/result.hpp"
+#include "common/results_exporter.hpp"
+#include "renderer/camera.hpp"
+#include "renderer/overlay.hpp"
+#include "renderer/renderer.hpp"
+#include "renderer/settings.hpp"
+#include "simulator/config.hpp"
+#include "simulator/logger.hpp"
+#include "simulator/metrics.hpp"
+#include "simulator/simulator.hpp"
 
 #include <cxxopts.hpp>
 
-#include "simulator/logger.hpp"
+static App* app_instance = nullptr;     /// Static pointer for GLFW callback access to App instance
+std::string App::executable_directory_; /// Static member definition for executable directory caching
 
-#include "renderer/overlay.hpp"
-#include "renderer/renderer.hpp"
-#include "simulator/simulator.hpp"
-#include "simulator/metrics.hpp"
-#include "simulator/config.hpp"
+// Static utility method implementations
 
-// Static pointer for callbacks
-static App* app_instance = nullptr;
-
-// Static member definition
-std::string App::executable_directory_;
-
-// Static method implementations
 void App::set_executable_path(const char* argv0) {
+	// Extract directory from argv[0] for portable file path resolution
 	std::filesystem::path exe_path(argv0);
 	executable_directory_ = exe_path.parent_path().string();
+
 	if (executable_directory_.empty()) {
 		executable_directory_ = ".";
 	}
@@ -62,18 +59,20 @@ std::string App::get_executable_directory() {
 }
 
 std::string App::get_output_path(const std::string& filename, const std::string& subdir) {
+	// Build output path relative to executable directory
 	std::filesystem::path base_dir = std::filesystem::path(executable_directory_);
-	
-	// Build path with optional subdirectory
+
+	// Apply subdirectory structure for organized output
 	if (subdir.empty()) {
 		base_dir = base_dir / "out";
-	} else {
+	}
+	else {
 		base_dir = base_dir / subdir;
 	}
-	
-	// Create the directory if it doesn't exist
+
+	// Ensure output directory exists
 	std::filesystem::create_directories(base_dir);
-	
+
 	return (base_dir / filename).string();
 }
 
@@ -85,50 +84,55 @@ std::string App::get_debug_path(const std::string& filename) {
 	return get_output_path(filename, "out");
 }
 
-App::App() : window_(nullptr), window_width_(1200), window_height_(800), should_close_(false),
-              gui_mode_(true), force_csv_output_(false), first_simulation_run_(true), 
-              left_mouse_pressed_(false), mouse_press_x_(0.0), mouse_press_y_(0.0) {
+// Constructor and destructor
+
+App::App() :
+	window_(nullptr), window_width_(1200), window_height_(800), should_close_(false), gui_mode_(true),
+	force_csv_output_(false), first_simulation_run_(true), left_mouse_pressed_(false), mouse_press_x_(0.0),
+	mouse_press_y_(0.0) {
+	// Register this instance for GLFW callback access
 	app_instance = this;
-	// Create shared metrics that will be used by all components
+
+	// Create shared metrics instance for inter-component communication
 	shared_metrics_ = std::make_shared<Metrics>();
 }
 
 App::~App() {
+	// Ensure clean shutdown and deregister callback access
 	shutdown();
 	app_instance = nullptr;
 }
 
 bool App::initialize(int argc, char* argv[]) {
-	// Extract executable directory for output file paths
+	// Extract executable path for portable file operations
 	if (argc > 0) {
 		set_executable_path(argv[0]);
 	}
-	
-	// Setup command line options
-	cxxopts::Options options("Photron", "Photron - Monte Carlo Photon Transport Renderer");
-	
-	options.add_options()
-		("c,config", "Configuration file path (optional for GUI mode)", cxxopts::value<std::string>())
-		("headless", "Run simulation without GUI and generate output")
-		("o,out", "Generate output files in GUI mode (first run only)")
-		("l,log", "Enable debug logging messages")
-		("h,help", "Show help message");
 
-	// Allow positional arguments
+	// Configure command line argument parsing
+	cxxopts::Options options("Photron", "Photron - Monte Carlo Photon Transport Renderer");
+
+	options.add_options()("c,config", "Configuration file path (optional for GUI mode)", cxxopts::value<std::string>())(
+		"headless", "Run simulation without GUI and generate output")(
+		"o,out", "Generate output files in GUI mode (first run only)")("l,log", "Enable debug logging messages")(
+		"h,help", "Show help message");
+
+	// Enable positional arguments for convenience
 	options.parse_positional({"config"});
 	options.positional_help("[config_file]");
 
 	try {
+		// Parse and validate command line arguments
 		auto result = options.parse(argc, argv);
 
-		// Handle help
+		// Handle help request immediately
 		if (result.count("help")) {
 			std::cout << options.help() << std::endl;
 			should_close_ = true;
 			return true;
 		}
 
-		// Check for config file (now optional)
+		// Extract command line options
 		bool has_config_file = result.count("config") > 0;
 		if (has_config_file) {
 			config_file_ = result["config"].as<std::string>();
@@ -137,58 +141,64 @@ bool App::initialize(int argc, char* argv[]) {
 		bool headless_mode = result.count("headless") > 0;
 		bool force_csv = result.count("out") > 0;
 
-		gui_mode_ = !headless_mode; // Set GUI mode (opposite of headless)
+		// Configure application mode based on command line
+		gui_mode_ = !headless_mode;
 		force_csv_output_ = force_csv;
 		first_simulation_run_ = true;
 
-		// If headless mode is requested without a config file, that's an error
+		// Validate argument combinations
 		if (headless_mode && !has_config_file) {
 			std::cerr << "Error: Headless mode requires a configuration file" << std::endl;
 			std::cerr << std::endl << options.help() << std::endl;
 			return false;
 		}
 
-		// Always initialize Config (with defaults or from file)
+		// Initialize global configuration system
 		if (has_config_file) {
+			// Load configuration from specified file
 			if (!Config::initialize(config_file_)) {
 				std::cerr << "Error: Failed to initialize configuration. Exiting." << std::endl;
 				return false;
 			}
-		} else {
-			Config::initialize(); // Initialize with defaults
+		}
+		else {
+			// Initialize with default configuration for GUI mode
+			Config::initialize();
 		}
 
-		// Set log mode if requested
+		// Apply command line overrides to configuration
 		if (log_mode) {
 			Config::get().set_log(true);
 		}
 
-		// Configure ErrorHandler with logging state
+		// Configure error handling system based on logging preference
 		ErrorHandler::instance().set_logging_enabled(Config::get().log());
 
-		// Initialize simulator and run simulation only if we have a config file
+		// Initialize and run simulation if config file provided
 		if (has_config_file) {
-			// Initialize simulator first (always, regardless of headless mode)
+			// Initialize Monte Carlo simulation engine
 			if (!initialize_simulator()) {
 				std::cerr << "Failed to initialize simulator" << std::endl;
 				return false;
 			}
 
-			// Run simulation with progress feedback
+			// Execute simulation with progress feedback
 			run_simulation_with_progress();
 
-			// If headless mode, we're done - no GUI needed
+			// In headless mode, simulation is complete - no GUI needed
 			if (headless_mode) {
 				should_close_ = true;
 				return true;
 			}
 		}
 
-		// Initialize GUI (either after simulation or directly if no config file)
-			if (!initialize_gui()) {
-				ErrorHandler::instance().report_error("Failed to initialize GUI");
-				return false;
-			}		// If no config file was provided, auto-open the config dialog
+		// Initialize GUI subsystem for interactive mode
+		if (!initialize_gui()) {
+			ErrorHandler::instance().report_error("Failed to initialize GUI");
+			return false;
+		}
+
+		// Auto-open config dialog if no configuration file was provided
 		if (!has_config_file) {
 			overlay_->open_config_dialog();
 		}
@@ -203,36 +213,51 @@ bool App::initialize(int argc, char* argv[]) {
 }
 
 void App::run() {
-	// In headless mode, just exit immediately
+	// Early exit for headless mode (no GUI)
+	// In headless mode, simulation already completed during initialization
 	if (!window_) {
 		return;
 	}
-	
+
+	// Main GUI application loop
+	// Standard GLFW event-driven loop with update/render cycle
 	while (!glfwWindowShouldClose(window_) && !should_close_) {
+		// Process window events (input, resize, etc.)
 		glfwPollEvents();
+
+		// Update application state (simulation progress, UI state)
 		update();
+
+		// Render frame (3D scene + ImGui overlay)
 		render();
+
+		// Present rendered frame to screen
 		glfwSwapBuffers(window_);
 	}
 }
 
 void App::shutdown() {
+	// Clean shutdown of UI and rendering subsystems
 	if (overlay_) {
-		overlay_->shutdown();
+		overlay_->shutdown(); // Cleanup ImGui resources
 		overlay_.reset();
 	}
 
+	// Cleanup OpenGL rendering resources
 	if (renderer_) {
 		renderer_.reset();
 	}
 
+	// Clean shutdown of simulation subsystem
 	if (simulator_) {
 		simulator_.reset();
 	}
-	
-	// Reset config service
+
+	// Shutdown global configuration system
 	Config::shutdown();
 
+	// Final GLFW cleanup and context destruction
+	// Must be done last as other systems depend on OpenGL context
 	if (window_) {
 		glfwDestroyWindow(window_);
 		window_ = nullptr;
@@ -256,16 +281,17 @@ void App::setup_overlay_callbacks() {
 			// Disable UI while loading
 			overlay_->set_ui_enabled(false);
 
-			// Update config file path
+			// Set config file path
 			config_file_ = filepath;
-			
+
 			// Reinitialize Config with the new file
 			Config::shutdown();
+
 			if (!Config::initialize(config_file_)) {
 				// Config parsing failed - reset simulator state and re-enable UI
 				simulator_.reset(); // Reset simulator so GUI shows "No configuration loaded"
 				ErrorHandler::instance().report_error("Failed to load configuration file: " + filepath);
-				// Auto-open the config dialog so user can try loading another file (deferred to next frame)
+				// Auto-open the config dialog for alternative file selection (deferred to next frame)
 				overlay_->open_config_dialog_deferred();
 				overlay_->set_ui_enabled(true);
 				return;
@@ -285,44 +311,51 @@ void App::setup_overlay_callbacks() {
 			// Load new configuration into simulator (only call this once)
 			auto init_result = simulator_->initialize(filepath.c_str());
 			if (!init_result.is_ok()) {
-				ErrorHandler::instance().report_error("Failed to initialize simulator: " + ErrorMessage::format(init_result.error()));
+				ErrorHandler::instance().report_error("Failed to initialize simulator: "
+													  + ErrorMessage::format(init_result.error()));
 				overlay_->set_ui_enabled(true);
 				return;
 			}
 
-		// Run simulation immediately
-		auto sim_result = simulator_->simulate();
-		if (!sim_result.is_ok()) {
-			ErrorHandler::instance().report_error("Simulation failed: " + ErrorMessage::format(sim_result.error()));
-			overlay_->set_ui_enabled(true);
-			return;
-		}
-		bool generate_csv = !gui_mode_ || (force_csv_output_ && first_simulation_run_);
-		simulator_->report(generate_csv);
-		if (first_simulation_run_) first_simulation_run_ = false; // Mark first run as complete
-
-		// Reset camera to default position when new config is loaded
-		if (renderer_) {
-			// Always switch to Orbit mode before resetting to ensure proper camera direction reset
-			renderer_->set_camera_mode(true); // true = Orbit mode
-			renderer_->reset_camera();
-
-			// Update the UI to reflect the mode change
-			if (overlay_) {
-				Settings& settings = overlay_->get_settings();
-				settings.camera_mode = CameraMode::Orbit;
+			// Run simulation immediately
+			auto sim_result = simulator_->simulate();
+			if (!sim_result.is_ok()) {
+				ErrorHandler::instance().report_error("Simulation failed: " + ErrorMessage::format(sim_result.error()));
+				overlay_->set_ui_enabled(true);
+				return;
 			}
-		}
 
-		// Re-enable UI
-		overlay_->set_ui_enabled(true);
-		
-		} catch (const std::exception& e) {
+			bool generate_csv = !gui_mode_ || (force_csv_output_ && first_simulation_run_);
+			simulator_->report(generate_csv);
+
+			// Mark first run as complete
+			if (first_simulation_run_) {
+				first_simulation_run_ = false;
+			}
+
+			// Reset camera to default position when new config is loaded
+			if (renderer_) {
+				// Always switch to Orbit mode before resetting to ensure proper camera direction reset
+				renderer_->set_camera_mode(true); // true = Orbit mode
+				renderer_->reset_camera();
+
+				// Set the UI to reflect the mode change
+				if (overlay_) {
+					Settings& settings = overlay_->get_settings();
+					settings.camera_mode = CameraMode::Orbit;
+				}
+			}
+
+			// Re-enable UI
+			overlay_->set_ui_enabled(true);
+		}
+		catch (const std::exception& e) {
 			// Catch any unhandled exceptions to prevent crashes
 			// Use direct cerr to avoid potential recursive exceptions in ErrorHandler
 			std::cerr << "Exception in config loading callback: " << e.what() << std::endl;
 			overlay_->set_ui_enabled(true);
-		} catch (...) {
+		}
+		catch (...) {
 			// Catch any other unknown exceptions
 			std::cerr << "Unknown exception in config loading callback" << std::endl;
 			overlay_->set_ui_enabled(true);
@@ -359,19 +392,21 @@ void App::setup_overlay_callbacks() {
 		if (!config_file_.empty()) {
 			auto init_result = simulator_->initialize(config_file_.c_str());
 			if (!init_result.is_ok()) {
-				ErrorHandler::instance().report_error("Failed to reinitialize simulator: " + ErrorMessage::format(init_result.error()));
+				ErrorHandler::instance().report_error("Failed to reinitialize simulator: "
+													  + ErrorMessage::format(init_result.error()));
 				overlay_->set_ui_enabled(true); // Re-enable UI on error
 				return;
 			}
-			
+
 			auto sim_result = simulator_->simulate();
 			if (!sim_result.is_ok()) {
-				ErrorHandler::instance().report_error("Rerun simulation failed: " + ErrorMessage::format(sim_result.error()));
+				ErrorHandler::instance().report_error("Rerun simulation failed: "
+													  + ErrorMessage::format(sim_result.error()));
 				overlay_->set_ui_enabled(true); // Re-enable UI on error
 				return;
 			}
-			
-			simulator_->report(!gui_mode_); // Only generate CSV in headless mode (no CSV for GUI restarts)
+
+			simulator_->report(!gui_mode_);     // Only generate CSV in headless mode (no CSV for GUI restarts)
 		}
 		else {
 			std::cout << "No config file loaded. Please load a configuration first." << std::endl;
@@ -395,19 +430,19 @@ void App::setup_overlay_callbacks() {
 			ResultsExporter::instance().export_text(*simulator_, filepath);
 		}
 	});
-	
+
 	overlay_->set_direct_save_results_callback([this]() {
 		// Direct save to out directory
 		if (simulator_) {
 			// Show save progress feedback immediately with initial message
 			overlay_->show_save_feedback("Saving simulation results...");
-			
+
 			// Small delay to ensure the progress bar is visible
 			std::this_thread::sleep_for(std::chrono::milliseconds(100));
-			
-			simulator_->report(true); // Always generate all files (CSV + log) when user explicitly saves
-			
-			// Update the message after save is complete
+
+			simulator_->report(true); // Always generate all files (CSV + log) for explicit save operation
+
+			// Set the message after save is complete
 			overlay_->show_save_feedback("Simulation results saved to out/ directory");
 		}
 	});
@@ -418,7 +453,7 @@ void App::setup_overlay_callbacks() {
 			renderer_->set_camera_mode(true); // true = Orbit mode
 			renderer_->reset_camera();
 
-			// Update the UI to reflect the mode change
+			// Set the UI to reflect the mode change
 			if (overlay_) {
 				Settings& settings = overlay_->get_settings();
 				settings.camera_mode = CameraMode::Orbit;
@@ -490,7 +525,8 @@ void App::render() {
 
 		if (simulator_) {
 			overlay_->render_with_simulator(*simulator_);
-		} else {
+		}
+		else {
 			overlay_->render();
 		}
 
@@ -538,29 +574,28 @@ void App::cursor_pos_callback(GLFWwindow* window, double xpos, double ypos) {
 	if (app_instance && app_instance->renderer_ && app_instance->overlay_) {
 		// Don't handle camera input if file dialog is open
 		if (!app_instance->overlay_->is_file_dialog_open()) {
-			
 			// Check if we're dragging in free camera mode - reset and switch to orbit immediately
 			if (app_instance->left_mouse_pressed_ && !app_instance->renderer_->is_arc_camera_mode()) {
 				double dx = xpos - app_instance->mouse_press_x_;
 				double dy = ypos - app_instance->mouse_press_y_;
 				double distance = std::sqrt(dx * dx + dy * dy);
-				
+
 				// If we've dragged beyond threshold, reset to orbit and continue dragging
 				if (distance >= app_instance->DRAG_THRESHOLD) {
 					app_instance->renderer_->set_camera_mode(true); // true = Orbit mode
 					app_instance->renderer_->reset_camera();
-					
+
 					// Update overlay settings to reflect the change
 					auto& settings = app_instance->overlay_->get_settings();
 					settings.camera_mode = CameraMode::Orbit;
-					
+
 					// Clear the pressed flag so we don't trigger this again
 					app_instance->left_mouse_pressed_ = false;
-					
+
 					// Continue processing the mouse movement for orbit camera
 				}
 			}
-			
+
 			app_instance->renderer_->handle_mouse_move(static_cast<float>(xpos), static_cast<float>(ypos));
 
 			// Handle mouse capture for FPS mode (but don't set cursor here - done in update loop)
@@ -592,7 +627,6 @@ void App::mouse_button_callback(GLFWwindow* window, int button, int action, int 
 	if (app_instance && app_instance->renderer_ && app_instance->overlay_) {
 		// Don't handle camera input if file dialog is open
 		if (!app_instance->overlay_->is_file_dialog_open()) {
-			
 			if (button == GLFW_MOUSE_BUTTON_LEFT) {
 				if (action == GLFW_PRESS) {
 					// Record mouse press position for drag detection
@@ -607,7 +641,7 @@ void App::mouse_button_callback(GLFWwindow* window, int button, int action, int 
 					app_instance->left_mouse_pressed_ = false;
 				}
 			}
-			
+
 			// Always pass through to normal mouse handling
 			app_instance->renderer_->handle_mouse_button(button, action, mods);
 		}
@@ -625,22 +659,22 @@ void App::scroll_callback(GLFWwindow*, double xoffset, double yoffset) {
 	}
 }
 
-
 bool App::initialize_simulator() {
 	// Initialize simulator (Config should already be initialized by this point)
 	simulator_ = std::make_unique<Simulator>();
 	// Provide shared metrics to simulator
 	simulator_->set_shared_metrics(shared_metrics_);
-	
+
 	// No progress callbacks needed - simulation runs optimally without GUI interference
-	
+
 	auto result = simulator_->initialize(config_file_.c_str());
 	if (!result.is_ok()) {
 		// Use ErrorHandler to report the structured error
-		ErrorHandler::instance().report_error("Simulator initialization failed: " + ErrorMessage::format(result.error()));
+		ErrorHandler::instance().report_error("Simulator initialization failed: "
+											  + ErrorMessage::format(result.error()));
 		return false;
 	}
-	
+
 	return true;
 }
 
@@ -657,7 +691,8 @@ bool App::initialize_gui() {
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
 	// Create window
-	window_ = glfwCreateWindow(window_width_, window_height_, "Photron - Monte Carlo Photon Transport", nullptr, nullptr);
+	window_ =
+		glfwCreateWindow(window_width_, window_height_, "Photron - Monte Carlo Photon Transport", nullptr, nullptr);
 	if (!window_) {
 		std::cerr << "Failed to create GLFW window" << std::endl;
 		glfwTerminate();
@@ -704,18 +739,20 @@ bool App::initialize_gui() {
 
 	// Set up overlay callbacks
 	setup_overlay_callbacks();
-	
+
 	return true;
 }
 
 void App::run_simulation_with_progress() {
 	if (config_file_.empty()) {
-		ErrorHandler::instance().report_error(ErrorMessage::format(ConfigError::FileNotFound, "run_simulation_with_progress called without config file"));
+		ErrorHandler::instance().report_error(
+			ErrorMessage::format(ConfigError::FileNotFound, "run_simulation_with_progress called without config file"));
 		return;
 	}
-	
+
 	if (!simulator_) {
-		ErrorHandler::instance().report_error(ErrorMessage::format(SimulationError::InitializationFailed, "run_simulation_with_progress called without simulator"));
+		ErrorHandler::instance().report_error(ErrorMessage::format(
+			SimulationError::InitializationFailed, "run_simulation_with_progress called without simulator"));
 		return;
 	}
 
@@ -723,29 +760,30 @@ void App::run_simulation_with_progress() {
 	std::cout << "Configuration: " << config_file_ << std::endl;
 	std::cout << "Number of photons: " << Config::get().num_photons() << std::endl;
 	std::cout << std::endl;
-	
-	// NOTE: Don't show simulation progress overlay here - this is for headless mode
+
+	// Don't show simulation progress overlay here - this is for headless mode
 	// Progress bar is only shown when simulation is triggered from GUI
-	
+
 	if (Config::get().log()) {
 		Logger::instance().log_info("=== Starting Monte Carlo Simulation ===");
 		Logger::instance().log_info("Configuration: " + config_file_);
 		Logger::instance().log_info("Number of photons: " + std::to_string(Config::get().num_photons()));
 	}
-	
+
 	// Run simulation
 	auto sim_result = simulator_->simulate();
 	if (!sim_result.is_ok()) {
 		ErrorHandler::instance().report_error("Simulation failed: " + ErrorMessage::format(sim_result.error()));
 		return;
 	}
-	
+
 	bool generate_csv = !gui_mode_ || (force_csv_output_ && first_simulation_run_);
 	simulator_->report(generate_csv);
-	if (first_simulation_run_) first_simulation_run_ = false; // Mark first run as complete
-	
-	// NOTE: Don't hide simulation progress overlay here - it wasn't shown
-	
+	if (first_simulation_run_)
+		first_simulation_run_ = false; // Mark first run as complete
+
+	// Don't hide simulation progress overlay here - it wasn't shown
+
 	if (Config::get().log()) {
 		Logger::instance().log_info("=== Simulation Complete ===");
 		Logger::instance().log_info("Initializing GUI...");

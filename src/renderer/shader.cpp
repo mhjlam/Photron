@@ -1,5 +1,13 @@
+/**
+ * @file shader.cpp
+ * @brief Implementation of OpenGL shader program management
+ *
+ * Implements the Shader class for loading, compiling, and managing OpenGL
+ * shader programs. Provides type-safe uniform variable setting and robust
+ * error handling for shader compilation and linking.
+ */
+
 #include "shader.hpp"
-#include "shader_utils.hpp"
 
 #include <array>
 #include <fstream>
@@ -7,6 +15,8 @@
 #include <sstream>
 
 #include <glm/gtc/type_ptr.hpp>
+
+#include "shader_utils.hpp"
 
 Shader::~Shader() {
 	if (program_id_ != 0) {
@@ -118,7 +128,7 @@ bool Shader::link_program(GLuint vertex_shader, GLuint fragment_shader) {
 	glGetProgramiv(program_id_, GL_LINK_STATUS, &success);
 
 	if (!success) {
-		std::array<GLchar, 512> info_log{};
+		std::array<GLchar, 512> info_log {};
 		glGetProgramInfoLog(program_id_, static_cast<GLsizei>(info_log.size()), nullptr, info_log.data());
 		std::cerr << "Error: Program linking failed: " << info_log.data() << std::endl;
 		glDeleteProgram(program_id_);
@@ -133,13 +143,13 @@ GLint Shader::get_uniform_location(const std::string& name) {
 	if (program_id_ == 0) {
 		return -1;
 	}
-	
-	// PERFORMANCE: Check cache first to avoid repeated glGetUniformLocation calls
+
+	// Check cache first to avoid repeated glGetUniformLocation calls
 	auto it = uniform_location_cache_.find(name);
 	if (it != uniform_location_cache_.end()) {
 		return it->second;
 	}
-	
+
 	// Cache miss - query OpenGL and store result
 	GLint location = glGetUniformLocation(program_id_, name.c_str());
 	uniform_location_cache_[name] = location;

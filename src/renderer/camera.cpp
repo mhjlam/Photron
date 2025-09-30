@@ -1,54 +1,67 @@
+/**
+ * @file camera.cpp
+ * @brief Implementation of 3D camera system with orbital and FPS modes
+ *
+ * Implements a flexible 3D camera system supporting both orbital (arc-ball)
+ * and first-person shooter (FPS) camera modes. Features smooth movement,
+ * configurable bounds, and efficient matrix calculations for real-time
+ * 3D visualization of Monte Carlo simulation results.
+ */
+
 #include "camera.hpp"
 
-namespace {
-	// Camera defaults
-	constexpr float DEFAULT_DISTANCE = 6.0f;
-	constexpr float DEFAULT_AZIMUTH = 45.0f;
-	constexpr float DEFAULT_ELEVATION = 30.0f;
-	constexpr float DEFAULT_YAW = -90.0f;
-	constexpr float DEFAULT_PITCH = 0.0f;
-	constexpr float DEFAULT_FOV = 45.0f;
-	constexpr float DEFAULT_NEAR_PLANE = 0.1f;
-	constexpr float DEFAULT_FAR_PLANE = 100.0f;
-	constexpr float DEFAULT_ASPECT_RATIO = 1.0f;
-	constexpr float MIN_ELEVATION_DEFAULT = -10.0f;
-	constexpr float MAX_ELEVATION_DEFAULT = 10.0f;
-}
+namespace
+{
+// Camera system default parameters
+constexpr float DEFAULT_DISTANCE = 6.0f;
+constexpr float DEFAULT_AZIMUTH = 45.0f;
+constexpr float DEFAULT_ELEVATION = 30.0f;
+constexpr float DEFAULT_YAW = -90.0f;
+constexpr float DEFAULT_PITCH = 0.0f;
+constexpr float DEFAULT_FOV = 45.0f;
+constexpr float DEFAULT_NEAR_PLANE = 0.1f;
+constexpr float DEFAULT_FAR_PLANE = 100.0f;
+constexpr float DEFAULT_ASPECT_RATIO = 1.0f;
+constexpr float MIN_ELEVATION_DEFAULT = -10.0f;
+constexpr float MAX_ELEVATION_DEFAULT = 10.0f;
+} // namespace
 
 Camera::Camera() {
-	// Default initialization
+	// Initialize camera coordinate system
 	target_ = glm::vec3(0.0f);
 	up_ = glm::vec3(0.0f, 1.0f, 0.0f);
 	world_up_ = glm::vec3(0.0f, 1.0f, 0.0f);
 
-	// Orbital camera defaults - more isometric view
-	distance_ = DEFAULT_DISTANCE;   // Moved closer for better default view
-	azimuth_ = DEFAULT_AZIMUTH;     // 45 degrees from front
+	// Configure orbital camera defaults for isometric viewing
+	distance_ = DEFAULT_DISTANCE;   // Optimal distance for simulation visualization
+	azimuth_ = DEFAULT_AZIMUTH;     // 45 degrees from front for good perspective
 	elevation_ = DEFAULT_ELEVATION; // 30 degrees elevation for isometric view
 
-	// FPS camera defaults
+	// Configure FPS camera defaults
 	is_fps_mode_ = false;
-	yaw_ = DEFAULT_YAW; // Point towards negative Z
+	yaw_ = DEFAULT_YAW; // Point towards negative Z axis
 	pitch_ = DEFAULT_PITCH;
 	position_ = glm::vec3(0.0f, 0.0f, 3.0f);
 
+	// Configure projection parameters
 	fov_ = DEFAULT_FOV;
 	near_plane_ = DEFAULT_NEAR_PLANE;
 	far_plane_ = DEFAULT_FAR_PLANE;
 	aspect_ratio_ = DEFAULT_ASPECT_RATIO;
 
-	// Initialize elevation bounds and camera offset
+	// Initialize elevation bounds and vertical offset
 	min_elevation_ = MIN_ELEVATION_DEFAULT;
 	max_elevation_ = MAX_ELEVATION_DEFAULT;
 	elevation_bounds_set_ = false;
 	camera_y_offset_ = 0.0f;
 
-	// Store initial camera state
+	// Store initial state for reset functionality
 	initial_state_.distance = distance_;
 	initial_state_.azimuth = azimuth_;
 	initial_state_.elevation = elevation_;
 	initial_state_.target = target_;
 
+	// Initialize camera matrices and vectors
 	update_fps_vectors();
 	update_position_from_spherical();
 	update_view_matrix();
@@ -56,42 +69,51 @@ Camera::Camera() {
 }
 
 void Camera::orbit(float delta_azimuth, float delta_elevation) {
+	// Update orbital camera angles with elevation clamping
 	azimuth_ += delta_azimuth;
 	elevation_ = std::clamp(elevation_ + delta_elevation, -89.0f, 89.0f);
+
+	// Recalculate camera position and view matrix
 	update_position_from_spherical();
 	update_view_matrix();
 }
 
 void Camera::zoom(float delta) {
+	// Adjust camera distance with minimum distance constraint
 	distance_ = std::max(0.1f, distance_ - delta);
+
+	// Update camera position for new distance
 	update_position_from_spherical();
 	update_view_matrix();
 }
 
 void Camera::set_target(const glm::vec3& target) {
+	// Update camera focus target and refresh view matrix
 	target_ = target;
 	update_view_matrix();
 }
 
 void Camera::adjust_camera_elevation(float delta) {
-	// Move camera position up/down along world Y axis within bounds if set
+	// Adjust vertical camera position within configured bounds
 	float new_offset = camera_y_offset_ + delta;
 	if (elevation_bounds_set_) {
 		new_offset = std::clamp(new_offset, min_elevation_, max_elevation_);
 	}
 	camera_y_offset_ = new_offset;
+
+	// Update camera position and view matrix
 	update_position_from_spherical();
 	update_view_matrix();
 }
 
 void Camera::set_elevation_bounds(float min_y, float max_y) {
-	// Set bounds for camera Y movement
+	// Configure vertical movement bounds based on scene geometry
 	float range = max_y - min_y;
 	min_elevation_ = -range; // Allow moving down by material height
 	max_elevation_ = range;  // Allow moving up by material height
 	elevation_bounds_set_ = true;
 
-	// Clamp current offset to bounds
+	// Clamp current position to new bounds
 	camera_y_offset_ = std::clamp(camera_y_offset_, min_elevation_, max_elevation_);
 	update_position_from_spherical();
 	update_view_matrix();
@@ -158,8 +180,8 @@ void Camera::handle_mouse_move(float xpos, float ypos) {
 		mouse_state_.first_mouse = false;
 	}
 
-	float xoffset = xpos - mouse_state_.last_x;
-	float yoffset = mouse_state_.last_y - ypos; // Reversed since y-coordinates go from bottom to top
+	float x_offset = xpos - mouse_state_.last_x;
+	float y_offset = mouse_state_.last_y - ypos; // Reversed since y-coordinates go from bottom to top
 
 	mouse_state_.last_x = xpos;
 	mouse_state_.last_y = ypos;
@@ -170,16 +192,16 @@ void Camera::handle_mouse_move(float xpos, float ypos) {
 			// If we have a center position set and mouse capture is active,
 			// calculate offset from center instead of last position
 			if (mouse_state_.center_set) {
-				xoffset = xpos - mouse_state_.center_x;
-				yoffset = mouse_state_.center_y - ypos; // Reversed for proper look
+				x_offset = xpos - mouse_state_.center_x;
+				y_offset = mouse_state_.center_y - ypos; // Reversed for proper look
 			}
 
 			const float sensitivity = 0.1f;
-			xoffset *= sensitivity;
-			yoffset *= sensitivity;
+			x_offset *= sensitivity;
+			y_offset *= sensitivity;
 
-			yaw_ += xoffset;
-			pitch_ += yoffset;
+			yaw_ += x_offset;
+			pitch_ += y_offset;
 
 			// Constrain pitch
 			pitch_ = std::clamp(pitch_, -89.0f, 89.0f);
@@ -192,12 +214,12 @@ void Camera::handle_mouse_move(float xpos, float ypos) {
 		// Orbital mode - require mouse button press
 		if (mouse_state_.left_pressed) {
 			// Convert to camera's orbit system (azimuth and elevation) with high sensitivity
-			orbit(xoffset * 0.1f, -yoffset * 0.1f);
+			orbit(x_offset * 0.1f, -y_offset * 0.1f);
 		}
 
 		// Right mouse button for zoom
 		if (mouse_state_.right_pressed) {
-			zoom(yoffset * 0.02f);
+			zoom(y_offset * 0.02f);
 		}
 	}
 }
@@ -212,7 +234,7 @@ void Camera::handle_mouse_button(int button, int action) {
 	}
 }
 
-void Camera::handle_mouse_scroll(float yoffset) {
+void Camera::handle_mouse_scroll(float y_offset) {
 	if (is_fps_mode_) {
 		// In FPS mode, scroll adjusts movement speed or does nothing
 		// For now, do nothing in FPS mode
@@ -220,7 +242,7 @@ void Camera::handle_mouse_scroll(float yoffset) {
 	}
 	else {
 		// Scroll wheel moves camera physically up/down along world Y-axis in orbital mode
-		adjust_camera_elevation(yoffset * 0.05f); // Reduced sensitivity from 0.2f to 0.05f
+		adjust_camera_elevation(y_offset * 0.05f); // Reduced sensitivity from 0.2f to 0.05f
 	}
 }
 

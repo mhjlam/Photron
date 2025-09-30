@@ -1,3 +1,11 @@
+/**
+ * @file triangle.hpp
+ * @brief Triangle geometry operations and mesh processing
+ *
+ * Provides comprehensive triangle geometry operations for 3D mesh processing,
+ * including area calculations, normal computation, and point-in-triangle tests.
+ */
+
 #pragma once
 
 #include <glm/glm.hpp>

@@ -1,8 +1,12 @@
 #version 450 core
 
-in vec4 vColor;
+// Input from vertex shader
+in vec4 vertexColor;
+
+// Output color
 out vec4 FragColor;
 
 void main() {
-    FragColor = vColor;
+    // Simple passthrough with line color
+    FragColor = vertexColor;
 }
