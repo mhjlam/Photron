@@ -28,6 +28,7 @@
 #include "render_setup.hpp"
 #include "renderer/camera.hpp"
 #include "renderer/settings.hpp"
+#include "simulator/simulator.hpp"
 #include "shader_utils.hpp"
 #include "simulator/config.hpp"
 #include "simulator/layer.hpp"
@@ -230,7 +231,7 @@ void Renderer::update() {
 
 void Renderer::render(Simulator& simulator) {
 	// Store simulator reference for rendering methods
-	simulator_ = &simulator;
+	simulator_ = std::ref(simulator);
 
 	// Invalidate caches only when simulation changes
 	uint64_t current_sim_version = simulator.get_simulation_version();
@@ -588,7 +589,7 @@ void Renderer::draw_voxels(const Settings& settings) {
 	float max_render_distance = 50.0f; // Don't render voxels too far away
 
 	// Cache bounds calculation to avoid repeated calls
-	auto bounds = simulator_->get_combined_bounds();
+	auto bounds = simulator_->get().get_combined_bounds();
 
 	// Render voxels using cached energy scaling with optimized iteration
 	const uint32_t total_voxels = nx * ny * nz;
@@ -626,7 +627,7 @@ void Renderer::draw_voxels(const Settings& settings) {
 		const uint32_t iy = (linear_idx % (nx * ny)) / nx;
 		const uint32_t ix = linear_idx % nx;
 
-		Voxel* voxel = simulator_->voxel_grid(ix, iy, iz);
+		Voxel* voxel = simulator_->get().voxel_grid(ix, iy, iz);
 		if (!voxel || !voxel->material) {
 			continue; // Skip voxels with no material
 		}
@@ -733,7 +734,7 @@ void Renderer::draw_paths(const Settings& settings) {
 	};
 
 	// Use incremental caching instead of rebuilding every frame
-	size_t current_photon_count = simulator_->photons.size();
+	size_t current_photon_count = simulator_->get().photons.size();
 
 	// Check if we need to rebuild cache completely or just add new photons
 	if (!path_instances_cached_ || current_photon_count < cached_photon_count_) {
@@ -762,7 +763,7 @@ void Renderer::draw_paths(const Settings& settings) {
 	// Only process photons if we have new ones to add
 	if (current_photon_count > cached_photon_count_) {
 		// Use cached surface calculation
-		const auto& layers = simulator_->get_all_layers();
+		const auto& layers = simulator_->get().get_all_layers();
 		if (!surface_cached_ && !layers.empty()) {
 			cached_surface_y_ = -1000.0f;
 			for (const auto& layer : layers) {
@@ -776,7 +777,7 @@ void Renderer::draw_paths(const Settings& settings) {
 		}
 
 		// Process only new photons (incremental caching)
-		const auto paths = simulator_->photons;
+		const auto paths = simulator_->get().photons;
 		for (size_t i = cached_photon_count_; i < paths.size(); ++i) {
 			const Photon& photon = paths[i];
 			if (photon.path_head) {
@@ -785,12 +786,12 @@ void Renderer::draw_paths(const Settings& settings) {
 				auto next = current ? current->next : nullptr;
 
 				// Generate incident ray from source to material surface (cached surface)
-				if (current && !simulator_->sources.empty()) {
+				if (current && !simulator_->get().sources.empty()) {
 					glm::vec3 first_interaction(static_cast<float>(current->position.x),
 												static_cast<float>(current->position.y),
 												static_cast<float>(current->position.z));
 
-					const Source& source = simulator_->sources[0];
+					const Source& source = simulator_->get().sources[0];
 					glm::vec3 source_pos(static_cast<float>(source.origin.x),
 										 static_cast<float>(source.origin.y),
 										 static_cast<float>(source.origin.z));
@@ -929,13 +930,13 @@ void Renderer::draw_paths(const Settings& settings) {
 		}
 
 		// Add all emitter direction vectors to instanced rendering cache with deduplication
-		if (!simulator_->emitters.empty()) {
+		if (!simulator_->get().emitters.empty()) {
 			// Group emitters by origin position and direction (with margin for similar directions)
 			std::map<std::tuple<int, int, int, int, int, int>, std::vector<std::shared_ptr<Emitter>>> direction_groups;
 			const double POSITION_PRECISION = 100.0; // Group positions within 0.01 units
 			const double DIRECTION_PRECISION = 50.0; // Group directions within ~0.02 radians (~1.1 degrees)
 
-			for (const auto& emitter : simulator_->emitters) {
+			for (const auto& emitter : simulator_->get().emitters) {
 				// Only process significant emitters
 				if (emitter->weight > 0.001) {
 					// Quantize position and direction for grouping
@@ -974,7 +975,7 @@ void Renderer::draw_paths(const Settings& settings) {
 				}
 
 				// Use percentage-based coloring with averaged energy
-				float surface_refraction = static_cast<float>(simulator_->get_combined_surface_refraction());
+				float surface_refraction = static_cast<float>(simulator_->get().get_combined_surface_refraction());
 				float energy_percentage = static_cast<float>(total_weight / surface_refraction);
 				glm::vec4 direction_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
 				direction_color.a = 0.8f; // Slightly transparent for distinction
@@ -985,9 +986,9 @@ void Renderer::draw_paths(const Settings& settings) {
 
 		// Add specular reflection emitter for incident photon's surface reflection
 		// This is integrated into the direction grouping above to avoid duplication
-		double specular_reflection = simulator_->get_combined_specular_reflection();
-		if (specular_reflection > 0.0 && !simulator_->sources.empty()) {
-			const Source& source = simulator_->sources[0];
+		double specular_reflection = simulator_->get().get_combined_specular_reflection();
+		if (specular_reflection > 0.0 && !simulator_->get().sources.empty()) {
+			const Source& source = simulator_->get().sources[0];
 
 			// Check if there are any regular emitters at the same position with similar direction
 			bool found_similar_emitter = false;
@@ -997,7 +998,7 @@ void Renderer::draw_paths(const Settings& settings) {
 			const double POSITION_TOLERANCE = 0.01; // Same as POSITION_PRECISION above
 			const double ANGLE_TOLERANCE = 0.02;    // Same as DIRECTION_PRECISION above
 
-			for (const auto& emitter : simulator_->emitters) {
+			for (const auto& emitter : simulator_->get().emitters) {
 				if (emitter->weight <= 0.001) {
 					continue;
 				}
@@ -1035,7 +1036,7 @@ void Renderer::draw_paths(const Settings& settings) {
 
 		// Collect scatter points inside cache block to eliminate per-frame processing
 		// First, collect scatter points from photon paths
-		for (const Photon& photon : simulator_->photons) {
+		for (const Photon& photon : simulator_->get().photons) {
 			if (photon.path_head) {
 				auto current = photon.path_head;
 				int vertex_count = 0;
@@ -1075,7 +1076,7 @@ void Renderer::draw_paths(const Settings& settings) {
 					else if (current_index > 0 && current_index < vertex_count - 1) {
 						// Check for medium boundary crossings and path splits
 						next = path_current->next;
-						if (prev && next && simulator_) {
+						if (prev && next) {
 							// Get positions
 							glm::vec3 prev_pos(static_cast<float>(prev->position.x),
 											   static_cast<float>(prev->position.y),
@@ -1126,9 +1127,9 @@ void Renderer::draw_paths(const Settings& settings) {
 
 		// Collect emitter points inside cache block
 		// Second, add emitter exit points (these are the accurate surface boundary points)
-		if (simulator_ && !simulator_->emitters.empty()) {
+		if (!simulator_->get().emitters.empty()) {
 			// Add emitter points to the point instances vector
-			for (const auto& emitter : simulator_->emitters) {
+			for (const auto& emitter : simulator_->get().emitters) {
 				// Use emitter->position which contains the corrected surface intersection coordinates
 				glm::vec3 exit_pos(static_cast<float>(emitter->position.x),
 								   static_cast<float>(emitter->position.y),
@@ -1136,7 +1137,7 @@ void Renderer::draw_paths(const Settings& settings) {
 
 				// Use percentage-based coloring instead of absolute weights for consistency
 				// Convert absolute weight to percentage of total energy budget
-				float surface_refraction = static_cast<float>(simulator_->get_combined_surface_refraction());
+				float surface_refraction = static_cast<float>(simulator_->get().get_combined_surface_refraction());
 				float energy_percentage = static_cast<float>(emitter->weight / surface_refraction);
 				glm::vec4 exit_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
 				exit_color.a = 1.0f; // Full opacity for emitter points
@@ -1150,9 +1151,9 @@ void Renderer::draw_paths(const Settings& settings) {
 			}
 
 			// Add surface specular reflection as an emitter point
-			double surface_specular_reflection = simulator_->get_combined_specular_reflection();
-			if (surface_specular_reflection > 0.0 && !simulator_->sources.empty()) {
-				const Source& source = simulator_->sources[0];
+			double surface_specular_reflection = simulator_->get().get_combined_specular_reflection();
+			if (surface_specular_reflection > 0.0 && !simulator_->get().sources.empty()) {
+				const Source& source = simulator_->get().sources[0];
 
 				// Use actual source intersection point
 				glm::vec3 surface_entry(static_cast<float>(source.intersect.x),
@@ -1160,7 +1161,7 @@ void Renderer::draw_paths(const Settings& settings) {
 										static_cast<float>(source.intersect.z));
 
 				// Use percentage-based coloring for surface reflection
-				double surface_refraction = simulator_->get_combined_surface_refraction();
+				double surface_refraction = simulator_->get().get_combined_surface_refraction();
 				float energy_percentage = static_cast<float>(surface_specular_reflection / surface_refraction);
 				glm::vec4 surface_point_color = get_adaptive_energy_color(energy_percentage, 0.0f, 1.0f);
 				surface_point_color.a = 1.0f; // Full opacity for surface reflection point
@@ -1400,7 +1401,7 @@ void Renderer::auto_manage_energy_labels(Settings& settings) {
 	}
 
 	static bool auto_disabled_labels = false;
-	bool many_photons = (simulator_->photons.size() > 10);
+	bool many_photons = (simulator_->get().photons.size() > 10);
 
 	// Auto-disable when crossing the 10 photon threshold
 	if (many_photons && !auto_disabled_labels) {
@@ -1422,7 +1423,7 @@ void Renderer::cache_energy_labels() {
 	}
 
 	// Use emitter data for accurate energy labels with proper classification
-	const auto& emitters = simulator_->emitters;
+	const auto& emitters = simulator_->get().emitters;
 
 	if (emitters.empty()) {
 		energy_labels_cached_ = true;
@@ -1540,7 +1541,7 @@ void Renderer::cache_energy_labels() {
 
 		// Normalize by total number of photons, not surface refraction
 		// Each photon starts with weight 1.0, so total initial energy = num_photons
-		double total_initial_energy = static_cast<double>(simulator_->photons.size());
+		double total_initial_energy = static_cast<double>(simulator_->get().photons.size());
 
 		// Calculate normalized percentage (matches console energy conservation calculation)
 		double energy_percent = (total_energy / total_initial_energy) * 100.0;
@@ -1576,9 +1577,9 @@ void Renderer::cache_energy_labels() {
 	}
 
 	// Add surface specular reflection label - position at tip of reflection vector
-	double specular_reflection = simulator_->get_combined_specular_reflection();
-	if (specular_reflection > 0.0 && !simulator_->sources.empty()) {
-		const Source& source = simulator_->sources[0];
+	double specular_reflection = simulator_->get().get_combined_specular_reflection();
+	if (specular_reflection > 0.0 && !simulator_->get().sources.empty()) {
+		const Source& source = simulator_->get().sources[0];
 
 		// Position label at the tip of the specular reflection vector (twice as long as regular emitters)
 		glm::vec3 surface_label_pos(static_cast<float>(source.intersect.x + source.specular_direction.x * 0.1),
@@ -1586,7 +1587,7 @@ void Renderer::cache_energy_labels() {
 									static_cast<float>(source.intersect.z + source.specular_direction.z * 0.1));
 
 		// Calculate normalized percentage for surface reflection
-		double surface_refraction = simulator_->get_combined_surface_refraction();
+		double surface_refraction = simulator_->get().get_combined_surface_refraction();
 		double energy_percent = (specular_reflection / surface_refraction) * 100.0;
 
 		// Format percentage, showing "<1%" instead of "0%" for very small values
@@ -2048,7 +2049,7 @@ void Renderer::update_cached_energy_range(const Settings& settings) const {
 	std::vector<float> all_energies;
 
 	// Collect energies from photon paths
-	for (const Photon& photon : simulator_->photons) {
+	for (const Photon& photon : simulator_->get().photons) {
 		if (photon.path_head) {
 			auto current = photon.path_head;
 			while (current) {
@@ -2085,7 +2086,7 @@ void Renderer::update_cached_energy_range(const Settings& settings) const {
 			const uint32_t iy = (linear_idx % (nx * ny)) / nx;
 			const uint32_t ix = linear_idx % nx;
 
-			Voxel* voxel = simulator_->voxel_grid(ix, iy, iz);
+			Voxel* voxel = simulator_->get().voxel_grid(ix, iy, iz);
 			if (voxel) {
 				float total_energy;
 

@@ -14,6 +14,7 @@
 #include <functional>
 #include <future>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -622,5 +623,5 @@ private:
 
 	KeyState key_state_;                                    ///< Current keyboard input state for smooth movement
 
-	Simulator* simulator_ {nullptr};                        ///< Reference to current simulator instance
+	std::optional<std::reference_wrapper<Simulator>> simulator_; ///< Non-owning reference to current simulator instance
 };
