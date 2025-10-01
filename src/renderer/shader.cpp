@@ -16,8 +16,6 @@
 
 #include <glm/gtc/type_ptr.hpp>
 
-#include "shader_utils.hpp"
-
 Shader::~Shader() {
 	if (program_id_ != 0) {
 		glDeleteProgram(program_id_);
@@ -25,8 +23,8 @@ Shader::~Shader() {
 }
 
 bool Shader::load_from_file(const std::string& vertex_path, const std::string& fragment_path) {
-	std::string vertex_source = read_file(vertex_path);
-	std::string fragment_source = read_file(fragment_path);
+	std::string vertex_source = load_shader_source(vertex_path);
+	std::string fragment_source = load_shader_source(fragment_path);
 
 	if (vertex_source.empty() || fragment_source.empty()) {
 		return false;
@@ -99,22 +97,48 @@ void Shader::set_uniform(const std::string& name, const glm::mat4& value) {
 	glUniformMatrix4fv(get_uniform_location(name), 1, GL_FALSE, glm::value_ptr(value));
 }
 
-std::string Shader::read_file(const std::string& path) {
-	std::ifstream file(path);
+std::string Shader::load_shader_source(const std::string& file_path) {
+	// Open shader file for reading
+	std::ifstream file(file_path);
 	if (!file.is_open()) {
-		std::cerr << "Error: Cannot open shader file: " << path << std::endl;
+		std::cerr << "Failed to open shader file: " << file_path << std::endl;
 		return "";
 	}
 
-	std::stringstream stream;
-	stream << file.rdbuf();
-	file.close();
-
-	return stream.str();
+	// Read entire file content into string
+	std::stringstream buffer;
+	buffer << file.rdbuf();
+	return buffer.str();
 }
 
-GLuint Shader::compile_shader(const std::string& source, GLenum type) {
-	return ShaderUtils::compile_shader(source, type);
+std::string Shader::read_file(const std::string& path) {
+	return load_shader_source(path);
+}
+
+GLuint Shader::compile_shader(const std::string& source, GLenum shader_type) {
+	// Create shader object for specified type
+	GLuint shader = glCreateShader(shader_type);
+	const char* source_cstr = source.c_str();
+
+	// Load source code and compile shader
+	glShaderSource(shader, 1, &source_cstr, nullptr);
+	glCompileShader(shader);
+
+	// Check compilation status and handle errors
+	GLint success;
+	glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+	if (!success) {
+		// Extract and report compilation error details
+		std::array<char, 512> info_log {};
+		glGetShaderInfoLog(shader, static_cast<GLsizei>(info_log.size()), nullptr, info_log.data());
+		std::cerr << "Shader compilation failed: " << info_log.data() << std::endl;
+
+		// Clean up failed shader object
+		glDeleteShader(shader);
+		return 0;
+	}
+
+	return shader;
 }
 
 bool Shader::link_program(GLuint vertex_shader, GLuint fragment_shader) {

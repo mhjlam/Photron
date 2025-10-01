@@ -93,6 +93,29 @@ public:
 
 	// OpenGL state management
 
+	// Static utility methods (formerly ShaderUtils namespace)
+
+	/**
+	 * @brief Compile GLSL shader from source code
+	 * @param source GLSL source code as string
+	 * @param shader_type OpenGL shader type (vertex, fragment, etc.)
+	 * @return OpenGL shader object ID, or 0 on failure
+	 *
+	 * Compiles GLSL source code into OpenGL shader object with comprehensive
+	 * error reporting. Essential for dynamic shader loading and development.
+	 */
+	static GLuint compile_shader(const std::string& source, GLenum shader_type);
+
+	/**
+	 * @brief Load shader source code from file
+	 * @param file_path Path to GLSL shader file
+	 * @return Shader source code as string, empty on failure
+	 *
+	 * Loads GLSL source code from filesystem with error handling.
+	 * Supports the development workflow for shader iteration and testing.
+	 */
+	static std::string load_shader_source(const std::string& file_path);
+
 	/**
 	 * @brief Activate shader program for rendering
 	 *
@@ -191,19 +214,13 @@ private:
 	// Helper methods for shader compilation
 
 	/**
-	 * @brief Read complete file contents into string
+	 * @brief Read complete file contents into string (used internally)
 	 * @param path File path to read
 	 * @return std::string Complete file contents
 	 */
-	std::string read_file(const std::string& path);
+	static std::string read_file(const std::string& path);
 
-	/**
-	 * @brief Compile individual shader from source code
-	 * @param source GLSL source code
-	 * @param type OpenGL shader type (GL_VERTEX_SHADER, GL_FRAGMENT_SHADER)
-	 * @return GLuint Compiled shader object ID (0 on failure)
-	 */
-	GLuint compile_shader(const std::string& source, GLenum type);
+
 
 	/**
 	 * @brief Link vertex and fragment shaders into complete program

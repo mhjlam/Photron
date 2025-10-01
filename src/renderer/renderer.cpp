@@ -25,11 +25,10 @@
 #include "common/error_types.hpp"
 #include "common/result.hpp"
 #include "math/range.hpp"
-#include "render_setup.hpp"
 #include "renderer/camera.hpp"
 #include "renderer/settings.hpp"
+#include "renderer/shader.hpp"
 #include "simulator/simulator.hpp"
-#include "shader_utils.hpp"
 #include "simulator/config.hpp"
 #include "simulator/layer.hpp"
 #include "simulator/medium.hpp"
@@ -1356,8 +1355,8 @@ static bool setup_voxel_geometry(GLuint vbo) {
 // ========================================
 
 GLuint Renderer::create_shader_program(const std::string& vertex_source, const std::string& fragment_source) {
-	GLuint vertex_shader = ShaderUtils::compile_shader(vertex_source, GL_VERTEX_SHADER);
-	GLuint fragment_shader = ShaderUtils::compile_shader(fragment_source, GL_FRAGMENT_SHADER);
+	GLuint vertex_shader = Shader::compile_shader(vertex_source, GL_VERTEX_SHADER);
+	GLuint fragment_shader = Shader::compile_shader(fragment_source, GL_FRAGMENT_SHADER);
 
 	if (vertex_shader == 0 || fragment_shader == 0) {
 		if (vertex_shader) {
@@ -1392,7 +1391,7 @@ GLuint Renderer::create_shader_program(const std::string& vertex_source, const s
 }
 
 std::string Renderer::load_shader_source(const std::string& file_path) {
-	return ShaderUtils::load_shader_source(file_path);
+	return Shader::load_shader_source(file_path);
 }
 
 void Renderer::auto_manage_energy_labels(Settings& settings) {
