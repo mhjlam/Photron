@@ -20,6 +20,7 @@ class Overlay;
 class Renderer;
 class Simulator;
 class Metrics;
+class InputHandler;
 
 /**
  * @class App
@@ -289,6 +290,9 @@ private:
 	std::unique_ptr<Renderer> renderer_;      		///< OpenGL 3D visualization renderer
 	std::unique_ptr<Overlay> overlay_;        		///< ImGui interface overlay
 	std::shared_ptr<Metrics> shared_metrics_; 		///< Shared simulation metrics for inter-component communication
+
+	// Input handling
+	std::unique_ptr<InputHandler> input_handler_;	///< Direct input processing (decoupled from Renderer)
 
 	// Application state
 	bool should_close_;         					///< Flag to terminate main loop

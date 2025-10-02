@@ -13,7 +13,7 @@
 /**
  * @struct RenderVertex
  * @brief Standard vertex data structure for OpenGL rendering pipeline
- * 
+ *
  * Contains all common vertex attributes needed for 3D rendering including
  * position, normal, texture coordinates, and color. Uses GLM types for
  * efficient GPU transfer and mathematical operations.
@@ -35,14 +35,14 @@ struct RenderVertex
 	 * @param pos 3D position vector
 	 */
 	explicit RenderVertex(const glm::vec3& pos) noexcept : position(pos) {}
-	
+
 	/**
 	 * @brief Construct vertex with position and color
 	 * @param pos 3D position vector
 	 * @param col RGBA color vector
 	 */
 	RenderVertex(const glm::vec3& pos, const glm::vec4& col) noexcept : position(pos), color(col) {}
-	
+
 	/**
 	 * @brief Construct vertex with all attributes
 	 * @param pos 3D position vector

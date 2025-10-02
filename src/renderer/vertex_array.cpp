@@ -84,12 +84,8 @@ void VertexArray::disable_attribute(GLuint index) const {
  *
  * Low-level attribute configuration for maximum flexibility.
  */
-void VertexArray::set_attribute_pointer(GLuint index,
-										GLint size,
-										GLenum type,
-										GLboolean normalized,
-										GLsizei stride,
-										const void* offset) const {
+void VertexArray::set_attribute_pointer(
+	GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const void* offset) const {
 	glVertexAttribPointer(index, size, type, normalized, stride, offset);
 }
 
@@ -104,11 +100,8 @@ void VertexArray::set_attribute_pointer(GLuint index,
  * Convenient helper for common floating-point attribute configuration.
  * Automatically enables the attribute for immediate use.
  */
-void VertexArray::set_float_attribute(GLuint index,
-									  GLint size,
-									  GLsizei stride,
-									  const void* offset,
-									  GLboolean normalized) const {
+void VertexArray::set_float_attribute(
+	GLuint index, GLint size, GLsizei stride, const void* offset, GLboolean normalized) const {
 	// Enable attribute and configure as float array
 	enable_attribute(index);
 	set_attribute_pointer(index, size, GL_FLOAT, normalized, stride, offset);

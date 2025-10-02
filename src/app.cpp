@@ -29,6 +29,7 @@
 #include "common/result.hpp"
 #include "common/results_exporter.hpp"
 #include "renderer/camera.hpp"
+#include "renderer/input_handler.hpp"
 #include "renderer/overlay.hpp"
 #include "renderer/renderer.hpp"
 #include "renderer/settings.hpp"
@@ -95,6 +96,9 @@ App::App() :
 
 	// Create shared metrics instance for inter-component communication
 	shared_metrics_ = std::make_shared<Metrics>();
+
+	// Initialize InputHandler for direct input processing
+	input_handler_ = std::make_unique<InputHandler>(true);
 }
 
 App::~App() {
@@ -114,7 +118,7 @@ bool App::initialize(int argc, char* argv[]) {
 
 	options.add_options()("c,config", "Configuration file path (optional for GUI mode)", cxxopts::value<std::string>())(
 		"headless", "Run simulation without GUI and generate output")(
-		"o,out", "Generate output files in GUI mode (first run only)")("l,log", "Enable debug logging messages")(
+		"o,out", "Generate output files in GUI mode (first run only)")("l,log", "Enable detailed logging output")(
 		"h,help", "Show help message");
 
 	// Enable positional arguments for convenience
@@ -335,11 +339,9 @@ void App::setup_overlay_callbacks() {
 
 			// Reset camera to default position when new config is loaded
 			if (renderer_) {
-				// Always switch to Orbit mode before resetting to ensure proper camera direction reset
-				renderer_->set_camera_mode(true); // true = Orbit mode
-				renderer_->reset_camera();
-
-				// Set the UI to reflect the mode change
+			// Always switch to Orbit mode before resetting to ensure proper camera direction reset
+			input_handler_->set_camera_mode(true); // true = Orbit mode
+			input_handler_->reset_camera(renderer_->camera);				// Set the UI to reflect the mode change
 				if (overlay_) {
 					Settings& settings = overlay_->get_settings();
 					settings.camera_mode = CameraMode::Orbit;
@@ -448,10 +450,10 @@ void App::setup_overlay_callbacks() {
 	});
 
 	overlay_->set_reset_view_callback([this]() {
-		if (renderer_) {
+		if (input_handler_ && renderer_) {
 			// Always switch to Orbit mode before resetting to ensure proper camera direction reset
-			renderer_->set_camera_mode(true); // true = Orbit mode
-			renderer_->reset_camera();
+			input_handler_->set_camera_mode(true); // true = Orbit mode
+			input_handler_->reset_camera(renderer_->camera);
 
 			// Set the UI to reflect the mode change
 			if (overlay_) {
@@ -462,19 +464,28 @@ void App::setup_overlay_callbacks() {
 	});
 
 	overlay_->set_camera_mode_changed_callback([this](bool is_arc_mode) {
-		if (renderer_) {
-			renderer_->set_camera_mode(is_arc_mode);
+		if (input_handler_) {
+			input_handler_->set_camera_mode(is_arc_mode);
 		}
 	});
 
-	// Set up callback for when renderer changes camera mode (e.g., WASD auto-switch)
-	if (renderer_) {
-		renderer_->set_camera_mode_change_callback([this](bool is_arc_mode) {
+	// Set up callback for when InputHandler changes camera mode (e.g., WASD auto-switch)
+	if (input_handler_) {
+		input_handler_->set_camera_mode_change_callback([this](bool is_arc_mode) {
+			// Update renderer camera mode state
+			if (renderer_) {
+				renderer_->orbit_camera_mode = is_arc_mode;
+				renderer_->camera.set_fps_mode(!is_arc_mode);
+			}
+			// Update overlay settings
 			if (overlay_) {
 				Settings& settings = overlay_->get_settings();
 				settings.camera_mode = is_arc_mode ? CameraMode::Orbit : CameraMode::Free;
 			}
 		});
+
+		// Initialize InputHandler with default orbital mode
+		input_handler_->set_camera_mode(renderer_->orbit_camera_mode);
 
 		// Set up text rendering callback for energy labels
 		renderer_->set_text_render_callback([this](const std::string& text, float x, float y, const glm::vec4& color) {
@@ -489,9 +500,14 @@ void App::update() {
 	// Update camera and other systems
 	if (renderer_) {
 		renderer_->update();
+	}
+
+	// Update input handling and camera movement
+	if (input_handler_ && renderer_) {
+		input_handler_->update(renderer_->camera);
 
 		// Handle cursor visibility after all updates
-		bool should_hide_cursor = renderer_->should_capture_mouse();
+		bool should_hide_cursor = input_handler_->should_capture_mouse(renderer_->camera);
 		glfwSetInputMode(window_, GLFW_CURSOR, should_hide_cursor ? GLFW_CURSOR_HIDDEN : GLFW_CURSOR_NORMAL);
 	}
 }
@@ -507,7 +523,9 @@ void App::render() {
 	// Update renderer settings from overlay before rendering
 	if (renderer_ && overlay_) {
 		Settings& settings = overlay_->get_settings();
-		renderer_->auto_manage_energy_labels(settings);
+		if (simulator_) {
+			renderer_->auto_manage_energy_labels(settings);
+		}
 		renderer_->set_settings(settings);
 	}
 
@@ -557,10 +575,10 @@ void App::key_callback(GLFWwindow* window, int key, int scancode, int action, in
 
 	// Handle camera input for WASD only when file dialog is not open
 	// This allows smooth movement while interacting with UI elements but disables when dialog is open
-	if (app_instance && app_instance->renderer_ && app_instance->overlay_) {
+	if (app_instance && app_instance->input_handler_ && app_instance->overlay_) {
 		// Don't handle camera input if file dialog is open
 		if (!app_instance->overlay_->is_file_dialog_open()) {
-			app_instance->renderer_->handle_key_input(key, scancode, action, mods);
+			app_instance->input_handler_->handle_key_input(key, scancode, action, mods);
 		}
 	}
 }
@@ -574,18 +592,16 @@ void App::cursor_pos_callback(GLFWwindow* window, double xpos, double ypos) {
 	if (app_instance && app_instance->renderer_ && app_instance->overlay_) {
 		// Don't handle camera input if file dialog is open
 		if (!app_instance->overlay_->is_file_dialog_open()) {
-			// Check if we're dragging in free camera mode - reset and switch to orbit immediately
-			if (app_instance->left_mouse_pressed_ && !app_instance->renderer_->is_arc_camera_mode()) {
-				double dx = xpos - app_instance->mouse_press_x_;
-				double dy = ypos - app_instance->mouse_press_y_;
-				double distance = std::sqrt(dx * dx + dy * dy);
+		// Check if we're dragging in free camera mode - reset and switch to orbit immediately
+		if (app_instance->left_mouse_pressed_ && !app_instance->renderer_->orbit_camera_mode) {
+			double dx = xpos - app_instance->mouse_press_x_;
+			double dy = ypos - app_instance->mouse_press_y_;
+			double distance = std::sqrt(dx * dx + dy * dy);
 
-				// If we've dragged beyond threshold, reset to orbit and continue dragging
-				if (distance >= app_instance->DRAG_THRESHOLD) {
-					app_instance->renderer_->set_camera_mode(true); // true = Orbit mode
-					app_instance->renderer_->reset_camera();
-
-					// Update overlay settings to reflect the change
+			// If we've dragged beyond threshold, switch to orbit mode (preserving position)
+			if (distance >= app_instance->DRAG_THRESHOLD) {
+				app_instance->input_handler_->set_camera_mode(true); // true = Orbit mode
+				// Note: No reset_camera() call - preserve current FPS position in orbit mode					// Update overlay settings to reflect the change
 					auto& settings = app_instance->overlay_->get_settings();
 					settings.camera_mode = CameraMode::Orbit;
 
@@ -596,10 +612,12 @@ void App::cursor_pos_callback(GLFWwindow* window, double xpos, double ypos) {
 				}
 			}
 
-			app_instance->renderer_->handle_mouse_move(static_cast<float>(xpos), static_cast<float>(ypos));
+			if (app_instance->input_handler_->handle_mouse_move(app_instance->renderer_->camera, static_cast<float>(xpos), static_cast<float>(ypos))) {
+				// Camera state changed
+			}
 
 			// Handle mouse capture for FPS mode (but don't set cursor here - done in update loop)
-			bool should_capture = app_instance->renderer_->should_capture_mouse();
+			bool should_capture = app_instance->input_handler_->should_capture_mouse(app_instance->renderer_->camera);
 			if (should_capture) {
 				int width, height;
 				glfwGetWindowSize(window, &width, &height);
@@ -643,7 +661,7 @@ void App::mouse_button_callback(GLFWwindow* window, int button, int action, int 
 			}
 
 			// Always pass through to normal mouse handling
-			app_instance->renderer_->handle_mouse_button(button, action, mods);
+			app_instance->input_handler_->handle_mouse_button(app_instance->renderer_->camera, button, action, mods);
 		}
 	}
 }
@@ -654,8 +672,8 @@ void App::scroll_callback(GLFWwindow*, double xoffset, double yoffset) {
 		return;
 	}
 
-	if (app_instance && app_instance->renderer_) {
-		app_instance->renderer_->handle_mouse_scroll(static_cast<float>(xoffset), static_cast<float>(yoffset));
+	if (app_instance && app_instance->input_handler_) {
+		app_instance->input_handler_->handle_mouse_scroll(app_instance->renderer_->camera, static_cast<float>(xoffset), static_cast<float>(yoffset));
 	}
 }
 

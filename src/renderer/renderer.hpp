@@ -4,27 +4,27 @@
  *
  * The Renderer class provides real-time 3D visualization of photon transport
  * simulation results using modern OpenGL techniques. It renders voxelized geometry,
- * photon paths, energy deposition, and provides interactive camera controls.
+ * photon paths, energy deposition, and provides interactive camera controls through
+ * coordinated specialized rendering components.
  */
 
 #pragma once
 
-#include <atomic>
 #include <concepts>
 #include <functional>
-#include <future>
-#include <iostream>
-#include <memory>
 #include <optional>
 #include <string>
-#include <vector>
 
-#include <glm/glm.hpp>
 #include <GL/glew.h>
+#include <glm/glm.hpp>
 
 #include "renderer/camera.hpp"
+#include "renderer/geometry_renderer.hpp"
+#include "renderer/label_renderer.hpp"
+#include "renderer/path_renderer.hpp"
 #include "renderer/settings.hpp"
 #include "renderer/shader.hpp"
+#include "renderer/voxel_renderer.hpp"
 
 // Forward declarations
 class Simulator;
@@ -52,12 +52,12 @@ public:
 	/**
 	 * @brief Construct a new Renderer object with default settings
 	 */
-	Renderer();
+	Renderer() : voxel_renderer(), path_renderer(), geometry_renderer(), label_renderer() {}
 
 	/**
 	 * @brief Destroy the Renderer object and clean up OpenGL resources
 	 */
-	~Renderer();
+	~Renderer() = default;
 
 	/**
 	 * @brief Initialize OpenGL context and prepare rendering resources
@@ -95,99 +95,12 @@ public:
 	 */
 	void set_viewport(int width, int height);
 
-	// Input handling methods
-
-	/**
-	 * @brief Handle keyboard input events for camera and rendering control
-	 *
-	 * @param key GLFW key code
-	 * @param scancode Platform-specific scan code
-	 * @param action GLFW action (press, release, repeat)
-	 * @param mods Modifier key flags (Shift, Ctrl, Alt, etc.)
-	 */
-	void handle_key_input(int key, int scancode, int action, int mods);
-
-	/**
-	 * @brief Handle mouse cursor movement for camera control
-	 *
-	 * @param xpos Current cursor X coordinate in screen space
-	 * @param ypos Current cursor Y coordinate in screen space
-	 */
-	void handle_mouse_move(float xpos, float ypos);
-
-	/**
-	 * @brief Handle mouse button press/release events
-	 *
-	 * @param button Mouse button code (left, right, middle, etc.)
-	 * @param action GLFW action (press or release)
-	 * @param mods Modifier key flags
-	 */
-	void handle_mouse_button(int button, int action, int mods);
-
-	/**
-	 * @brief Handle mouse scroll events for camera zoom control
-	 *
-	 * @param xoffset Horizontal scroll offset (typically 0)
-	 * @param yoffset Vertical scroll offset (mouse wheel)
-	 */
-	void handle_mouse_scroll(float xoffset, float yoffset);
-
-	// Camera control methods
-
-	/**
-	 * @brief Reset camera to default position and orientation
-	 *
-	 * Returns camera to initial view position with appropriate zoom
-	 * to frame the simulation geometry.
-	 */
-	void reset_camera();
-
-	/**
-	 * @brief Set camera interaction mode
-	 *
-	 * Switches between arc-ball camera (orbits around target) and
-	 * free-flight camera (first-person style movement).
-	 *
-	 * @param is_arc_mode True for arc-ball mode, false for free-flight mode
-	 */
-	void set_camera_mode(bool is_arc_mode);
-
-	/**
-	 * @brief Check if camera is in arc-ball mode
-	 *
-	 * @return true if in arc-ball mode, false if in free-flight mode
-	 */
-	bool is_arc_camera_mode() const { return orbit_camera_mode_; }
-
-	/**
-	 * @brief Check if mouse cursor should be captured for camera control
-	 *
-	 * @return true if mouse should be captured (hidden and centered)
-	 */
-	bool should_capture_mouse() const;
-
 	/**
 	 * @brief Get mutable reference to camera for direct manipulation
 	 *
 	 * @return Camera& Reference to internal camera object
 	 */
-	Camera& get_camera() { return camera_; }
-
-	// Callback for camera mode changes - Modern C++20 with perfect forwarding
-	/**
-	 * @brief Set callback for camera mode change notifications
-	 *
-	 * Registers a callback function that will be invoked whenever the camera
-	 * mode switches between arc-ball and free-flight modes.
-	 *
-	 * @tparam Callable Function object type that accepts a boolean parameter
-	 * @param callback Function to call when camera mode changes (true = arc-ball, false = free-flight)
-	 */
-	template<typename Callable>
-		requires std::invocable<Callable, bool>
-	void set_camera_mode_change_callback(Callable&& callback) {
-		camera_mode_change_callback_ = std::forward<Callable>(callback);
-	}
+	Camera& get_camera() { return camera; }
 
 	/**
 	 * @brief Update rendering and visualization settings
@@ -198,113 +111,6 @@ public:
 	 * @param settings New settings configuration to apply
 	 */
 	void set_settings(const Settings& settings);
-
-	/**
-	 * @brief Get current rendering and visualization settings
-	 *
-	 * @return const Settings& Reference to current settings configuration
-	 */
-	const Settings& get_settings() const { return settings_; }
-
-	/**
-	 * @brief Finalize voxel instance data preparation for rendering
-	 *
-	 * Processes collected voxel data, applies color mapping based on energy
-	 * values, and prepares instanced rendering data for GPU upload.
-	 *
-	 * @param mode Voxel coloring scheme (Absorption, Emittance, or Layers)
-	 */
-	void end_voxel_instances(VoxelMode mode = VoxelMode::Absorption);
-
-	/**
-	 * @brief Render all prepared voxel instances to screen
-	 *
-	 * Executes GPU instanced rendering of voxelized geometry using
-	 * previously prepared instance data and appropriate shaders.
-	 */
-	void draw_voxel_instances();
-
-	/**
-	 * @brief Add triangle geometry instance for medium boundary visualization
-	 *
-	 * Queues a triangle for instanced rendering with specified vertices,
-	 * color, and surface normal for proper lighting calculations.
-	 *
-	 * @param v0 First triangle vertex position
-	 * @param v1 Second triangle vertex position
-	 * @param v2 Third triangle vertex position
-	 * @param color Triangle color and opacity (default: opaque white)
-	 * @param normal Surface normal vector for lighting (default: +Z axis)
-	 */
-	void add_triangle_instance(const glm::vec3& v0,
-							   const glm::vec3& v1,
-							   const glm::vec3& v2,
-							   const glm::vec4& color = glm::vec4(1.0f),
-							   const glm::vec3& normal = glm::vec3(0.0f, 0.0f, 1.0f));
-
-	/**
-	 * @brief Render all queued triangle instances for medium geometry
-	 *
-	 * Executes instanced rendering of all added triangles for
-	 * medium boundary and geometry visualization.
-	 */
-	void draw_triangle_instances();
-
-	/**
-	 * @brief Add line instance for medium wireframe visualization
-	 *
-	 * Queues a line segment for instanced rendering with gradient
-	 * color support for enhanced visual clarity.
-	 *
-	 * @param start Line start position in world coordinates
-	 * @param end Line end position in world coordinates
-	 * @param color Line color (applied to both endpoints for solid color)
-	 */
-	void add_medium_line_instance(const glm::vec3& start,
-								  const glm::vec3& end,
-								  const glm::vec4& color = glm::vec4(1.0f));
-
-	/**
-	 * @brief Render all queued medium line instances
-	 *
-	 * Executes instanced rendering of all added line segments
-	 * for medium wireframe and boundary visualization.
-	 */
-	void draw_medium_line_instances();
-
-	/**
-	 * @brief Render energy value labels as screen-space billboards
-	 *
-	 * Displays floating text labels showing energy values at key interaction
-	 * points, with automatic screen positioning and visibility management.
-	 *
-	 * @param settings Current rendering settings for label visibility control
-	 */
-	void draw_labels(const Settings& settings);
-
-	/**
-	 * @brief Pre-compute energy labels from simulation data
-	 *
-	 * Analyzes emitter data and creates cached text labels with proper
-	 * classification and positioning for efficient per-frame rendering.
-	 */
-	void cache_energy_labels();
-
-	/**
-	 * @brief Invalidate cached energy labels for regeneration
-	 *
-	 * Forces recalculation of energy labels when simulation data changes
-	 * or display settings are modified.
-	 */
-	void invalidate_energy_label_cache();
-
-	/**
-	 * @brief Update screen positions for 3D world text labels
-	 *
-	 * Projects 3D world coordinates to screen space for proper billboard
-	 * positioning. Called once per frame for optimal performance.
-	 */
-	void update_energy_label_screen_positions();
 
 	/**
 	 * @brief Automatically manage energy label visibility based on photon count
@@ -323,14 +129,6 @@ public:
 	 * visualization data when simulation parameters change.
 	 */
 	void invalidate_all_caches();
-
-	/**
-	 * @brief Invalidate cached photon path rendering instances
-	 *
-	 * Forces regeneration of line and point instance data for
-	 * photon path visualization when path data changes.
-	 */
-	void invalidate_path_instances_cache();
 
 	/**
 	 * @brief Convert 3D world coordinates to 2D screen coordinates
@@ -358,444 +156,41 @@ public:
 		requires std::invocable<Callable, const std::string&, float, float, const glm::vec4&>
 	void set_text_render_callback(Callable&& callback) {
 		text_render_callback_ = std::forward<Callable>(callback);
+		label_renderer.set_text_render_callback(std::forward<Callable>(callback));
 	}
 
-	/**
-	 * @brief Generate adaptive color mapping for energy values
-	 *
-	 * Creates perceptually uniform color representation of energy values
-	 * using adaptive scaling and logarithmic mapping for optimal contrast.
-	 *
-	 * @param energy Raw energy value to color-code
-	 * @param min_energy Minimum energy value for color scale
-	 * @param max_energy Maximum energy value for color scale
-	 * @return glm::vec4 RGBA color value for energy visualization
-	 */
-	glm::vec4 get_adaptive_energy_color(float energy, float min_energy, float max_energy);
+	// ========================================
+	// Core Renderer State (Public for InputHandler access)
+	// ========================================
 
-	/**
-	 * @brief Generate layer-specific color mapping for multi-material visualization
-	 *
-	 * Creates consistent color coding for energy values within specific material
-	 * layers, maintaining visual distinction between different materials.
-	 *
-	 * @param energy Energy value within the specified layer
-	 * @param min_energy Minimum energy value for layer color scale
-	 * @param max_energy Maximum energy value for layer color scale
-	 * @param layer_id Unique identifier for material layer
-	 * @return glm::vec4 RGBA color value with layer-specific hue coding
-	 */
-	glm::vec4 layer_energy_color(float energy, float min_energy, float max_energy, uint8_t layer_id);
+	Camera camera;                 ///< 3D camera system with orbital and free-flight modes (public for InputHandler)
+	bool orbit_camera_mode {true}; ///< Camera mode flag: true for Orbit, false for Free (public for InputHandler)
 
 private:
+	// ========================================
+	// Core Renderer Implementation
+	// ========================================
+
 	void setup_opengl();
 	void update_camera();
 	void update_camera_target(const Simulator& simulator);
 
-	// OpenGL state management helpers
-	void use_shader_program(GLuint program_id) const;
-	void enable_blending() const;
-	void disable_blending() const;
+	Settings settings_; ///< Current rendering and visualization settings
 
-	// Shader-based drawing functions
-	void draw_volume(const Simulator& simulator);
-	void draw_voxels(const Settings& settings);
-	void draw_paths(const Settings& settings);
+	// These renderers handle specific aspects of the visualization pipeline.
+	// Made mutable to allow const methods to update rendering state.
 
-	// Utility methods
-	bool is_point_inside_mesh(const glm::vec3& point, const Simulator& simulator) const;
+	mutable VoxelRenderer voxel_renderer;                        ///< Voxel rendering and energy visualization
+	mutable PathRenderer path_renderer;                          ///< Photon path visualization and line rendering
+	mutable GeometryRenderer geometry_renderer;                  ///< Medium geometry and wireframe rendering
+	mutable LabelRenderer label_renderer;                        ///< Energy label rendering and text overlays
 
-	// Shader management methods
-	bool setup_voxel_instanced_rendering();
-	bool setup_line_instanced_rendering();
-	bool setup_point_instanced_rendering();
-	bool setup_triangle_instanced_rendering();
-	bool setup_medium_line_vao();
-
-	// Cache energy range calculation
-	void update_cached_energy_range(const Settings& settings) const;
-
-	std::string load_shader_source(const std::string& file_path);
-	GLuint create_shader_program(const std::string& vertex_source, const std::string& fragment_source);
-
-private:
-	// Vertex structures for fallback point rendering
-	struct PointVertex
-	{
-		glm::vec3 position {};
-		glm::vec4 color {1.0f};
-	};
-
-	// Instance data structure for voxel rendering
-	struct VoxelInstance
-	{
-		glm::vec3 position {};
-		glm::vec4 color {1.0f};
-		float scale {1.0f};
-		float depth {0.0f}; // For depth sorting
-	};
-
-	// Instance data structure for line rendering with gradient support
-	struct LineInstance
-	{
-		glm::vec3 start {};
-		glm::vec3 end {};
-		glm::vec4 start_color {1.0f};
-		glm::vec4 end_color {1.0f};
-	};
-
-	// Instance data structure for point rendering
-	struct PointInstance
-	{
-		glm::vec3 position {};
-		glm::vec4 color {1.0f};
-		float size {1.0f};
-	};
-
-	// Instance data structure for medium triangle rendering
-	struct TriangleInstance
-	{
-		glm::vec3 v0 {};
-		glm::vec3 v1 {};
-		glm::vec3 v2 {};
-		glm::vec4 color {1.0f};
-		glm::vec3 normal {}; // For lighting calculations
-	};
-
-	// Instance data structure for medium line rendering
-	struct MediumLineInstance
-	{
-		glm::vec3 start {};
-		glm::vec3 end {};
-		glm::vec4 start_color {1.0f};
-		glm::vec4 end_color {1.0f};
-	};
-
-	// Energy label structure for billboard text rendering
-	struct EnergyLabel
-	{
-		glm::vec3 world_position;
-		std::string text;
-		glm::vec4 color;
-		float scale {1.0f};
-		glm::vec2 screen_position;          // Cached screen position
-		bool screen_position_valid {false}; // Whether screen position is current
-	};
-
-	// Key state tracking for smooth movement
-	struct KeyState
-	{
-		bool w_pressed {false};
-		bool a_pressed {false};
-		bool s_pressed {false};
-		bool d_pressed {false};
-		bool space_pressed {false};
-		bool shift_pressed {false};
-	};
-
-private:
-	// ========================================
-	// OpenGL Rendering Resources
-	// ========================================
-
-	GLuint voxel_vao_ {0};                                ///< OpenGL vertex array object for voxel geometry
-	GLuint voxel_vbo_ {0};                                ///< OpenGL vertex buffer for voxel vertex data
-	GLuint voxel_instance_vbo_ {0};                       ///< OpenGL instance buffer for voxel data
-	GLuint voxel_shader_ {0};                             ///< OpenGL shader program for voxel rendering
-	std::vector<VoxelInstance> voxel_instances_;          ///< Container for voxel instance data
-
-	GLuint lines_vao_ {0};                                ///< OpenGL vertex array object for line geometry
-	GLuint lines_vbo_ {0};                                ///< OpenGL vertex buffer for line vertex data
-	GLuint lines_instance_vbo_ {0};                       ///< OpenGL instance buffer for line data
-	GLuint lines_shader_ {0};                             ///< OpenGL shader program for line rendering
-	std::vector<LineInstance> line_instances_;            ///< Container for line instance data
-
-	GLuint wireframe_vao_ {0};                            ///< OpenGL vertex array object for wireframe geometry
-	GLuint wireframe_instance_vbo_ {0};                   ///< OpenGL instance buffer for wireframe data
-	std::vector<MediumLineInstance> wireframe_instances_; ///< Container for medium wireframe instance data
-
-	GLuint points_vao_ {0};                               ///< OpenGL vertex array object for point geometry
-	GLuint points_vbo_ {0};                               ///< OpenGL vertex buffer for point vertex data
-	GLuint points_instance_vbo_ {0};                      ///< OpenGL instance buffer for point data
-	GLuint points_shader_ {0};                            ///< OpenGL shader program for point rendering
-	std::vector<PointInstance> point_instances_;          ///< Container for point instance data
-
-	GLuint triangles_vao_ {0};                            ///< OpenGL vertex array object for triangle geometry
-	GLuint triangles_vbo_ {0};                            ///< OpenGL vertex buffer for triangle vertex data
-	GLuint triangles_instance_vbo_ {0};                   ///< OpenGL instance buffer for triangle data
-	GLuint triangles_shader_ {0};                         ///< OpenGL shader program for triangle rendering
-	std::vector<TriangleInstance> triangle_instances_;    ///< Container for triangle instance data
-
-	// ========================================
-	// Core Renderer State
-	// ========================================
-
-	Camera camera_;                 ///< 3D camera system with orbital and free-flight modes
-	bool orbit_camera_mode_ {true}; ///< Camera mode flag: true for Orbit, false for Free
-
-	Settings settings_;             ///< Current rendering and visualization settings
-	int viewport_width_ {800};      ///< Current viewport width in pixels
-	int viewport_height_ {600};     ///< Current viewport height in pixels
+	int viewport_width_ {800};                                   ///< Current viewport width in pixels
+	int viewport_height_ {600};                                  ///< Current viewport height in pixels
 
 	std::function<void(const std::string&, float, float, const glm::vec4&)>
-		text_render_callback_;      ///< Text rendering callback for ImGui integration
+		text_render_callback_;                                   ///< Text rendering callback for ImGui integration
 
-	// ========================================
-	// Performance Caching System
-	// ========================================
-
-	std::vector<EnergyLabel> cached_energy_labels_;           ///< Cached energy labels for billboard rendering
-	bool energy_labels_cached_ {false};                       ///< Flag indicating if energy labels are current
-
-	mutable float cached_min_energy_ {1.0f};                  ///< Cached minimum energy value for color mapping
-	mutable float cached_max_energy_ {0.0f};                  ///< Cached maximum energy value for color mapping
-	mutable bool energy_range_cached_ {false};                ///< Flag indicating if energy range cache is valid
-	mutable size_t last_path_count_ {0};                      ///< Last known photon path count for cache invalidation
-	mutable size_t last_voxel_data_version_ {0};              ///< Last known voxel data version for cache invalidation
-
-	mutable float cached_surface_y_ {0.1f};                   ///< Cached surface Y-coordinate for geometry calculations
-	mutable bool surface_cached_ {false};                     ///< Flag indicating if surface geometry cache is valid
-
-	mutable std::vector<LineInstance> cached_line_instances_; ///< Cached photon path line instances
-	mutable std::vector<PointInstance> cached_point_instances_; ///< Cached photon scattering point instances
-	mutable bool path_instances_cached_ {false};                ///< Flag indicating if photon path instances are cached
-	mutable size_t cached_photon_count_ {0};                    ///< Number of photons already processed in cache
-	mutable uint64_t last_simulation_version_ {0};              ///< Last simulation version for cache invalidation
-
-	mutable std::vector<TriangleInstance> cached_triangle_instances_;      ///< Cached medium geometry triangles
-	mutable std::vector<MediumLineInstance> cached_medium_line_instances_; ///< Cached medium geometry wireframes
-	mutable bool medium_geometry_cached_ {false};     ///< Flag indicating if medium geometry cache is valid
-	mutable size_t last_medium_geometry_version_ {0}; ///< Last medium geometry version for cache invalidation
-
-	// ========================================
-	// GPU Buffer State Tracking
-	// ========================================
-
-	mutable bool line_buffer_uploaded_ {false};           ///< Flag indicating if line buffer is uploaded to GPU
-	mutable bool point_buffer_uploaded_ {false};          ///< Flag indicating if point buffer is uploaded to GPU
-	mutable bool voxel_buffer_uploaded_ {false};          ///< Flag indicating if voxel buffer is uploaded to GPU
-	mutable bool voxel_instances_dirty_ {true};           ///< Flag to force voxel data recalculation
-
-	mutable bool point_geometry_buffer_uploaded_ {false}; ///< Flag indicating if dynamic point geometry is uploaded
-	mutable bool triangle_instances_uploaded_ {false};    ///< Flag indicating if triangle instances are uploaded
-	mutable bool medium_line_instances_uploaded_ {false}; ///< Flag indicating if medium line instances are uploaded
-
-	// ========================================
-	// OpenGL State Management
-	// ========================================
-
-	mutable GLuint current_shader_program_ {0};       ///< Currently bound shader program ID (for state caching)
-	mutable bool blend_enabled_ {false};              ///< Current OpenGL blend state (for state caching)
-
-	mutable VoxelMode current_voxel_mode_ {
-		VoxelMode::Absorption};                       ///< Current voxel rendering mode for transparency sorting
-
-	mutable glm::vec3 cached_camera_position_ {0.0f}; ///< Cached camera position for change detection
-	mutable glm::vec3 cached_camera_target_ {0.0f, 0.0f, -1.0f}; ///< Cached camera target for change detection
-
-	// ========================================
-	// Asynchronous Processing
-	// ========================================
-
-	mutable std::vector<VoxelInstance> background_sorted_voxels_;   ///< Background-sorted voxels for smooth rendering
-	mutable std::future<void> sorting_future_;                      ///< Future for asynchronous voxel sorting
-	mutable std::atomic<bool> background_sort_ready_ {false};       ///< Flag indicating if background sort is complete
-	mutable std::atomic<bool> background_sort_in_progress_ {false}; ///< Flag indicating if background sort is running
-
-	// ========================================
-	// Shader Uniform Locations (Cached)
-	// ========================================
-
-	mutable GLint point_mvp_uniform_location_ {-1};  ///< Cached MVP uniform location for fallback point rendering
-	mutable GLint voxel_mvp_uniform_location_ {-1};  ///< Cached MVP uniform location for instanced voxels
-	mutable GLint point_size_uniform_location_ {-1}; ///< Cached point size uniform location
-	mutable GLint line_instanced_mvp_uniform_location_ {-1};  ///< Cached MVP uniform location for instanced lines
-	mutable GLint point_instanced_mvp_uniform_location_ {-1}; ///< Cached MVP uniform location for instanced points
-
-	// ========================================
-	// Input and Interaction State
-	// ========================================
-
-	bool camera_state_changed_ {true};                      ///< Flag indicating if camera state has changed
-
-	std::function<void(bool)> camera_mode_change_callback_; ///< Callback for camera mode changes
-
-	KeyState key_state_;                                    ///< Current keyboard input state for smooth movement
-
+	mutable uint64_t last_simulation_version_ {0};               ///< Last simulation version for cache invalidation
 	std::optional<std::reference_wrapper<Simulator>> simulator_; ///< Non-owning reference to current simulator instance
 };
-
-// ============================================================================
-// RenderSetup Namespace (formerly render_setup.hpp)
-// ============================================================================
-
-/**
- * @namespace RenderSetup
- * @brief Centralized rendering pipeline setup and configuration
- *
- * Provides utilities for initializing and configuring the OpenGL rendering
- * pipeline, including shader programs, vertex arrays, and rendering state.
- */
-namespace RenderSetup
-{
-/**
- * @struct ShaderConfig
- * @brief Configuration structure for basic shader setup
- *
- * Contains paths to shader files and error identification for the rendering pipeline.
- */
-struct ShaderConfig
-{
-	std::string vertex_shader_path;   ///< Path to vertex shader source file
-	std::string fragment_shader_path; ///< Path to fragment shader source file
-	std::string error_name;           ///< Identifier for error messages and debugging
-};
-
-/**
- * @struct UniformConfig
- * @brief Configuration structure for uniform caching
- *
- * Maps uniform names to location storage pointers for efficient uniform access.
- */
-struct UniformConfig
-{
-	std::string name;    ///< Name of the uniform variable in the shader
-	GLint* location_ptr; ///< Pointer to store the cached uniform location
-};
-
-/**
- * @struct VertexAttributeConfig
- * @brief Configuration structure for vertex attribute setup
- *
- * Defines vertex attribute parameters for OpenGL vertex array configuration.
- */
-struct VertexAttributeConfig
-{
-	GLuint location;      ///< Vertex attribute location (layout location in shader)
-	GLint size;           ///< Number of components per vertex attribute (1-4)
-	GLenum type;          ///< Data type of each component (GL_FLOAT, GL_INT, etc.)
-	GLboolean normalized; ///< Whether fixed-point data should be normalized
-	GLsizei stride;       ///< Byte offset between consecutive vertex attributes
-	const void* pointer;  ///< Offset of first component in the vertex buffer
-	GLuint divisor {0};   ///< Instance divisor: 0 = per vertex, 1+ = per instance
-};
-
-/**
- * @typedef GeometrySetupFunction
- * @brief Function type for base geometry setup in instanced rendering
- *
- * Callback function that configures the base geometry VBO for instanced rendering.
- *
- * @param vbo The vertex buffer object ID to configure with base geometry data
- * @return bool True if setup succeeded, false on error
- */
-using GeometrySetupFunction = std::function<bool(GLuint vbo)>;
-
-/**
- * @brief Template function for instanced rendering setup (point instanced, line instanced)
- *
- * Handles complete instanced rendering pipeline setup including shader loading,
- * base geometry configuration, and per-instance attribute setup.
- *
- * @tparam InstanceType The instance data structure type for template specialization
- * @param shader_config Configuration containing shader paths and error name
- * @param uniforms Vector of uniform configurations for caching locations
- * @param geometry_setup Function callback to configure base geometry VBO
- * @param instance_attributes Vector of per-instance attribute configurations
- * @param[out] shader_program Reference to store the created shader program ID
- * @param[out] vao Reference to store the created vertex array object ID
- * @param[out] base_vbo Reference to store the base geometry VBO ID
- * @param[out] instance_vbo Reference to store the instance data VBO ID
- * @return bool True if setup succeeded, false on any error
- */
-template<typename InstanceType>
-inline bool setup_instanced_rendering(const ShaderConfig& shader_config,
-									  const std::vector<UniformConfig>& uniforms,
-									  const GeometrySetupFunction& geometry_setup,
-									  const std::vector<VertexAttributeConfig>& instance_attributes,
-									  GLuint& shader_program,
-									  GLuint& vao,
-									  GLuint& base_vbo,
-									  GLuint& instance_vbo) {
-	// Load shaders
-	std::string vertex_source = Shader::load_shader_source(shader_config.vertex_shader_path);
-	std::string fragment_source = Shader::load_shader_source(shader_config.fragment_shader_path);
-
-	if (vertex_source.empty() || fragment_source.empty()) {
-		std::cerr << "Failed to load " << shader_config.error_name << " shaders" << std::endl;
-		return false;
-	}
-
-	// Create shader program
-	GLuint vertex_shader = Shader::compile_shader(vertex_source, GL_VERTEX_SHADER);
-	GLuint fragment_shader = Shader::compile_shader(fragment_source, GL_FRAGMENT_SHADER);
-
-	if (vertex_shader == 0 || fragment_shader == 0) {
-		if (vertex_shader) {
-			glDeleteShader(vertex_shader);
-		}
-		if (fragment_shader) {
-			glDeleteShader(fragment_shader);
-		}
-		return false;
-	}
-
-	shader_program = glCreateProgram();
-	glAttachShader(shader_program, vertex_shader);
-	glAttachShader(shader_program, fragment_shader);
-	glLinkProgram(shader_program);
-
-	GLint success;
-	glGetProgramiv(shader_program, GL_LINK_STATUS, &success);
-	if (!success) {
-		char info_log[512];
-		glGetProgramInfoLog(shader_program, 512, nullptr, info_log);
-		std::cerr << "Program linking failed for " << shader_config.error_name << ": " << info_log << std::endl;
-		glDeleteProgram(shader_program);
-		shader_program = 0;
-		glDeleteShader(vertex_shader);
-		glDeleteShader(fragment_shader);
-		return false;
-	}
-
-	glDeleteShader(vertex_shader);
-	glDeleteShader(fragment_shader);
-
-	// Cache uniform locations
-	for (const auto& uniform : uniforms) {
-		if (uniform.location_ptr) {
-			*uniform.location_ptr = glGetUniformLocation(shader_program, uniform.name.c_str());
-		}
-	}
-
-	// Create VAO and VBOs
-	glGenVertexArrays(1, &vao);
-	glGenBuffers(1, &base_vbo);
-	glGenBuffers(1, &instance_vbo);
-
-	glBindVertexArray(vao);
-
-	// Setup base geometry using the provided function
-	if (!geometry_setup(base_vbo)) {
-		std::cerr << "Failed to setup base geometry for " << shader_config.error_name << std::endl;
-		glBindVertexArray(0);
-		return false;
-	}
-
-	// Setup instance data buffer
-	glBindBuffer(GL_ARRAY_BUFFER, instance_vbo);
-
-	// Setup instance attributes
-	for (const auto& attr : instance_attributes) {
-		glVertexAttribPointer(attr.location, attr.size, attr.type, attr.normalized, attr.stride, attr.pointer);
-		glEnableVertexAttribArray(attr.location);
-		if (attr.divisor > 0) {
-			glVertexAttribDivisor(attr.location, attr.divisor);
-		}
-	}
-
-	glBindVertexArray(0);
-	return true;
-}
-
-} // namespace RenderSetup

@@ -91,9 +91,7 @@ public:
 	 */
 	bool load_from_source(const std::string& vertex_source, const std::string& fragment_source);
 
-	// OpenGL state management
-
-	// Static utility methods (formerly ShaderUtils namespace)
+	// Static utility methods
 
 	/**
 	 * @brief Compile GLSL shader from source code
@@ -219,8 +217,6 @@ private:
 	 * @return std::string Complete file contents
 	 */
 	static std::string read_file(const std::string& path);
-
-
 
 	/**
 	 * @brief Link vertex and fragment shaders into complete program

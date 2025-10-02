@@ -293,26 +293,42 @@ void Camera::set_fps_mode(bool fps_mode) {
 	if (fps_mode != is_fps_mode_) {
 		is_fps_mode_ = fps_mode;
 		if (is_fps_mode_) {
-			// Switch to FPS mode: preserve current position and calculate look direction
-			// The current orbital position becomes our FPS position
+			// Switch to FPS mode: preserve both position AND look direction exactly
+			// Calculate the current look direction from orbital camera
 			glm::vec3 look_direction = glm::normalize(target_ - position_);
 
-			// Convert look direction to yaw/pitch
+			// Keep the exact same position - no movement!
+			// Just convert the look direction to yaw/pitch for FPS camera
 			yaw_ = glm::degrees(atan2(look_direction.z, look_direction.x));
 			pitch_ = glm::degrees(asin(look_direction.y));
 
+			// Constrain pitch to valid range
+			pitch_ = std::clamp(pitch_, -89.0f, 89.0f);
+
+			world_up_ = glm::vec3(0.0f, 1.0f, 0.0f);
 			update_fps_vectors();
 		}
 		else {
-			// Switch to arc mode: reset to initial orbital position and orientation
-			distance_ = initial_state_.distance;
-			azimuth_ = initial_state_.azimuth;
-			elevation_ = initial_state_.elevation;
-			target_ = initial_state_.target;
+			// Switch to orbit mode: preserve current position but make it look at target
+			// Calculate orbital parameters based on current FPS position relative to target
+			glm::vec3 offset = position_ - target_;
+
+			// Calculate distance (radius of orbit)
+			distance_ = glm::length(offset);
+
+			// Calculate azimuth (horizontal angle around Y-axis)
+			azimuth_ = glm::degrees(atan2(offset.z, offset.x));
+
+			// Calculate elevation (vertical angle from horizontal plane)
+			float horizontal_distance = sqrt(offset.x * offset.x + offset.z * offset.z);
+			elevation_ = glm::degrees(atan2(offset.y, horizontal_distance));
+
+			// Reset Y-offset and up vector for clean orbital mode
 			camera_y_offset_ = 0.0f;
-			up_ = world_up_; // Reset up vector to world up
-			update_position_from_spherical();
+			up_ = world_up_;
 		}
+
+		// Update view matrix to look at target
 		update_view_matrix();
 	}
 }
