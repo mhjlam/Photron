@@ -10,18 +10,18 @@
 #include "material.hpp"
 
 Material::Material() {
-	// Initialize with default optical properties and compute hash
+	// Initialize with defaults and compute identification hash
 	compute_optical_hash();
 }
 
 Material::Material(double g_val, double eta_val, double mu_a_val, double mu_s_val) noexcept :
 	g_(g_val), eta_(eta_val), mu_a_(mu_a_val), mu_s_(mu_s_val) {
-	// Initialize with specified properties and compute identification hash
+	// Initialize with custom properties and compute hash
 	compute_optical_hash();
 }
 
 bool Material::has_same_optical_properties(const Material& other) const noexcept {
-	// Fast optical property comparison using precomputed hashes
+	// O(1) comparison using precomputed hash values
 	return optical_hash_ == other.optical_hash_;
 }
 

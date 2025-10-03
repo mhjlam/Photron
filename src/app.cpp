@@ -23,9 +23,11 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 
+#include "common/config.hpp"
 #include "common/error_handler.hpp"
 #include "common/error_types.hpp"
 #include "common/file_utils.hpp"
+#include "common/logger.hpp"
 #include "common/result.hpp"
 #include "common/results_exporter.hpp"
 #include "renderer/camera.hpp"
@@ -33,8 +35,6 @@
 #include "renderer/overlay.hpp"
 #include "renderer/renderer.hpp"
 #include "renderer/settings.hpp"
-#include "simulator/config.hpp"
-#include "simulator/logger.hpp"
 #include "simulator/metrics.hpp"
 #include "simulator/simulator.hpp"
 
@@ -339,9 +339,9 @@ void App::setup_overlay_callbacks() {
 
 			// Reset camera to default position when new config is loaded
 			if (renderer_) {
-			// Always switch to Orbit mode before resetting to ensure proper camera direction reset
-			input_handler_->set_camera_mode(true); // true = Orbit mode
-			input_handler_->reset_camera(renderer_->camera);				// Set the UI to reflect the mode change
+				// Always switch to Orbit mode before resetting to ensure proper camera direction reset
+				input_handler_->set_camera_mode(true);           // true = Orbit mode
+				input_handler_->reset_camera(renderer_->camera); // Set the UI to reflect the mode change
 				if (overlay_) {
 					Settings& settings = overlay_->get_settings();
 					settings.camera_mode = CameraMode::Orbit;
@@ -592,16 +592,17 @@ void App::cursor_pos_callback(GLFWwindow* window, double xpos, double ypos) {
 	if (app_instance && app_instance->renderer_ && app_instance->overlay_) {
 		// Don't handle camera input if file dialog is open
 		if (!app_instance->overlay_->is_file_dialog_open()) {
-		// Check if we're dragging in free camera mode - reset and switch to orbit immediately
-		if (app_instance->left_mouse_pressed_ && !app_instance->renderer_->orbit_camera_mode) {
-			double dx = xpos - app_instance->mouse_press_x_;
-			double dy = ypos - app_instance->mouse_press_y_;
-			double distance = std::sqrt(dx * dx + dy * dy);
+			// Check if we're dragging in free camera mode - reset and switch to orbit immediately
+			if (app_instance->left_mouse_pressed_ && !app_instance->renderer_->orbit_camera_mode) {
+				double dx = xpos - app_instance->mouse_press_x_;
+				double dy = ypos - app_instance->mouse_press_y_;
+				double distance = std::sqrt(dx * dx + dy * dy);
 
-			// If we've dragged beyond threshold, switch to orbit mode (preserving position)
-			if (distance >= app_instance->DRAG_THRESHOLD) {
-				app_instance->input_handler_->set_camera_mode(true); // true = Orbit mode
-				// Note: No reset_camera() call - preserve current FPS position in orbit mode					// Update overlay settings to reflect the change
+				// If we've dragged beyond threshold, switch to orbit mode (preserving position)
+				if (distance >= app_instance->DRAG_THRESHOLD) {
+					app_instance->input_handler_->set_camera_mode(true); // true = Orbit mode
+					// Note: No reset_camera() call - preserve current FPS position in orbit mode					//
+					// Update overlay settings to reflect the change
 					auto& settings = app_instance->overlay_->get_settings();
 					settings.camera_mode = CameraMode::Orbit;
 
@@ -612,7 +613,8 @@ void App::cursor_pos_callback(GLFWwindow* window, double xpos, double ypos) {
 				}
 			}
 
-			if (app_instance->input_handler_->handle_mouse_move(app_instance->renderer_->camera, static_cast<float>(xpos), static_cast<float>(ypos))) {
+			if (app_instance->input_handler_->handle_mouse_move(
+					app_instance->renderer_->camera, static_cast<float>(xpos), static_cast<float>(ypos))) {
 				// Camera state changed
 			}
 
@@ -673,7 +675,8 @@ void App::scroll_callback(GLFWwindow*, double xoffset, double yoffset) {
 	}
 
 	if (app_instance && app_instance->input_handler_) {
-		app_instance->input_handler_->handle_mouse_scroll(app_instance->renderer_->camera, static_cast<float>(xoffset), static_cast<float>(yoffset));
+		app_instance->input_handler_->handle_mouse_scroll(
+			app_instance->renderer_->camera, static_cast<float>(xoffset), static_cast<float>(yoffset));
 	}
 }
 

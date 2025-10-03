@@ -22,13 +22,13 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include "common/config.hpp"
 #include "common/error_types.hpp"
 #include "common/result.hpp"
 #include "math/range.hpp"
 #include "renderer/camera.hpp"
 #include "renderer/settings.hpp"
 #include "renderer/shader.hpp"
-#include "simulator/config.hpp"
 #include "simulator/layer.hpp"
 #include "simulator/medium.hpp"
 #include "simulator/photon.hpp"
@@ -56,9 +56,9 @@ bool Renderer::initialize() {
 		return false;
 	}
 
-	// Initialize GeometryRenderer (handles all medium geometry rendering)
-	if (!geometry_renderer.initialize()) {
-		std::cerr << "Failed to initialize GeometryRenderer" << std::endl;
+	// Initialize GeomRenderer (handles all medium geometry rendering)
+	if (!geom_renderer.initialize()) {
+		std::cerr << "Failed to initialize GeomRenderer" << std::endl;
 		return false;
 	}
 
@@ -148,7 +148,7 @@ void Renderer::render(Simulator& simulator) {
 	update_camera();
 
 	// Render geometry boundaries and wireframes
-	geometry_renderer.render(simulator, settings_, camera);
+	geom_renderer.render(simulator, settings_, camera);
 
 	// Clear depth buffer for proper layering of volume elements
 	glClear(GL_DEPTH_BUFFER_BIT);
@@ -243,7 +243,7 @@ void Renderer::invalidate_all_caches() {
 
 	// Invalidate specialized renderer caches
 	voxel_renderer.invalidate_cache();
-	geometry_renderer.invalidate_cache();
+	geom_renderer.invalidate_cache();
 }
 
 // Only invalidate path cache when path-related settings change

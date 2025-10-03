@@ -17,9 +17,9 @@
 #include <algorithm>
 #include <limits>
 
-#include "cuboid.hpp"
+#include "math/cuboid.hpp"
+#include "math/triangle.hpp"
 #include "simulator/layer.hpp"
-#include "triangle.hpp"
 
 /**
  * @brief Construct ray with origin and direction

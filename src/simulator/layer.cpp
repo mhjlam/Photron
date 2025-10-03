@@ -17,18 +17,20 @@
 #include <ranges>
 #include <sstream>
 
-#include "logger.hpp"
+#include "common/logger.hpp"
 #include "math/math.hpp"
 #include "math/ray.hpp"
+#include "simulator/layer.hpp"
+#include "simulator/material.hpp"
 
 void Layer::calculate_bounds() {
-	// Validate mesh exists before bounds calculation
+	// Calculate axis-aligned bounding box from triangle vertices
 	if (mesh.empty()) {
 		has_bounds_ = false;
 		return;
 	}
 
-	// Initialize bounds to extreme values for min/max calculation
+	// Initialize bounds for min/max search
 	double min_x = std::numeric_limits<double>::max();
 	double min_y = std::numeric_limits<double>::max();
 	double min_z = std::numeric_limits<double>::max();
@@ -84,12 +86,12 @@ void Layer::extend_bounds(const Triangle& triangle) {
 }
 
 bool Layer::contains_point(const glm::dvec3& point) const {
-	// Early rejection using bounding box test
+	// Quick bounds check before expensive point-in-mesh test
 	if (mesh.empty() || !might_contain(point)) {
 		return false;
 	}
 
-	// Use BVH acceleration structure for efficient point-in-mesh testing
+	// BVH-accelerated point containment test
 	return bvh_.contains_point(point);
 }
 
@@ -99,7 +101,7 @@ std::pair<double, Triangle> Layer::find_first_intersection(const Ray& ray) const
 		return std::make_pair(std::numeric_limits<double>::max(), Triangle());
 	}
 
-	// Use BVH for accelerated ray-triangle intersection testing
+	// BVH-accelerated ray intersection query
 	double distance;
 	glm::dvec3 intersection;
 	Triangle hit_triangle;
@@ -108,7 +110,7 @@ std::pair<double, Triangle> Layer::find_first_intersection(const Ray& ray) const
 		return std::make_pair(distance, hit_triangle);
 	}
 	else {
-		// Return max distance and an invalid triangle to indicate no intersection
+		// No intersection found
 		return std::make_pair(std::numeric_limits<double>::max(), Triangle());
 	}
 }
@@ -144,14 +146,14 @@ std::vector<std::pair<double, Triangle>> Layer::find_all_intersections(const Ray
 }
 
 /**
- * Validate and fix normal orientations to ensure they point outward from the geometry
+ * Ensure all triangle normals point outward from mesh centroid
  */
 void Layer::validate_and_fix_normals() {
 	if (mesh.empty()) {
 		return;
 	}
 
-	// Calculate the centroid of the mesh for reference
+	// Compute mesh centroid as reference point
 	glm::dvec3 mesh_centroid(0.0);
 	size_t vertex_count = 0;
 
@@ -176,12 +178,12 @@ void Layer::validate_and_fix_normals() {
 		// Get current normal
 		glm::dvec3 current_normal = triangle.normal();
 
-		// Check if normal points outward (positive dot product with centroid-to-triangle vector)
+		// Test normal orientation relative to mesh center
 		double alignment = glm::dot(current_normal, glm::normalize(centroid_to_triangle));
 
-		// If normal points inward (negative dot product), flip it
+		// Fix inward-pointing normals by reversing winding order
 		if (alignment < 0.0) {
-			// Flip the normal by swapping two vertices (reverses winding order)
+			// Swap vertices to flip normal direction
 			glm::dvec3 v0 = triangle.v0();
 			glm::dvec3 v1 = triangle.v1();
 			glm::dvec3 v2 = triangle.v2();
@@ -199,7 +201,7 @@ void Layer::validate_and_fix_normals() {
 		Logger::instance().log_info(debug_msg.str());
 	}
 
-	// Rebuild spatial acceleration structure with corrected normals
+	// Rebuild BVH with corrected triangle orientations
 	bvh_.build(mesh);
 }
 

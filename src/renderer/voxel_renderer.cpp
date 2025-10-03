@@ -10,10 +10,10 @@
 #include <iostream>
 #include <ranges>
 
+#include "common/config.hpp"
 #include "math/math.hpp"
 #include "renderer/camera.hpp"
 #include "renderer/shader.hpp"
-#include "simulator/config.hpp"
 #include "simulator/photon.hpp"
 #include "simulator/simulator.hpp"
 #include "simulator/voxel.hpp"
@@ -24,14 +24,18 @@ VoxelRenderer::VoxelRenderer() {
 
 VoxelRenderer::~VoxelRenderer() {
 	// Clean up OpenGL resources
-	if (voxel_shader_)
+	if (voxel_shader_) {
 		glDeleteProgram(voxel_shader_);
-	if (voxel_vao_)
+	}
+	if (voxel_vao_) {
 		glDeleteVertexArrays(1, &voxel_vao_);
-	if (voxel_vbo_)
+	}
+	if (voxel_vbo_) {
 		glDeleteBuffers(1, &voxel_vbo_);
-	if (voxel_instance_vbo_)
+	}
+	if (voxel_instance_vbo_) {
 		glDeleteBuffers(1, &voxel_instance_vbo_);
+	}
 
 	// Wait for any background sorting to complete
 	if (background_sort_in_progress_.load() && sorting_future_.valid()) {

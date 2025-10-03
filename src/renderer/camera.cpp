@@ -10,6 +10,8 @@
 
 #include "camera.hpp"
 
+#include <algorithm>
+
 namespace
 {
 // Camera system default parameters

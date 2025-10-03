@@ -27,23 +27,31 @@ PathRenderer::PathRenderer() {
 
 PathRenderer::~PathRenderer() {
 	// Clean up OpenGL resources
-	if (lines_vao_)
+	if (lines_vao_) {
 		glDeleteVertexArrays(1, &lines_vao_);
-	if (lines_vbo_)
+	}
+	if (lines_vbo_) {
 		glDeleteBuffers(1, &lines_vbo_);
-	if (lines_instance_vbo_)
+	}
+	if (lines_instance_vbo_) {
 		glDeleteBuffers(1, &lines_instance_vbo_);
-	if (lines_shader_)
+	}
+	if (lines_shader_) {
 		glDeleteProgram(lines_shader_);
+	}
 
-	if (points_vao_)
+	if (points_vao_) {
 		glDeleteVertexArrays(1, &points_vao_);
-	if (points_vbo_)
+	}
+	if (points_vbo_) {
 		glDeleteBuffers(1, &points_vbo_);
-	if (points_instance_vbo_)
+	}
+	if (points_instance_vbo_) {
 		glDeleteBuffers(1, &points_instance_vbo_);
-	if (points_shader_)
+	}
+	if (points_shader_) {
 		glDeleteProgram(points_shader_);
+	}
 }
 
 bool PathRenderer::initialize() {
@@ -366,10 +374,9 @@ void PathRenderer::collect_emitter_vectors(const Simulator& simulator,
 				total_weight += emitter->weight;
 			}
 
-			// Use percentage-based coloring with averaged energy
-			float surface_refraction = static_cast<float>(simulator.get_combined_surface_refraction());
-			float energy_percentage = static_cast<float>(total_weight / surface_refraction);
-			glm::vec4 direction_color = adaptive_log_color(energy_percentage);
+			// Use actual averaged energy for consistent color mapping with photon paths
+			float averaged_energy = static_cast<float>(total_weight / grouped_emitters.size());
+			glm::vec4 direction_color = adaptive_log_color(averaged_energy);
 			direction_color.a = 0.8f; // Slightly transparent for distinction
 
 			cached_line_instances_.push_back({start_pos, end_pos, direction_color, direction_color});
@@ -378,7 +385,7 @@ void PathRenderer::collect_emitter_vectors(const Simulator& simulator,
 
 	// Add specular reflection emitter for incident photon's surface reflection
 	// This is integrated into the direction grouping above to avoid duplication
-	double specular_reflection = simulator.get_combined_specular_reflection();
+	double specular_reflection = simulator.get_metrics().aggregate_medium_energy_data(simulator).specular_reflection;
 	if (specular_reflection > 0.0 && !simulator.sources.empty()) {
 		const auto& source = simulator.sources[0];
 
@@ -528,11 +535,10 @@ void PathRenderer::collect_path_point_instances(const Simulator& simulator,
 							   static_cast<float>(emitter->position.y),
 							   static_cast<float>(emitter->position.z));
 
-			// Use percentage-based coloring instead of absolute weights for consistency
-			// Convert absolute weight to percentage of total energy budget
-			float surface_refraction = static_cast<float>(simulator.get_combined_surface_refraction());
-			float energy_percentage = static_cast<float>(emitter->weight / surface_refraction);
-			glm::vec4 exit_color = adaptive_log_color(energy_percentage);
+			// Use actual emitter weight for proper energy-based coloring
+			// This ensures emitters match the energy mapping of photon paths
+			float emitter_energy = static_cast<float>(emitter->weight);
+			glm::vec4 exit_color = adaptive_log_color(emitter_energy);
 			exit_color.a = 1.0f; // Full opacity for emitter points
 
 			// Add emitter points to point instances
@@ -544,7 +550,8 @@ void PathRenderer::collect_path_point_instances(const Simulator& simulator,
 		}
 
 		// Add surface specular reflection as an emitter point
-		double surface_specular_reflection = simulator.get_combined_specular_reflection();
+		double surface_specular_reflection =
+			simulator.get_metrics().aggregate_medium_energy_data(simulator).specular_reflection;
 		if (surface_specular_reflection > 0.0 && !simulator.sources.empty()) {
 			const auto& source = simulator.sources[0];
 
@@ -553,10 +560,9 @@ void PathRenderer::collect_path_point_instances(const Simulator& simulator,
 									static_cast<float>(source.intersect.y),
 									static_cast<float>(source.intersect.z));
 
-			// Use percentage-based coloring for surface reflection
-			double surface_refraction = simulator.get_combined_surface_refraction();
-			float energy_percentage = static_cast<float>(surface_specular_reflection / surface_refraction);
-			glm::vec4 surface_point_color = adaptive_log_color(energy_percentage);
+			// Use actual specular reflection energy for consistent color mapping
+			float specular_energy = static_cast<float>(surface_specular_reflection);
+			glm::vec4 surface_point_color = adaptive_log_color(specular_energy);
 			surface_point_color.a = 1.0f; // Full opacity for surface reflection point
 
 			PointInstance surface_point;

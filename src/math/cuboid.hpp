@@ -11,8 +11,8 @@
 #include <limits>
 #include <span>
 
-#include "concepts.hpp"
-#include "math.hpp"
+#include "math/concepts.hpp"
+#include "math/math.hpp"
 
 // Forward declaration
 class Ray;

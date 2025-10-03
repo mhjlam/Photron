@@ -16,7 +16,7 @@
 #include <glm/glm.hpp>
 
 #include "math/concepts.hpp"
-#include "simulator/layer.hpp"  // Full include instead of forward declaration
+#include "simulator/layer.hpp"
 
 // Forward declarations
 class Voxel;
@@ -25,13 +25,14 @@ class Simulator;
 /**
  * @brief Classification result from Distance Field Based voxelization
  */
-struct VoxelClassification {
-	bool is_inside_geometry{false};    // Whether voxel intersects any geometry
-	bool is_boundary_voxel{false};     // Whether voxel intersects geometry boundary (partial volume)
-	bool is_surface_voxel{false};      // Whether voxel is at external surface (to ambient)
-	double volume_fraction{0.0};       // Fraction of voxel inside geometry [0,1]
-	uint32_t dominant_tissue_id{0};    // Tissue ID of dominant layer
-	uint8_t dominant_layer_id{0};      // Layer ID of dominant layer
+struct VoxelClassification
+{
+	bool is_inside_geometry {false}; // Whether voxel intersects any geometry
+	bool is_boundary_voxel {false};  // Whether voxel intersects geometry boundary (partial volume)
+	bool is_surface_voxel {false};   // Whether voxel is at external surface (to ambient)
+	double volume_fraction {0.0};    // Fraction of voxel inside geometry [0,1]
+	uint32_t dominant_tissue_id {0}; // Tissue ID of dominant layer
+	uint8_t dominant_layer_id {0};   // Layer ID of dominant layer
 };
 
 /**
@@ -49,7 +50,7 @@ class Volume
 public:
 	/**
 	 * @brief Default constructor for empty volume
-	 * 
+	 *
 	 * Creates uninitialized volume with zero dimensions.
 	 * Must call initialization method before use.
 	 */
@@ -57,13 +58,13 @@ public:
 
 	/**
 	 * @brief Constructor for volume with specified dimensions and voxel size
-	 * 
+	 *
 	 * Allocates and initializes voxel grid with given parameters.
 	 * Total voxels = num_x * num_y * num_z.
-	 * 
+	 *
 	 * @param voxel_size Physical size of each cubic voxel
 	 * @param num_x Number of voxels in X dimension
-	 * @param num_y Number of voxels in Y dimension  
+	 * @param num_y Number of voxels in Y dimension
 	 * @param num_z Number of voxels in Z dimension
 	 */
 	Volume(double voxel_size, uint32_t num_x, uint32_t num_y, uint32_t num_z);
@@ -87,10 +88,10 @@ public:
 
 	/**
 	 * @brief Convert 3D voxel coordinates to linear array index
-	 * 
+	 *
 	 * Computes linear index using row-major ordering: index = z*nx*ny + y*nx + x.
 	 * Essential for efficient voxel storage and access in 1D array.
-	 * 
+	 *
 	 * @param x X coordinate in voxel grid
 	 * @param y Y coordinate in voxel grid
 	 * @param z Z coordinate in voxel grid
@@ -113,7 +114,7 @@ public:
 
 	/**
 	 * @brief Clear all voxel data and reset volume to empty state
-	 * 
+	 *
 	 * Deallocates all voxels, resets dimensions to zero, and
 	 * prepares volume for reinitialization or destruction.
 	 */
@@ -143,40 +144,51 @@ public:
 	 * @param samples Number of random samples to use (default: 1000)
 	 * @return Volume fraction [0.0, 1.0] where 0 = no intersection, 1 = fully inside
 	 */
-	double fraction_inside(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max,
-		const std::vector<Layer>& layers, int samples = 1000) const;
+	double fraction_inside(const glm::dvec3& voxel_min,
+						   const glm::dvec3& voxel_max,
+						   const std::vector<Layer>& layers,
+						   int samples = 1000) const;
 
 	/**
 	 * @brief Fast approximation using corner testing and adaptive subdivision.
 	 * @note Less accurate but much faster than Monte Carlo for most cases
 	 */
-	double fraction_inside_fast(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max,
-		const std::vector<Layer>& layers, int max_subdivisions = 3) const;
+	double fraction_inside_fast(const glm::dvec3& voxel_min,
+								const glm::dvec3& voxel_max,
+								const std::vector<Layer>& layers,
+								int max_subdivisions = 3) const;
 
 	/**
 	 * @brief Convenience method to compute volume fraction for a specific voxel by coordinates
 	 */
-	double fraction(uint32_t x, uint32_t y, uint32_t z, const glm::dvec3& grid_min,
-		const std::vector<Layer>& layers, int samples = 1000) const;
+	double fraction(uint32_t x,
+					uint32_t y,
+					uint32_t z,
+					const glm::dvec3& grid_min,
+					const std::vector<Layer>& layers,
+					int samples = 1000) const;
 
 	/**
 	 * @brief Distance field based voxelization algorithm.
 	 * Most robust approach for complex mesh voxelization using signed distance fields.
 	 */
-	VoxelClassification distance_field_voxelization(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max,
-												   const std::vector<Layer>& layers) const;
-	
+	VoxelClassification distance_field_voxelization(const glm::dvec3& voxel_min,
+													const glm::dvec3& voxel_max,
+													const std::vector<Layer>& layers) const;
+
 	/**
 	 * @brief Compute accurate volume fraction for surface voxels using SDF sampling.
 	 */
-	double compute_volume_fraction_sdf(const glm::dvec3& voxel_min, const glm::dvec3& voxel_max,
-									   const std::vector<Layer>& layers, int subdivisions) const;
-	
+	double compute_volume_fraction_sdf(const glm::dvec3& voxel_min,
+									   const glm::dvec3& voxel_max,
+									   const std::vector<Layer>& layers,
+									   int subdivisions) const;
+
 	/**
 	 * @brief Compute signed distance from a point to the closest point on a triangle mesh.
 	 */
 	double compute_signed_distance_to_mesh(const glm::dvec3& point, const std::vector<Triangle>& mesh) const;
-	
+
 	/**
 	 * @brief Find the closest point on a triangle to a given point.
 	 */
@@ -191,7 +203,7 @@ private:
 
 	/**
 	 * @brief Initialize voxel storage and allocate memory
-	 * 
+	 *
 	 * Allocates vector storage for voxel pointers and initializes
 	 * each voxel with proper coordinates and default values.
 	 */
@@ -199,21 +211,19 @@ private:
 
 	/**
 	 * @brief Clean up voxel storage and release memory
-	 * 
+	 *
 	 * Properly deallocates all voxel objects and clears storage
 	 * vectors to prevent memory leaks.
 	 */
 	void cleanup_voxels();
-	inline bool is_valid_index(uint32_t linear_index) const {
-		return linear_index < total_voxels_;
-	}
+	inline bool is_valid_index(uint32_t linear_index) const { return linear_index < total_voxels_; }
 
 	/**
 	 * @brief Recursive subdivision algorithm for accurate volume fraction calculation
-	 * 
+	 *
 	 * Adaptively subdivides voxel regions to compute precise volume fractions
 	 * for complex geometries. Uses recursive refinement until convergence.
-	 * 
+	 *
 	 * @param min_corner Minimum corner of subdivision region
 	 * @param max_corner Maximum corner of subdivision region
 	 * @param layers Vector of mesh layers to test against
@@ -221,6 +231,9 @@ private:
 	 * @param max_depth Maximum allowed recursion depth
 	 * @return Volume fraction [0.0, 1.0] for the subdivision region
 	 */
-	double subdivide_test(const glm::dvec3& min_corner, const glm::dvec3& max_corner, 
-		const std::vector<Layer>& layers, int depth, int max_depth) const;
+	double subdivide_test(const glm::dvec3& min_corner,
+						  const glm::dvec3& max_corner,
+						  const std::vector<Layer>& layers,
+						  int depth,
+						  int max_depth) const;
 };

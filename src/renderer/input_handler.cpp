@@ -9,7 +9,7 @@
 
 #include <GLFW/glfw3.h>
 
-#include "camera.hpp"
+#include "renderer/camera.hpp"
 
 InputHandler::InputHandler(bool initial_orbit_mode) : orbit_mode_(initial_orbit_mode) {
 	// Initialize all key states to unpressed

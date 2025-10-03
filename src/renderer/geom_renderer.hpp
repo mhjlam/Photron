@@ -1,5 +1,5 @@
 /**
- * @file geometry_renderer.hpp
+ * @file geom_renderer.hpp
  * @brief Specialized medium geometry visualization system
  *
  * Handles rendering of medium boundaries, wireframes, and 3D geometry faces.
@@ -23,7 +23,7 @@ class Simulator;
 class Camera;
 
 /**
- * @class GeometryRenderer
+ * @class GeomRenderer
  * @brief Specialized renderer for medium geometry visualization
  *
  * Handles all aspects of geometry rendering including:
@@ -32,18 +32,18 @@ class Camera;
  * - Planar face detection and optimization
  * - Instanced rendering for performance
  */
-class GeometryRenderer
+class GeomRenderer
 {
 public:
 	/**
-	 * @brief Construct a new GeometryRenderer
+	 * @brief Construct a new GeomRenderer
 	 */
-	GeometryRenderer();
+	GeomRenderer();
 
 	/**
-	 * @brief Destroy the GeometryRenderer and clean up resources
+	 * @brief Destroy the GeomRenderer and clean up resources
 	 */
-	~GeometryRenderer();
+	~GeomRenderer();
 
 	/**
 	 * @brief Initialize OpenGL resources for geometry rendering
@@ -102,10 +102,6 @@ private:
 
 	// Geometry processing
 	void collect_geometry_instances(const Simulator& simulator);
-	void process_layer_geometry(const auto& layer);
-	void detect_planar_faces(const std::vector<glm::vec3>& vertices,
-							 const glm::vec4& face_color,
-							 const glm::vec4& wireframe_color);
 
 	// Rendering
 	void draw_triangle_instances(const Camera& camera);

@@ -19,7 +19,7 @@
 #include <glm/glm.hpp>
 
 #include "renderer/camera.hpp"
-#include "renderer/geometry_renderer.hpp"
+#include "renderer/geom_renderer.hpp"
 #include "renderer/label_renderer.hpp"
 #include "renderer/path_renderer.hpp"
 #include "renderer/settings.hpp"
@@ -52,7 +52,7 @@ public:
 	/**
 	 * @brief Construct a new Renderer object with default settings
 	 */
-	Renderer() : voxel_renderer(), path_renderer(), geometry_renderer(), label_renderer() {}
+	Renderer() : voxel_renderer(), path_renderer(), geom_renderer(), label_renderer() {}
 
 	/**
 	 * @brief Destroy the Renderer object and clean up OpenGL resources
@@ -182,7 +182,7 @@ private:
 
 	mutable VoxelRenderer voxel_renderer;                        ///< Voxel rendering and energy visualization
 	mutable PathRenderer path_renderer;                          ///< Photon path visualization and line rendering
-	mutable GeometryRenderer geometry_renderer;                  ///< Medium geometry and wireframe rendering
+	mutable GeomRenderer geom_renderer;                          ///< Medium geometry and wireframe rendering
 	mutable LabelRenderer label_renderer;                        ///< Energy label rendering and text overlays
 
 	int viewport_width_ {800};                                   ///< Current viewport width in pixels

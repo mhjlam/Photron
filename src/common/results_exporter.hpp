@@ -140,9 +140,4 @@ private:
 	// Text export helpers
 	void write_medium_statistics_text(std::ostream& out, const Simulator& simulator, size_t medium_index);
 	void write_energy_conservation_text(std::ostream& out, const Simulator& simulator, size_t medium_index);
-
-	// CSV export helpers
-	void write_csv_header_absorption(std::ostream& out);
-	void write_csv_header_emittance(std::ostream& out);
-	void write_csv_header_paths(std::ostream& out);
 };

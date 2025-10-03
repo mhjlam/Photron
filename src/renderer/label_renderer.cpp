@@ -166,10 +166,11 @@ void LabelRenderer::cache_energy_labels(const Simulator& simulator) {
 	}
 
 	// Handle specular surface reflection if present (ORIGINAL SPECULAR LOGIC)
-	double specular_reflection = simulator.get_combined_specular_reflection();
+	auto energy_data = simulator.get_metrics().aggregate_medium_energy_data(simulator);
+	double specular_reflection = energy_data.specular_reflection;
 	if (specular_reflection > 0.0 && !simulator.sources.empty()) {
 		const Source& source = simulator.sources[0];
-		double surface_refraction = simulator.get_combined_surface_refraction();
+		double surface_refraction = energy_data.surface_refraction;
 		double energy_percent = (specular_reflection / surface_refraction) * 100.0;
 
 		// Format percentage like original

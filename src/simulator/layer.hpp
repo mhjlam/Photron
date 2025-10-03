@@ -1,7 +1,7 @@
 /**
  * @file layer.hpp
  * @brief Geometric layer representation for multi-layered material simulation
- * 
+ *
  * Defines the Layer class which represents individual material layers within
  * a multi-layered medium. Each layer consists of triangular mesh geometry with
  * associated material properties and optimized spatial acceleration structures.
@@ -14,56 +14,55 @@
 #include <span>
 #include <vector>
 
-// Include types needed for member variables and interface
-#include "math/bvh.hpp"    // Needed for BVH member
-#include "math/range.hpp"  // Needed for Range3 member
-#include "math/triangle.hpp"  // Needed for Triangle vector
-#include "math/concepts.hpp"  // Needed for template concepts
+#include "math/bvh.hpp"
+#include "math/concepts.hpp"
+#include "math/range.hpp"
+#include "math/triangle.hpp"
 
-// Forward declarations for types only used in method signatures
+// Forward declarations
 class Ray;
 
 /**
  * @class Layer
  * @brief Geometric material layer with triangular mesh representation
- * 
+ *
  * The Layer class represents a single material layer within a multi-layered
  * medium used for Monte Carlo photon transport simulation. Each layer consists of:
- * 
+ *
  * **Geometric Representation:**
  * - **Triangular Mesh**: Defines layer boundaries and interfaces
  * - **Bounding Volume Hierarchy**: Accelerates ray-mesh intersection queries
  * - **Spatial Bounds**: Axis-aligned bounding box for culling operations
- * 
+ *
  * **Material Association:**
  * - **Layer ID**: Unique identifier within the medium
  * - **Material ID**: Links to material properties (absorption, scattering, etc.)
- * 
+ *
  * **Key Features:**
  * - **Move-only Semantics**: Prevents expensive copying of large mesh data
  * - **Automatic BVH Updates**: Spatial acceleration structures rebuilt on geometry changes
  * - **Template-based Mesh Loading**: Efficient bulk triangle insertion
  * - **Intersection Queries**: Fast ray-layer intersection with surface normals
- * 
+ *
  * **Typical Use Cases:**
  * - Skin layers in dermatological simulations
  * - Tissue interfaces in medical imaging
  * - Material boundaries in industrial applications
  * - Optical component surfaces
- * 
+ *
  * The layer system supports complex multi-layered geometries where photons
  * must navigate between materials with different optical properties.
  */
 class Layer
 {
 public:
-	uint8_t id {0};        ///< Unique layer identifier within the medium
-	uint8_t tissue_id {0}; ///< Associated material/tissue type identifier
+	uint8_t id {0};             ///< Unique layer identifier within the medium
+	uint8_t tissue_id {0};      ///< Associated material/tissue type identifier
 	std::vector<Triangle> mesh; ///< Triangular mesh defining layer geometry
 
 	/**
 	 * @brief Default constructor creates empty layer
-	 * 
+	 *
 	 * Initializes layer with default IDs and empty mesh.
 	 * Call add_triangle() or set_triangles() to define geometry.
 	 */
@@ -77,7 +76,7 @@ public:
 
 	/**
 	 * @brief Update spatial acceleration structures after geometry changes
-	 * 
+	 *
 	 * Rebuilds bounding volume hierarchy and recalculates spatial bounds
 	 * after mesh modifications. Should be called after adding/modifying triangles.
 	 */
@@ -85,21 +84,21 @@ public:
 
 	/**
 	 * @brief Add a single triangle to the layer mesh
-	 * 
+	 *
 	 * Appends triangle to mesh and updates spatial bounds.
 	 * For bulk operations, prefer set_triangles() for better performance.
-	 * 
+	 *
 	 * @param triangle Triangle to add to the mesh
 	 */
 	void add_triangle(const Triangle& triangle);
 
 	/**
 	 * @brief Set complete triangle mesh from container
-	 * 
+	 *
 	 * Efficiently replaces entire mesh with triangles from any container
 	 * that satisfies the TriangleContainer concept. Automatically updates
 	 * bounds and rebuilds spatial acceleration structures.
-	 * 
+	 *
 	 * @tparam Container Type satisfying TriangleContainer concept
 	 * @param triangles Container of Triangle objects to set as mesh
 	 */

@@ -20,8 +20,8 @@
 
 #include "common/error_handler.hpp"
 #include "common/error_types.hpp"
+#include "common/logger.hpp"
 #include "common/result.hpp"
-#include "logger.hpp"
 #include "math/triangle.hpp"
 #include "simulator/layer.hpp"
 #include "simulator/material.hpp"
@@ -32,7 +32,7 @@ std::unique_ptr<Config> Config::instance_ = nullptr;
 bool Config::initialized_ = false;
 
 void Config::initialize() {
-	// Create default configuration instance
+	// Initialize singleton with default values
 	if (!initialized_) {
 		instance_ = std::unique_ptr<Config>(new Config());
 		initialized_ = true;
@@ -44,11 +44,11 @@ bool Config::initialize(const std::string& config_file) {
 	if (!initialized_) {
 		instance_ = std::unique_ptr<Config>(new Config());
 
-		// Parse and validate configuration file
+		// Load and validate TOML configuration
 		auto result = instance_->parse_config_file(config_file);
 		if (!result.is_ok()) {
 			ErrorHandler::instance().report_error(ErrorMessage::format(result.error(), "Config initialization failed"));
-			// Reset instance since parsing failed
+			// Clean up failed instance to prevent inconsistent state
 			instance_.reset();
 			return false;
 		}
@@ -62,13 +62,12 @@ bool Config::is_initialized() {
 }
 
 Config& Config::get() {
-	// Provide safe access to singleton with fallback handling
+	// Safe singleton access with emergency fallback
 	if (!initialized_ || !instance_) {
-		// Create emergency fallback instance to prevent crashes during error recovery
+		// Emergency fallback prevents crashes during error recovery
 		static std::unique_ptr<Config> fallback_instance = nullptr;
 		if (!fallback_instance) {
 			fallback_instance = std::unique_ptr<Config>(new Config());
-			// Set minimal defaults to prevent cascading failures
 			fallback_instance->config_filename_ = "No Configuration Loaded";
 		}
 		return *fallback_instance;
@@ -89,13 +88,11 @@ Result<void, ConfigError> Config::parse_config_file(const std::string& filename)
 	}
 
 	try {
-		// Store configuration source for reference
+		// Store source filename and parse TOML
 		config_filename_ = filename;
-
-		// Parse TOML configuration file
 		toml::table config = toml::parse_file(filename);
 
-		// Parse each configuration section with validation
+		// Validate all required configuration sections
 		if (!parse_general_config(config)) {
 			return Result<void, ConfigError>::error(ConfigError::ValidationError);
 		}
@@ -285,7 +282,7 @@ bool Config::parse_layer_configs(const toml::table& config) {
 			return false;
 		}
 
-		// Build triangle mesh
+		// Convert faces to triangle mesh with bounds checking
 		for (const auto& face : faces) {
 			if (face.x >= vertices.size() || face.y >= vertices.size() || face.z >= vertices.size()) {
 				ErrorHandler::instance().report_error("Layer " + std::to_string((int)layer.id)

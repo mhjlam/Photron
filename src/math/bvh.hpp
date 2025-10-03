@@ -1,5 +1,11 @@
 /**
- * @file bvh.hpp
+ * @file#include <glm/glm.hpp>
+
+#include "math/concepts.hpp"
+#include "math/cuboid.hpp"
+#include "math/triangle.hpp"
+
+// Forward declarationsp
  * @brief Bounding Volume Hierarchy for accelerated ray-triangle intersection
  *
  * Provides high-performance BVH implementation with Surface Area Heuristic (SAH)
@@ -13,9 +19,9 @@
 
 #include <glm/fwd.hpp>
 
-#include "concepts.hpp"
-#include "cuboid.hpp"
-#include "triangle.hpp"
+#include "math/concepts.hpp"
+#include "math/cuboid.hpp"
+#include "math/triangle.hpp"
 
 // Forward declarations
 class Cuboid;
@@ -56,11 +62,8 @@ private:
 	[[nodiscard]] int find_best_split(std::vector<int>& triangle_indices, int& best_axis) const;
 
 	// Ray intersection traversal
-	[[nodiscard]] bool intersect_recursive(const BVHNode* node,
-										   const Ray& ray,
-										   double& closest_t,
-										   glm::dvec3& intersection,
-										   Triangle& hit_triangle) const;
+	[[nodiscard]] bool intersect_recursive(
+		const BVHNode* node, const Ray& ray, double& closest_t, glm::dvec3& intersection, Triangle& hit_triangle) const;
 
 	// Point-in-mesh testing traversal
 	[[nodiscard]] int count_intersections_recursive(const BVHNode* node, const Ray& ray, const glm::dvec3& point) const;

@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "math.hpp"
+#include "math/math.hpp"
 
 /**
  * @struct Range

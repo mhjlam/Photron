@@ -20,7 +20,7 @@
 
 #include <glm/glm.hpp>
 
-#include "math.hpp"
+#include "math/math.hpp"
 
 /**
  * @class VoxelDDA3D

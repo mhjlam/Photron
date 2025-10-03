@@ -9,7 +9,6 @@
 
 #include "medium.hpp"
 
-// Add includes for complete type definitions
 #include <algorithm>
 #include <fstream>
 #include <iomanip>
@@ -21,18 +20,17 @@
 #include "common/error_handler.hpp"
 #include "common/error_types.hpp"
 #include "common/file_utils.hpp"
-#include "logger.hpp"
+#include "common/logger.hpp"
 #include "math/ray.hpp"
 #include "simulator/photon.hpp"
-#include "voxel.hpp"
+#include "simulator/voxel.hpp"
 
 Medium::Medium(Config& config) : config_(config) {
-	// Pre-allocate containers for performance
-	layers_.reserve(10);   // Reserve space for typical layer counts
-	materials_.reserve(5); // Reserve space for typical material counts
+	// Pre-allocate containers based on typical usage patterns
+	layers_.reserve(10);   // Most simulations have <10 layers
+	materials_.reserve(5); // Most simulations have <5 materials
 
-	// Transfer configuration data to medium instance
-	// Move layer and material definitions from config to avoid copying
+	// Transfer configuration data (move semantics for efficiency)
 	layers_ = config_.move_layers();
 	materials_ = config_.move_materials();
 
@@ -47,16 +45,13 @@ Medium::Medium(Config& config) : config_(config) {
 }
 
 bool Medium::initialize() {
-	// Initialize voxel grid structure
+	// Set up voxel grid based on geometry bounds
 	if (!initialize_volume()) {
 		ErrorHandler::instance().report_error("An error occurred while initializing the voxel grid.");
 		return false;
 	}
 	if (config_.log()) {
-		// Log successful voxel grid initialization
-		if (Config::get().log()) {
-			Logger::instance().log_info("Voxel grid initialized successfully.");
-		}
+		Logger::instance().log_info("Voxel grid initialized successfully.");
 	}
 
 	// Initialize material layer geometry and properties
@@ -96,15 +91,14 @@ bool Medium::initialize_volume() {
 	bounds_.min_bounds = glm::dvec3(std::numeric_limits<double>::max());
 	bounds_.max_bounds = glm::dvec3(-std::numeric_limits<double>::max());
 
-	// Compute grid boundary extent with padding for full coverage
+	// Calculate bounding box from all triangle vertices
 	for (const auto& layer : layers_) {
-		// Check each triangle vertex for boundary extent calculation
 		for (const auto& triangle : layer.mesh) {
 			glm::dvec3 v0 = triangle.v0();
 			glm::dvec3 v1 = triangle.v1();
 			glm::dvec3 v2 = triangle.v2();
 
-			// get the maximum value among the previous maximum or new vertices
+			// Expand bounds to include triangle vertices
 			bounds_.min_bounds.x = std::min({bounds_.min_bounds.x, v0.x, v1.x, v2.x}); // left (-x)
 			bounds_.max_bounds.x = std::max({bounds_.max_bounds.x, v0.x, v1.x, v2.x}); // right (+x)
 			bounds_.min_bounds.y = std::min({bounds_.min_bounds.y, v0.y, v1.y, v2.y}); // top (+y)
@@ -233,29 +227,29 @@ bool Medium::voxelize_layers() {
 	// Cache frequently accessed values for performance
 	const glm::dvec3& min_bounds = bounds_.min_bounds;
 	const glm::dvec3 voxel_size_vec(vox_size);
-	
+
 	// Optimize loop ordering for better cache locality (x innermost for memory access patterns)
 	for (uint32_t iz = 0; iz < nz; iz++) {
 		const double z_coord = min_bounds.z + iz * vox_size;
-		
+
 		for (uint32_t iy = 0; iy < ny; iy++) {
 			const double y_coord = min_bounds.y + iy * vox_size;
-			
+
 			// Process entire row of voxels in x-direction for optimal cache utilization
 			for (uint32_t ix = 0; ix < nx; ix++) {
 				const double x_coord = min_bounds.x + ix * vox_size;
-				
+
 				// Vectorized voxel bounds calculation
 				const glm::dvec3 voxel_min(x_coord, y_coord, z_coord);
 				const glm::dvec3 voxel_max = voxel_min + voxel_size_vec;
 
-				// Use Distance Field Based voxelization for robust classification
+				// Classify voxel using distance field algorithm
 				VoxelClassification classification = volume_.distance_field_voxelization(voxel_min, voxel_max, layers_);
 
 				if (classification.is_inside_geometry) {
 					Voxel* voxel = volume_(ix, iy, iz);
 
-					// Assign material from dominant layer
+					// Assign material properties based on dominant layer
 					voxel->material = &materials_[classification.dominant_tissue_id];
 					voxel->layer_id = classification.dominant_layer_id;
 					voxel->volume_fraction_inside = classification.volume_fraction;
@@ -366,13 +360,11 @@ void Medium::write_results() const {
 }
 
 Voxel* Medium::voxel_at(glm::dvec3& position) {
-	// ROBUST BOUNDARY HANDLING: Use larger epsilon tolerance for boundary inclusion
+	// Handle boundary precision issues with epsilon tolerance
 	static const double BOUNDARY_EPSILON = MathConstants::PHOTON_NUDGE_EPSILON;
 
-	// Check if photon is actually exiting the medium completely
-	// Don't try to find voxels for photons that have truly exited
+	// Early exit for positions clearly outside medium
 	if (!contains_point(position)) {
-		// Position is completely outside medium - this is a true exit
 		return nullptr;
 	}
 
@@ -418,12 +410,12 @@ Voxel* Medium::voxel_at(glm::dvec3& position) {
 		}
 	}
 
-	// Calculate relative position from minimum bounds
+	// Convert world position to voxel coordinates
 	double dx = position.x - bounds_.min_bounds.x;
 	double dy = position.y - bounds_.min_bounds.y;
 	double dz = position.z - bounds_.min_bounds.z;
 
-	// ROBUST COORDINATE CALCULATION: Use consistent floor() with boundary epsilon
+	// Floor division with epsilon to handle floating-point precision
 	uint32_t ix = static_cast<uint32_t>(std::floor(dx / config_.vox_size() + BOUNDARY_EPSILON));
 	uint32_t iy = static_cast<uint32_t>(std::floor(dy / config_.vox_size() + BOUNDARY_EPSILON));
 	uint32_t iz = static_cast<uint32_t>(std::floor(dz / config_.vox_size() + BOUNDARY_EPSILON));
@@ -514,18 +506,17 @@ double Medium::intersection(Source& source) const {
 }
 
 bool Medium::contains_point(const glm::dvec3& point) const {
-	// ROBUST BOUNDARY HANDLING: Use epsilon tolerance for boundary inclusion
+	// Test point containment with boundary tolerance for numerical precision
 	static const double BOUNDARY_EPSILON = MathConstants::BOUNDARY_EPSILON;
 
-	// Test if the point is inside any layer's geometry
+	// Check containment in any layer
 	for (const auto& layer : layers_) {
-		// First check if point is strictly inside
+		// Direct containment test
 		if (layer.contains_point(point)) {
 			return true;
 		}
 
-		// If not strictly inside, try epsilon-nudged positions for boundary tolerance
-		// This handles floating point precision issues at exact boundaries
+		// Handle boundary cases with epsilon neighborhood sampling
 		for (double dx : {-BOUNDARY_EPSILON, 0.0, BOUNDARY_EPSILON}) {
 			for (double dy : {-BOUNDARY_EPSILON, 0.0, BOUNDARY_EPSILON}) {
 				for (double dz : {-BOUNDARY_EPSILON, 0.0, BOUNDARY_EPSILON}) {
@@ -553,20 +544,20 @@ void Medium::detect_external_surface_voxels() {
 		Logger::instance().log_info("Detecting external surface voxels...");
 	}
 
-	// For each voxel with material, check if it has neighbors without material
+	// Mark material voxels adjacent to empty space as surface voxels
 	for (uint32_t z = 0; z < dimensions.z; z++) {
 		for (uint32_t y = 0; y < dimensions.y; y++) {
 			for (uint32_t x = 0; x < dimensions.x; x++) {
 				Voxel* voxel = volume_.at(x, y, z);
 
-				// Only check voxels that have material
+				// Skip empty voxels
 				if (!voxel->material) {
 					continue;
 				}
 
 				bool is_external_surface = false;
 
-				// Check all 26 neighbors (including face, edge, and corner neighbors)
+				// Check 26-neighborhood for empty voxels or grid boundaries
 				for (int dz = -1; dz <= 1 && !is_external_surface; dz++) {
 					for (int dy = -1; dy <= 1 && !is_external_surface; dy++) {
 						for (int dx = -1; dx <= 1 && !is_external_surface; dx++) {
@@ -577,14 +568,14 @@ void Medium::detect_external_surface_voxels() {
 							int ny = (int)y + dy;
 							int nz = (int)z + dz;
 
-							// Check bounds - if neighbor is outside grid, this is external surface
+							// Grid boundary = external surface
 							if (nx < 0 || ny < 0 || nz < 0 || nx >= (int)dimensions.x || ny >= (int)dimensions.y
 								|| nz >= (int)dimensions.z) {
 								is_external_surface = true;
 								break;
 							}
 
-							// Check if neighbor has material - if not, this is external surface
+							// Empty neighbor = external surface
 							Voxel* neighbor = volume_.at(nx, ny, nz);
 							if (!neighbor->material) {
 								is_external_surface = true;
@@ -594,7 +585,7 @@ void Medium::detect_external_surface_voxels() {
 					}
 				}
 
-				// Set surface flag
+				// Apply surface classification
 				voxel->is_surface_voxel = is_external_surface;
 				if (is_external_surface) {
 					surface_voxel_count++;

@@ -23,7 +23,7 @@
 
 #include <glm/glm.hpp>
 
-#include "ray.hpp"
+#include "math/ray.hpp"
 
 /**
  * @brief Construct BVH from triangle collection
@@ -201,11 +201,8 @@ bool BVH::intersect(const Ray& ray, double& distance, glm::dvec3& intersection, 
  * Core BVH traversal algorithm with bounding box culling and
  * optimized leaf intersection testing for performance.
  */
-bool BVH::intersect_recursive(const BVHNode* node,
-							  const Ray& ray,
-							  double& closest_t,
-							  glm::dvec3& intersection,
-							  Triangle& hit_triangle) const {
+bool BVH::intersect_recursive(
+	const BVHNode* node, const Ray& ray, double& closest_t, glm::dvec3& intersection, Triangle& hit_triangle) const {
 	// Early culling via bounding box intersection test
 	double t_min, t_max;
 	if (!node->bounds.intersect_ray(ray, t_min, t_max) || t_min > closest_t) {

@@ -23,9 +23,9 @@
 #include <sstream>
 
 #include "app.hpp"
-#include "error_handler.hpp"
-#include "file_utils.hpp"
-#include "simulator/config.hpp"
+#include "common/config.hpp"
+#include "common/error_handler.hpp"
+#include "common/file_utils.hpp"
 #include "simulator/medium.hpp"
 #include "simulator/metrics.hpp"
 #include "simulator/photon.hpp"
@@ -187,10 +187,11 @@ void ResultsExporter::export_simulation_log(const Simulator& simulator, const st
 // Absorption CSV export
 void ResultsExporter::export_absorption_csv(const Simulator& simulator, const std::string& filepath) {
 	std::ofstream file = FileUtils::create_output_file(filepath);
-	if (!file.is_open())
+	if (!file.is_open()) {
 		return;
+	}
 
-	write_csv_header_absorption(file);
+	file << "MediumID,VoxelX,VoxelY,VoxelZ,Absorption\n";
 
 	auto& mediums = simulator.mediums;
 	for (size_t med_idx = 0; med_idx < mediums.size(); ++med_idx) {
@@ -211,10 +212,11 @@ void ResultsExporter::export_absorption_csv(const Simulator& simulator, const st
 // Emittance CSV export
 void ResultsExporter::export_emittance_csv(const Simulator& simulator, const std::string& filepath) {
 	std::ofstream file = FileUtils::create_output_file(filepath);
-	if (!file.is_open())
+	if (!file.is_open()) {
 		return;
+	}
 
-	write_csv_header_emittance(file);
+	file << "MediumID,VoxelX,VoxelY,VoxelZ,Emittance\n";
 
 	auto& mediums = simulator.mediums;
 	for (size_t med_idx = 0; med_idx < mediums.size(); ++med_idx) {
@@ -238,10 +240,11 @@ void ResultsExporter::export_emittance_csv(const Simulator& simulator, const std
 // Paths CSV export
 void ResultsExporter::export_paths_csv(const Simulator& simulator, const std::string& filepath) {
 	std::ofstream file = FileUtils::create_output_file(filepath);
-	if (!file.is_open())
+	if (!file.is_open()) {
 		return;
+	}
 
-	write_csv_header_paths(file);
+	file << "PhotonID,EventType,PosX,PosY,PosZ,DirX,DirY,DirZ,Weight\n";
 
 	// Export photon paths using new Photon class methods
 	const auto& photons = simulator.photons;
@@ -291,17 +294,16 @@ std::string ResultsExporter::sanitize_path_for_json(const std::string& path) {
 }
 
 // JSON helpers
-void ResultsExporter::write_medium_json(std::ostream& out,
-										const Simulator& simulator,
-										size_t medium_index,
-										bool is_last) {
-	if (medium_index >= simulator.mediums.size())
+void ResultsExporter::write_medium_json(std::ostream& out, const Simulator& sim, size_t medium_index, bool last) {
+	if (medium_index >= sim.mediums.size()) {
 		return;
+	}
 
-	const auto& medium = simulator.mediums[medium_index];
+	const auto& medium = sim.mediums[medium_index];
 	const auto& metrics = medium.get_metrics();
 	const auto& volume = medium.get_volume();
 	const auto& dimensions = volume.dimensions();
+	auto& materials = medium.get_tissues();
 
 	// Count surface voxels (matching App::save_results_as_json)
 	size_t surface_count = 0;
@@ -321,7 +323,7 @@ void ResultsExporter::write_medium_json(std::ostream& out,
 	out << "        \"surface_voxels\": " << surface_count << "\n";
 	out << "      },\n";
 	out << "      \"transport_statistics\": {\n";
-	out << "        \"total_photons\": " << simulator.photons.size() << ",\n";
+	out << "        \"total_photons\": " << sim.photons.size() << ",\n";
 	out << "        \"photons_entered\": " << metrics.get_photons_entered() << ",\n";
 	out << "        \"scatter_events\": " << metrics.get_scatter_events() << ",\n";
 	out << "        \"path_length\": " << metrics.compute_path_length() << ",\n";
@@ -339,7 +341,6 @@ void ResultsExporter::write_medium_json(std::ostream& out,
 	out << "      \"tissue_properties\": [\n";
 
 	// Export materials for this medium (matching App::save_results_as_json)
-	auto& materials = medium.get_tissues();
 	for (size_t j = 0; j < materials.size(); ++j) {
 		const auto& material = materials[j];
 		out << "        {\n";
@@ -353,15 +354,15 @@ void ResultsExporter::write_medium_json(std::ostream& out,
 	}
 	out << "      ]\n";
 
-	out << "    }" << (is_last ? "" : ",") << "\n";
+	out << "    }" << (last ? "" : ",") << "\n";
 }
 
 // Text helpers
-void ResultsExporter::write_medium_statistics_text(std::ostream& out, const Simulator& simulator, size_t medium_index) {
-	if (medium_index >= simulator.mediums.size())
+void ResultsExporter::write_medium_statistics_text(std::ostream& out, const Simulator& sim, size_t medium_index) {
+	if (medium_index >= sim.mediums.size())
 		return;
 
-	const auto& medium = simulator.mediums[medium_index];
+	const auto& medium = sim.mediums[medium_index];
 	const auto& metrics = medium.get_metrics();
 	const auto& volume = medium.get_volume();
 	const auto& dimensions = volume.dimensions();
@@ -390,7 +391,7 @@ void ResultsExporter::write_medium_statistics_text(std::ostream& out, const Simu
 	out << "  Surface Voxels:      " << surface_voxels << "\n";
 
 	out << "\nTransport Statistics\n";
-	out << "  Total photons:       " << simulator.photons.size() << "\n";
+	out << "  Total photons:       " << sim.photons.size() << "\n";
 	out << "  Photons entered:     " << metrics.get_photons_entered() << "\n";
 	out << "  Scatter events:      " << static_cast<int>(metrics.get_scatter_events()) << "\n";
 	out << "  Total path length:   " << std::fixed << std::setprecision(6) << metrics.compute_path_length() << "\n";
@@ -400,7 +401,7 @@ void ResultsExporter::write_medium_statistics_text(std::ostream& out, const Simu
 		<< "\n";
 
 	// Use unified energy display data (single call for both conservation and percentages)
-	auto energy_data = simulator.get_energy_display_data();
+	auto energy_data = sim.get_metrics().get_energy_display_data(sim);
 	const auto& energy = energy_data.conservation;
 
 	out << "\nRadiance Properties\n";
@@ -410,20 +411,19 @@ void ResultsExporter::write_medium_statistics_text(std::ostream& out, const Simu
 	out << "    Transmission:      " << std::fixed << std::setprecision(6) << energy.total_transmission << "\n";
 }
 
-void ResultsExporter::write_energy_conservation_text(std::ostream& out,
-													 const Simulator& simulator,
-													 size_t medium_index) {
-	if (medium_index >= simulator.mediums.size())
+void ResultsExporter::write_energy_conservation_text(std::ostream& out, const Simulator& sim, size_t medium_index) {
+	if (medium_index >= sim.mediums.size()) {
 		return;
+	}
 
-	const auto& medium = simulator.mediums[medium_index];
-
-	out << "\nEnergy Conservation\n";
+	const auto& medium = sim.mediums[medium_index];
+	auto& materials = medium.get_tissues();
 
 	// Use unified energy display data (same data as used for radiance properties)
-	auto energy_data = simulator.get_energy_display_data();
+	auto energy_data = sim.get_metrics().get_energy_display_data(sim);
 	const auto& percentages = energy_data.percentages;
 
+	out << "\nEnergy Conservation\n";
 	if (energy_data.is_valid) {
 		out << "  Surface reflection:  " << std::fixed << std::setprecision(1) << percentages.surface_reflection_percent
 			<< "%\n";
@@ -449,7 +449,6 @@ void ResultsExporter::write_energy_conservation_text(std::ostream& out,
 
 	// Add material properties for this medium (matching App::save_results_as_text)
 	out << "\nTissue Properties\n";
-	auto& materials = medium.get_tissues();
 	for (size_t idx = 0; idx < materials.size(); ++idx) {
 		const auto& material = materials[idx];
 		out << "  material " << idx << " (hash: " << material.get_optical_properties_hash() << "):\n";
@@ -458,17 +457,4 @@ void ResultsExporter::write_energy_conservation_text(std::ostream& out,
 		out << "    Scattering Coefficient (mus): " << material.mu_s() << " cm^-1\n";
 		out << "    Anisotropy Factor (g): " << material.g() << "\n";
 	}
-}
-
-// CSV headers
-void ResultsExporter::write_csv_header_absorption(std::ostream& out) {
-	out << "MediumID,VoxelX,VoxelY,VoxelZ,Absorption\n";
-}
-
-void ResultsExporter::write_csv_header_emittance(std::ostream& out) {
-	out << "MediumID,VoxelX,VoxelY,VoxelZ,Emittance\n";
-}
-
-void ResultsExporter::write_csv_header_paths(std::ostream& out) {
-	out << "PhotonID,EventType,PosX,PosY,PosZ,DirX,DirY,DirZ,Weight\n";
 }

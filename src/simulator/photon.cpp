@@ -1,7 +1,7 @@
 /**
  * @file photon.cpp
  * @brief Implementation of photon data structures and path tracking
- * 
+ *
  * Implements photon transport data structures including the main Photon class
  * and photon path management. Handles linked-list based path tracking for
  * visualization and analysis, source data management, and photon lifecycle.
@@ -10,19 +10,18 @@
 #include "photon.hpp"
 
 // Photon constructor implementations
-Photon::Photon(uint64_t i, const glm::dvec3& src_origin, const glm::dvec3& src_direction) noexcept 
-	: id(i) 
-{
-	// Initialize basic photon with source origin and direction
+Photon::Photon(uint64_t i, const glm::dvec3& src_origin, const glm::dvec3& src_direction) noexcept : id(i) {
+	// Initialize with basic source parameters
 	source.origin = src_origin;
 	source.direction = src_direction;
 }
 
-Photon::Photon(uint64_t i, const glm::dvec3& src_origin, const glm::dvec3& src_direction,
-			   const glm::dvec3& spec_direction, const glm::dvec3& src_intersect, 
-			   const Triangle& src_triangle) noexcept 
-	: id(i) 
-{
+Photon::Photon(uint64_t i,
+			   const glm::dvec3& src_origin,
+			   const glm::dvec3& src_direction,
+			   const glm::dvec3& spec_direction,
+			   const glm::dvec3& src_intersect,
+			   const Triangle& src_triangle) noexcept : id(i) {
 	// Initialize photon with complete source data including surface properties
 	source.origin = src_origin;
 	source.direction = src_direction;
@@ -32,15 +31,15 @@ Photon::Photon(uint64_t i, const glm::dvec3& src_origin, const glm::dvec3& src_d
 }
 
 // Path management methods (integrated from PhotonPath)
-void Photon::add_internal_vertex(std::shared_ptr<PhotonNode> vert) noexcept 
-{
-	// Build linked list of internal scattering vertices
+void Photon::add_internal_vertex(std::shared_ptr<PhotonNode> vert) noexcept {
+	// Append internal scattering vertex to path chain
 	if (!path_head) {
-		// First vertex initializes the path
+		// Initialize path with first vertex
 		path_head = vert;
 		path_last = vert;
-	} else {
-		// Append vertex to existing path chain
+	}
+	else {
+		// Link new vertex to path tail
 		path_last->next = vert;
 		vert->prev = path_last;
 		path_last = vert;
@@ -48,8 +47,7 @@ void Photon::add_internal_vertex(std::shared_ptr<PhotonNode> vert) noexcept
 	++num_seg_int;
 }
 
-void Photon::add_external_vertex(std::shared_ptr<PhotonNode> vert) noexcept 
-{
+void Photon::add_external_vertex(std::shared_ptr<PhotonNode> vert) noexcept {
 	// Add external emission/exit vertex to current path segment
 	if (path_last) {
 		path_last->emit = vert;
@@ -58,9 +56,8 @@ void Photon::add_external_vertex(std::shared_ptr<PhotonNode> vert) noexcept
 	++num_seg_ext;
 }
 
-void Photon::initialize_path(const glm::dvec3& start_pos, double path_weight) 
-{
-	// Initialize photon path with entry point and weight
+void Photon::initialize_path(const glm::dvec3& start_pos, double path_weight) {
+	// Create initial path node with entry position and weight
 	path_head = std::make_shared<PhotonNode>(start_pos, path_weight);
 	path_last = path_head;
 	num_seg_int = 1;
@@ -68,17 +65,15 @@ void Photon::initialize_path(const glm::dvec3& start_pos, double path_weight)
 }
 
 // Source data management methods
-void Photon::set_source_data(const Source& src_data) 
-{
+void Photon::set_source_data(const Source& src_data) {
 	// Set complete source information
 	source = src_data;
 }
 
-void Photon::set_source_data(uint64_t src_id, const glm::dvec3& origin, const glm::dvec3& src_direction) 
-{
+void Photon::set_source_data(uint64_t src_id, const glm::dvec3& origin, const glm::dvec3& src_direction) {
 	// Set basic source properties
 	source.id = src_id;
-	source.origin = origin;  
+	source.origin = origin;
 	source.direction = src_direction;
 }
 
@@ -95,8 +90,10 @@ glm::dvec3 Photon::get_entrance_direction() const noexcept {
 
 glm::dvec3 Photon::get_exit_position() const noexcept {
 	// Find first exit point by traversing path chain
-	if (!path_head) return glm::dvec3(0.0);
-	
+	if (!path_head) {
+		return glm::dvec3(0.0);
+	}
+
 	auto current = path_head;
 	while (current) {
 		if (current->emit && current->emit->emitter) {
@@ -107,11 +104,12 @@ glm::dvec3 Photon::get_exit_position() const noexcept {
 	return glm::dvec3(0.0); // No exit found
 }
 
-glm::dvec3 Photon::get_exit_direction() const noexcept
-{
+glm::dvec3 Photon::get_exit_direction() const noexcept {
 	// Find first exit direction by traversing path chain
-	if (!path_head) return glm::dvec3(0.0);
-	
+	if (!path_head) {
+		return glm::dvec3(0.0);
+	}
+
 	auto current = path_head;
 	while (current) {
 		if (current->emit && current->emit->emitter) {
@@ -122,20 +120,21 @@ glm::dvec3 Photon::get_exit_direction() const noexcept
 	return glm::dvec3(0.0); // No exit found
 }
 
-glm::dvec3 Photon::get_termination_position() const noexcept
-{
-	return position; // Current photon position is termination position
+glm::dvec3 Photon::get_termination_position() const noexcept {
+	// Current photon position is termination position
+	return position;
 }
 
-glm::dvec3 Photon::get_termination_direction() const noexcept
-{
-	return direction; // Current photon direction is termination direction
+glm::dvec3 Photon::get_termination_direction() const noexcept {
+	// Current photon direction is termination direction
+	return direction;
 }
 
-uint32_t Photon::get_path_scatter_count() const noexcept
-{
-	if (!path_head) return 0;
-	
+uint32_t Photon::get_path_scatter_count() const noexcept {
+	if (!path_head) {
+		return 0;
+	}
+
 	uint32_t count = 0;
 	auto current = path_head;
 	while (current->next) {
@@ -145,10 +144,11 @@ uint32_t Photon::get_path_scatter_count() const noexcept
 	return count;
 }
 
-double Photon::get_total_path_length() const noexcept
-{
-	if (!path_head) return 0.0;
-	
+double Photon::get_total_path_length() const noexcept {
+	if (!path_head) {
+		return 0.0;
+	}
+
 	double total_length = 0.0;
 	auto current = path_head;
 	while (current->next) {
@@ -159,15 +159,15 @@ double Photon::get_total_path_length() const noexcept
 	return total_length;
 }
 
-double Photon::get_total_absorption_deposited() const noexcept
-{
+double Photon::get_total_absorption_deposited() const noexcept {
 	return total_energy_absorbed; // Already tracked in photon
 }
 
-bool Photon::has_exit() const noexcept
-{
-	if (!path_head) return false;
-	
+bool Photon::has_exit() const noexcept {
+	if (!path_head) {
+		return false;
+	}
+
 	auto current = path_head;
 	while (current) {
 		if (current->emit && current->emit->emitter) {
@@ -178,26 +178,29 @@ bool Photon::has_exit() const noexcept
 	return false;
 }
 
-bool Photon::exited_medium() const noexcept
-{
+bool Photon::exited_medium() const noexcept {
 	return exit_type != ExitType::NONE;
 }
 
-std::string Photon::get_termination_reason() const noexcept
-{
+std::string Photon::get_termination_reason() const noexcept {
 	if (!alive) {
-		if (weight <= 0.0) return "absorbed";
-		if (exit_type != ExitType::NONE) return "exited";
+		if (weight <= 0.0) {
+			return "absorbed";
+		}
+		if (exit_type != ExitType::NONE) {
+			return "exited";
+		}
 		return "terminated";
 	}
 	return "active";
 }
 
-std::vector<glm::dvec3> Photon::get_all_exit_positions() const
-{
+std::vector<glm::dvec3> Photon::get_all_exit_positions() const {
 	std::vector<glm::dvec3> exit_positions;
-	if (!path_head) return exit_positions;
-	
+	if (!path_head) {
+		return exit_positions;
+	}
+
 	auto current = path_head;
 	while (current) {
 		if (current->emit && current->emit->emitter) {

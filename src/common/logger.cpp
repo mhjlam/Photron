@@ -12,7 +12,7 @@
 
 #include <glm/glm.hpp>
 
-#include "config.hpp"
+#include "common/config.hpp"
 
 Logger& Logger::instance() {
 	// Singleton pattern with thread-safe initialization
@@ -22,14 +22,14 @@ Logger& Logger::instance() {
 
 void Logger::initialize(const std::string& csv_filepath, const std::string& log_filepath, bool enable_logging) {
 #ifdef _DEBUG
-	// Configure logging state and file streams
+	// Set up debug logging (compile-time optimized for release builds)
 	logging_enabled_ = enable_logging;
 
 	if (!enable_logging) {
-		return; // Skip file initialization if logging disabled
+		return; // Early exit if logging disabled
 	}
 
-	// Initialize CSV file for structured photon trace data
+	// Set up CSV file for structured photon event data
 	if (csv_file_.is_open()) {
 		csv_file_.close();
 	}
@@ -63,7 +63,7 @@ void Logger::log_photon_event(int photon_id,
 							  double energy,
 							  const std::string& description) {
 #ifdef _DEBUG
-	// Log structured photon event data to CSV for analysis
+	// Write event data to CSV for post-processing analysis
 	if (logging_enabled_ && csv_file_.is_open()) {
 		csv_file_ << photon_id << "," << event << "," << position.x << "," << position.y << "," << position.z << ","
 				  << direction.x << "," << direction.y << "," << direction.z << "," << weight << "," << voxel_coords.x
@@ -82,7 +82,7 @@ void Logger::log_voxel_emittance(int photon_id,
 								 double emittance,
 								 const std::string& surface_type) {
 #ifdef _DEBUG
-	// Log voxel-level emittance data for energy conservation analysis
+	// Record voxel emittance for energy conservation tracking
 	if (logging_enabled_ && csv_file_.is_open()) {
 		csv_file_ << photon_id << ",VOXEL_EMITTANCE," << position.x << "," << position.y << "," << position.z << ","
 				  << direction.x << "," << direction.y << "," << direction.z << "," << weight << "," << voxel_coords.x

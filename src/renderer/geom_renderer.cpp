@@ -1,9 +1,9 @@
 /**
- * @file geometry_renderer.cpp
+ * @file geom_renderer.cpp
  * @brief Implementation of specialized medium geometry visualization system
  */
 
-#include "geometry_renderer.hpp"
+#include "geom_renderer.hpp"
 
 #include <algorithm>
 #include <format>
@@ -19,34 +19,42 @@
 #include "simulator/layer.hpp"
 #include "simulator/simulator.hpp"
 
-GeometryRenderer::GeometryRenderer() = default;
+GeomRenderer::GeomRenderer() = default;
 
-GeometryRenderer::~GeometryRenderer() {
+GeomRenderer::~GeomRenderer() {
 	// Clean up OpenGL resources
-	if (triangles_vao_)
+	if (triangles_vao_) {
 		glDeleteVertexArrays(1, &triangles_vao_);
-	if (triangles_vbo_)
+	}
+	if (triangles_vbo_) {
 		glDeleteBuffers(1, &triangles_vbo_);
-	if (triangles_instance_vbo_)
+	}
+	if (triangles_instance_vbo_) {
 		glDeleteBuffers(1, &triangles_instance_vbo_);
-	if (triangles_shader_)
+	}
+	if (triangles_shader_) {
 		glDeleteProgram(triangles_shader_);
+	}
 
-	if (lines_vao_)
+	if (lines_vao_) {
 		glDeleteVertexArrays(1, &lines_vao_);
-	if (lines_vbo_)
+	}
+	if (lines_vbo_) {
 		glDeleteBuffers(1, &lines_vbo_);
-	if (lines_instance_vbo_)
+	}
+	if (lines_instance_vbo_) {
 		glDeleteBuffers(1, &lines_instance_vbo_);
-	if (lines_shader_)
+	}
+	if (lines_shader_) {
 		glDeleteProgram(lines_shader_);
+	}
 }
 
-bool GeometryRenderer::initialize() {
+bool GeomRenderer::initialize() {
 	return setup_triangle_rendering() && setup_line_rendering();
 }
 
-void GeometryRenderer::render(const Simulator& simulator, const Settings& settings, const Camera& camera) {
+void GeomRenderer::render(const Simulator& simulator, const Settings& settings, const Camera& camera) {
 	if (!settings.draw_volume) {
 		return;
 	}
@@ -68,7 +76,7 @@ void GeometryRenderer::render(const Simulator& simulator, const Settings& settin
 	draw_line_instances(camera);
 }
 
-void GeometryRenderer::invalidate_cache() {
+void GeomRenderer::invalidate_cache() {
 	geometry_cached_ = false;
 	triangle_instances_.clear();
 	line_instances_.clear();
@@ -76,19 +84,19 @@ void GeometryRenderer::invalidate_cache() {
 	line_buffer_uploaded_ = false;
 }
 
-bool GeometryRenderer::setup_triangle_rendering() {
+bool GeomRenderer::setup_triangle_rendering() {
 	// Load and compile triangle instance shaders
 	std::string vertex_source = load_shader_source("shaders/triangles.vert");
 	std::string fragment_source = load_shader_source("shaders/triangles.frag");
 
 	if (vertex_source.empty() || fragment_source.empty()) {
-		std::cerr << "GeometryRenderer: Failed to load triangle shader sources" << std::endl;
+		std::cerr << "GeomRenderer: Failed to load triangle shader sources" << std::endl;
 		return false;
 	}
 
 	triangles_shader_ = create_shader_program(vertex_source, fragment_source);
 	if (!triangles_shader_) {
-		std::cerr << "GeometryRenderer: Failed to create triangle shader program" << std::endl;
+		std::cerr << "GeomRenderer: Failed to create triangle shader program" << std::endl;
 		return false;
 	}
 
@@ -143,26 +151,26 @@ bool GeometryRenderer::setup_triangle_rendering() {
 	return true;
 }
 
-bool GeometryRenderer::setup_line_rendering() {
+bool GeomRenderer::setup_line_rendering() {
 	// Load and compile line shaders for wireframe rendering
 	std::string vertex_source = load_shader_source("shaders/lines.vert");
 	std::string fragment_source = load_shader_source("shaders/lines.frag");
 
 	if (vertex_source.empty() || fragment_source.empty()) {
-		std::cerr << "GeometryRenderer: Failed to load line shader sources" << std::endl;
+		std::cerr << "GeomRenderer: Failed to load line shader sources" << std::endl;
 		return false;
 	}
 
 	lines_shader_ = create_shader_program(vertex_source, fragment_source);
 	if (!lines_shader_) {
-		std::cerr << "GeometryRenderer: Failed to create line shader program" << std::endl;
+		std::cerr << "GeomRenderer: Failed to create line shader program" << std::endl;
 		return false;
 	}
 
 	// Get uniform location for MVP matrix
 	line_instanced_mvp_uniform_location_ = glGetUniformLocation(lines_shader_, "uMVP");
 	if (line_instanced_mvp_uniform_location_ == -1) {
-		std::cerr << "GeometryRenderer: Warning - Could not find uMVP uniform in line shader" << std::endl;
+		std::cerr << "GeomRenderer: Warning - Could not find uMVP uniform in line shader" << std::endl;
 	}
 
 	// Create VAO for line instances
@@ -221,7 +229,7 @@ bool GeometryRenderer::setup_line_rendering() {
 	return true;
 }
 
-void GeometryRenderer::collect_geometry_instances(const Simulator& simulator) {
+void GeomRenderer::collect_geometry_instances(const Simulator& simulator) {
 	triangle_instances_.clear();
 	line_instances_.clear();
 
@@ -353,7 +361,7 @@ void GeometryRenderer::collect_geometry_instances(const Simulator& simulator) {
 	}
 }
 
-void GeometryRenderer::draw_triangle_instances(const Camera& camera) {
+void GeomRenderer::draw_triangle_instances(const Camera& camera) {
 	if (triangle_instances_.empty() || !triangles_shader_) {
 		return;
 	}
@@ -380,7 +388,7 @@ void GeometryRenderer::draw_triangle_instances(const Camera& camera) {
 	glBindVertexArray(0);
 }
 
-void GeometryRenderer::draw_line_instances(const Camera& camera) {
+void GeomRenderer::draw_line_instances(const Camera& camera) {
 	if (line_instances_.empty() || !lines_shader_) {
 		return;
 	}
@@ -404,7 +412,7 @@ void GeometryRenderer::draw_line_instances(const Camera& camera) {
 	glBindVertexArray(0);
 }
 
-void GeometryRenderer::add_triangle_instance(
+void GeomRenderer::add_triangle_instance(
 	const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2, const glm::vec4& color, const glm::vec3& normal) {
 	TriangleInstance instance;
 	instance.v0 = v0;
@@ -415,7 +423,7 @@ void GeometryRenderer::add_triangle_instance(
 	triangle_instances_.push_back(instance);
 }
 
-void GeometryRenderer::add_line_instance(const glm::vec3& start, const glm::vec3& end, const glm::vec4& color) {
+void GeomRenderer::add_line_instance(const glm::vec3& start, const glm::vec3& end, const glm::vec4& color) {
 	MediumLineInstance instance;
 	instance.start = start;
 	instance.end = end;
@@ -424,13 +432,13 @@ void GeometryRenderer::add_line_instance(const glm::vec3& start, const glm::vec3
 	line_instances_.push_back(instance);
 }
 
-bool GeometryRenderer::is_point_inside_mesh(const glm::vec3& point, const Simulator& simulator) const {
+bool GeomRenderer::is_point_inside_mesh(const glm::vec3& point, const Simulator& simulator) const {
 	// Use simulator's built-in geometry testing
 	glm::dvec3 dpoint(point.x, point.y, point.z);
 	return simulator.is_point_inside_geometry(dpoint);
 }
 
-GLuint GeometryRenderer::create_shader_program(const std::string& vertex_source, const std::string& fragment_source) {
+GLuint GeomRenderer::create_shader_program(const std::string& vertex_source, const std::string& fragment_source) {
 	GLuint vertex_shader = compile_shader(vertex_source, GL_VERTEX_SHADER);
 	GLuint fragment_shader = compile_shader(fragment_source, GL_FRAGMENT_SHADER);
 
@@ -453,7 +461,7 @@ GLuint GeometryRenderer::create_shader_program(const std::string& vertex_source,
 	if (!success) {
 		char info_log[512];
 		glGetProgramInfoLog(program, 512, nullptr, info_log);
-		std::cerr << "GeometryRenderer: Program linking failed: " << info_log << std::endl;
+		std::cerr << "GeomRenderer: Program linking failed: " << info_log << std::endl;
 		glDeleteProgram(program);
 		program = 0;
 	}
@@ -463,7 +471,7 @@ GLuint GeometryRenderer::create_shader_program(const std::string& vertex_source,
 	return program;
 }
 
-GLuint GeometryRenderer::compile_shader(const std::string& source, GLenum type) {
+GLuint GeomRenderer::compile_shader(const std::string& source, GLenum type) {
 	GLuint shader = glCreateShader(type);
 	const char* source_cstr = source.c_str();
 	glShaderSource(shader, 1, &source_cstr, nullptr);
@@ -475,7 +483,7 @@ GLuint GeometryRenderer::compile_shader(const std::string& source, GLenum type) 
 	if (!success) {
 		char info_log[512];
 		glGetShaderInfoLog(shader, 512, nullptr, info_log);
-		std::cerr << "GeometryRenderer: Shader compilation failed: " << info_log << std::endl;
+		std::cerr << "GeomRenderer: Shader compilation failed: " << info_log << std::endl;
 		glDeleteShader(shader);
 		return 0;
 	}
@@ -483,10 +491,10 @@ GLuint GeometryRenderer::compile_shader(const std::string& source, GLenum type) 
 	return shader;
 }
 
-std::string GeometryRenderer::load_shader_source(const std::string& file_path) {
+std::string GeomRenderer::load_shader_source(const std::string& file_path) {
 	std::ifstream file(file_path);
 	if (!file.is_open()) {
-		std::cerr << "GeometryRenderer: Failed to open shader file: " << file_path << std::endl;
+		std::cerr << "GeomRenderer: Failed to open shader file: " << file_path << std::endl;
 		return "";
 	}
 

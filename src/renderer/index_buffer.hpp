@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "buffer.hpp"
+#include "renderer/buffer.hpp"
 
 /**
  * @class IndexBuffer

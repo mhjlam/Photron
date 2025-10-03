@@ -10,7 +10,6 @@
 
 #include "overlay.hpp"
 
-// Add includes for complete type definitions
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -21,7 +20,7 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 
-#include "simulator/config.hpp"
+#include "common/config.hpp"
 #include "simulator/medium.hpp"
 #include "simulator/photon.hpp"
 #include "simulator/simulator.hpp"
@@ -721,7 +720,7 @@ const Metrics::EnergyDisplayData& Overlay::get_cached_energy_data(Simulator* sim
 
 	// Check if we need to refresh the cache (version changed = new photons or rerun)
 	if (!cached_energy_data_ || cached_simulation_version_ != current_version) {
-		cached_energy_data_ = simulator->get_energy_display_data();
+		cached_energy_data_ = simulator->get_metrics().get_energy_display_data(*simulator);
 		cached_simulation_version_ = current_version;
 	}
 

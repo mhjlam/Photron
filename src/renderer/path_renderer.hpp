@@ -23,13 +23,41 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include "path_instance.hpp"
 #include "renderer/settings.hpp"
 #include "simulator/layer.hpp"
 
 // Forward declarations
 class Simulator;
 class Camera;
+
+/**
+ * @struct LineInstance
+ * @brief Instance data structure for line rendering with gradient support
+ *
+ * Contains all necessary data for rendering a single line segment with
+ * gradient coloring between start and end points.
+ */
+struct LineInstance
+{
+	glm::vec3 start {};           ///< Line start position in world coordinates
+	glm::vec3 end {};             ///< Line end position in world coordinates
+	glm::vec4 start_color {1.0f}; ///< Color at line start (RGBA)
+	glm::vec4 end_color {1.0f};   ///< Color at line end (RGBA)
+};
+
+/**
+ * @struct PointInstance
+ * @brief Instance data structure for point rendering
+ *
+ * Contains all necessary data for rendering a single point with
+ * position, color, and size information.
+ */
+struct PointInstance
+{
+	glm::vec3 position {};  ///< Point position in world coordinates
+	glm::vec4 color {1.0f}; ///< Point color (RGBA)
+	float size {1.0f};      ///< Point size in pixels
+};
 
 /**
  * @class PathRenderer

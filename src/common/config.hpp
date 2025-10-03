@@ -1,7 +1,7 @@
 /**
  * @file config.hpp
  * @brief Global configuration management system
- * 
+ *
  * The Config class provides centralized configuration management for the entire
  * Photron application using TOML format files. It handles simulation parameters,
  * geometry definitions, material properties, and runtime options with validation
@@ -10,19 +10,16 @@
 
 #pragma once
 
-// Standard library includes
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include <span>
 
-// Third-party includes for interface types
-#include <toml++/toml.h>
 #include <glm/glm.hpp>
+#include <toml++/toml.h>
 
-// Project includes for concepts
 #include "math/concepts.hpp"
 
 // Forward declarations
@@ -35,38 +32,38 @@ enum class ConfigError;
 /**
  * @class Config
  * @brief Singleton configuration management system with TOML support
- * 
+ *
  * The Config class serves as the single source of truth for all application
  * configuration data. It provides:
- * 
+ *
  * **TOML Configuration Loading:**
  * - Hierarchical configuration structure
  * - Type-safe parameter parsing
  * - Comprehensive validation and error reporting
  * - Default value fallback mechanisms
- * 
+ *
  * **Parameter Categories:**
  * - **Simulation**: Photon count, random seeds, algorithm parameters
  * - **Geometry**: Voxel dimensions, layer definitions, material properties
  * - **Sources**: Light source configurations and emission parameters
  * - **Output**: File paths, logging levels, result formats
- * 
+ *
  * **Key Features:**
  * - Thread-safe singleton access pattern
  * - Immutable configuration after initialization
  * - Structured error reporting for invalid configurations
  * - Memory-efficient storage with move semantics
- * 
+ *
  * **Configuration File Structure:**
  * ```toml
  * [general]
  * photons = 1000000
  * voxel_size = 0.01
- * 
+ *
  * [source]
  * position = [0.0, 0.0, 1.0]
  * direction = [0.0, 0.0, -1.0]
- * 
+ *
  * [[material]]
  * name = "skin"
  * mua = 0.1
@@ -82,27 +79,27 @@ private:
 	static bool initialized_;
 
 	// Voxel grid parameters
-	uint32_t nx_ {0};          		///< Number of voxels in X direction
-	uint32_t ny_ {0};          		///< Number of voxels in Y direction
-	uint32_t nz_ {0};          		///< Number of voxels in Z direction
+	uint32_t nx_ {0};       ///< Number of voxels in X direction
+	uint32_t ny_ {0};       ///< Number of voxels in Y direction
+	uint32_t nz_ {0};       ///< Number of voxels in Z direction
 
-	double vox_size_ {0.0};      	///< Uniform voxel edge length (cubic voxels: dx=dy=dz)
+	double vox_size_ {0.0}; ///< Uniform voxel edge length (cubic voxels: dx=dy=dz)
 
 	// Simulation parameters
-	uint64_t num_layers_ {0};  		///< Number of material layers in simulation
-	uint64_t num_voxels_ {0};  		///< Total number of voxels (nx * ny * nz)
-	uint64_t num_photons_ {0}; 		///< Number of Monte Carlo photons to simulate
-	uint64_t num_sources_ {0}; 		///< Number of configured light sources
+	uint64_t num_layers_ {0};  ///< Number of material layers in simulation
+	uint64_t num_voxels_ {0};  ///< Total number of voxels (nx * ny * nz)
+	uint64_t num_photons_ {0}; ///< Number of Monte Carlo photons to simulate
+	uint64_t num_sources_ {0}; ///< Number of configured light sources
 
 	// Runtime control flags
-	bool log_ {false};         		///< Enable logging and progress messages
-	bool deterministic_ {false};   	///< Use fixed random seed for reproducible results
-	
+	bool log_ {false};           ///< Enable logging and progress messages
+	bool deterministic_ {false}; ///< Use fixed random seed for reproducible results
+
 	// Configuration metadata
-	std::string config_filename_;  	///< Path to loaded configuration file (for reference)
-	
+	std::string config_filename_; ///< Path to loaded configuration file (for reference)
+
 	// Parsed configuration objects
-	std::vector<Source> sources_;    ///< Light source configurations
+	std::vector<Source> sources_;     ///< Light source configurations
 	std::vector<Material> materials_; ///< Material property definitions
 	std::vector<Layer> layers_;
 
@@ -112,14 +109,20 @@ private:
 	std::vector<glm::dvec3> parse_vertices(const toml::array& vertices_array) const;
 	std::vector<glm::uvec3> parse_faces(const toml::array& faces_array) const;
 	std::vector<glm::dvec3> parse_normals(const toml::array& normals_array) const;
-	
+
 	// Validation helper methods
 	// Enhanced validation with structured errors
 	template<typename T>
-	Result<void, ConfigError> validate_range_structured(T value, T min, T max, const std::string& param_name, int layer_id = -1) const;
-	Result<void, ConfigError> validate_array_size_structured(const toml::array& arr, size_t expected_size, const std::string& param_name) const;
-	Result<void, ConfigError> validate_geometry_size_structured(size_t actual_size, size_t min_size, const std::string& type, int layer_id) const;
-	
+	Result<void, ConfigError> validate_range_structured(
+		T value, T min, T max, const std::string& param_name, int layer_id = -1) const;
+	Result<void, ConfigError> validate_array_size_structured(const toml::array& arr,
+															 size_t expected_size,
+															 const std::string& param_name) const;
+	Result<void, ConfigError> validate_geometry_size_structured(size_t actual_size,
+																size_t min_size,
+																const std::string& type,
+																int layer_id) const;
+
 	// Legacy validation methods (for backward compatibility)
 	template<typename T>
 	bool validate_range(T value, T min, T max, const std::string& param_name, int layer_id = -1) const;
@@ -136,27 +139,27 @@ public:
 	 * @brief Initialize the global Config instance
 	 */
 	static void initialize();
-	
+
 	/**
 	 * @brief Initialize the global Config instance with a config file
 	 * @param config_file Path to the configuration file
 	 * @return true if initialization and parsing succeeded, false otherwise
 	 */
 	static bool initialize(const std::string& config_file);
-	
+
 	/**
 	 * @brief Check if config service has been initialized
 	 * @return true if initialized, false otherwise
 	 */
 	static bool is_initialized();
-	
+
 	/**
 	 * @brief Get the current config instance
 	 * @return Reference to the current config
 	 * @throws std::runtime_error if config has not been initialized
 	 */
 	static Config& get();
-	
+
 	/**
 	 * @brief Reset the config service (for testing or shutdown)
 	 */
@@ -172,7 +175,7 @@ public:
 	[[nodiscard]] constexpr uint64_t num_sources() const noexcept { return num_sources_; }
 	[[nodiscard]] constexpr double vox_size() const noexcept { return vox_size_; }
 	[[nodiscard]] constexpr double ambient_eta() const noexcept { return 1.0; } // Always air
-	[[nodiscard]] constexpr bool partial() const noexcept { return true; } // Always enabled
+	[[nodiscard]] constexpr bool partial() const noexcept { return true; }      // Always enabled
 	[[nodiscard]] constexpr bool log() const noexcept { return log_; }
 	[[nodiscard]] constexpr bool deterministic() const noexcept { return deterministic_; }
 	[[nodiscard]] const std::string& config_filename() const noexcept { return config_filename_; }

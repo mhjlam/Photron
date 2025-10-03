@@ -20,7 +20,7 @@
 #include <limits>
 #include <ranges>
 
-#include "ray.hpp"
+#include "math/ray.hpp"
 
 /**
  * @brief Construct cuboid from individual coordinates

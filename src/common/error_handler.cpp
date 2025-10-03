@@ -19,9 +19,7 @@
 #include <chrono>
 #include <iomanip>
 
-#include <glm/glm.hpp>
-
-#include "simulator/logger.hpp"
+#include "common/logger.hpp"
 
 /**
  * @brief Get singleton ErrorHandler instance

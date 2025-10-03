@@ -282,30 +282,30 @@ private:
 	static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 
 	// Core subsystem instances
-	GLFWwindow* window_;                      		///< GLFW window handle
-	int window_width_;                        		///< Current window width in pixels
-	int window_height_;                       		///< Current window height in pixels
+	GLFWwindow* window_;                      ///< GLFW window handle
+	int window_width_;                        ///< Current window width in pixels
+	int window_height_;                       ///< Current window height in pixels
 
-	std::unique_ptr<Simulator> simulator_;    		///< Monte Carlo photon transport engine
-	std::unique_ptr<Renderer> renderer_;      		///< OpenGL 3D visualization renderer
-	std::unique_ptr<Overlay> overlay_;        		///< ImGui interface overlay
-	std::shared_ptr<Metrics> shared_metrics_; 		///< Shared simulation metrics for inter-component communication
+	std::unique_ptr<Simulator> simulator_;    ///< Monte Carlo photon transport engine
+	std::unique_ptr<Renderer> renderer_;      ///< OpenGL 3D visualization renderer
+	std::unique_ptr<Overlay> overlay_;        ///< ImGui interface overlay
+	std::shared_ptr<Metrics> shared_metrics_; ///< Shared simulation metrics for inter-component communication
 
 	// Input handling
-	std::unique_ptr<InputHandler> input_handler_;	///< Direct input processing (decoupled from Renderer)
+	std::unique_ptr<InputHandler> input_handler_; ///< Direct input processing (decoupled from Renderer)
 
 	// Application state
-	bool should_close_;         					///< Flag to terminate main loop
-	std::string config_file_;   					///< Path to loaded configuration file
-	bool gui_mode_;             					///< True for GUI mode, false for headless
-	bool force_csv_output_;     					///< Force CSV output even in GUI mode (from command line)
-	bool first_simulation_run_; 					///< Track if this is the first simulation run for output control
+	bool should_close_;         ///< Flag to terminate main loop
+	std::string config_file_;   ///< Path to loaded configuration file
+	bool gui_mode_;             ///< True for GUI mode, false for headless
+	bool force_csv_output_;     ///< Force CSV output even in GUI mode (from command line)
+	bool first_simulation_run_; ///< Track if this is the first simulation run for output control
 
 	// Mouse interaction state
-	bool left_mouse_pressed_;                     	///< Left mouse button currently pressed
-	double mouse_press_x_, mouse_press_y_;        	///< Mouse position when button was pressed
-	static constexpr double DRAG_THRESHOLD = 5.0; 	///< Minimum pixel distance to distinguish click from drag
+	bool left_mouse_pressed_;                     ///< Left mouse button currently pressed
+	double mouse_press_x_, mouse_press_y_;        ///< Mouse position when button was pressed
+	static constexpr double DRAG_THRESHOLD = 5.0; ///< Minimum pixel distance to distinguish click from drag
 
 	// Static file path management
-	static std::string executable_directory_; 		///< Cached executable directory path
+	static std::string executable_directory_; ///< Cached executable directory path
 };
