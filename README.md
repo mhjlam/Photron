@@ -2,91 +2,46 @@
 
 # Photron
 
-<p align="center">Monte Carlo Photon Transport Simulation and Real-Time 3D Visualization</p>
+<p align="center">Monte Carlo Photon Transport Simulation with Real-Time 3D Visualization</p>
 
 <p align="center">
-   <img src="media/photron-demo.gif" alt="Photron Demo" width="600" style="border-radius: 8px;"/>
+   <img src="media/demo.gif" alt="Photron Demo" width="600" style="border-radius: 8px;"/>
    <br>
    <em>Real-time Monte Carlo photon transport simulation with interactive 3D visualization.</em>
 </p>
 
 ## Overview
 
-**Photron** is a high-performance Monte Carlo photon transport simulator with real-time 3D visualization, designed for subsurface light transport analysis in multi-layered biological tissues and materials. Built on modern C++20 and OpenGL 4.5, it combines the proven MCML (Monte Carlo Multi-Layered) algorithm with advanced rendering techniques to provide both accurate simulation and intuitive visualization of photon behavior in complex geometries.
+**Photron** is a Monte Carlo photon transport simulator with real-time 3D visualization for analyzing subsurface light transport in multi-layered materials. Built on C++20 and OpenGL 4.5, it combines the proven MCML algorithm with modern rendering for accurate simulation and intuitive visualization of photon behavior in complex geometries.
 
-The application features a dual-architecture design separating the simulation engine from the rendering system, enabling both interactive GUI mode for research and visualization, and headless batch processing for high-throughput computational workflows.
-
-## Features
+## Key Features
 
 <table align="center">
    <tr>
-      <td align="center"><img src="media/voxel-rendering.png" alt="Voxel Rendering" width="300"/><br><strong>Energy Deposition Visualization</strong></td>
-      <td align="center"><img src="media/photon-paths.png" alt="Photon Paths" width="300"/><br><strong>Interactive Path Tracing</strong></td>
-      <td align="center"><img src="media/material-layers.png" alt="Material Layers" width="300"/><br><strong>Multi-Layer Geometry</strong></td>
+      <td align="center"><img src="media/voxels.png" alt="Voxel Rendering" width="300"/><br><strong>Energy Deposition Visualization</strong></td>
+      <td align="center"><img src="media/layers.png" alt="Material Layers" width="300"/><br><strong>Multi-Layer Geometry</strong></td>
+      <td align="center"><img src="media/photons.png" alt="Photon Paths" width="300"/><br><strong>Interactive Path Tracing</strong></td>
    </tr>
 </table>
 
-### Simulation
+- **Monte Carlo Photon Transport**: MCML-based algorithm for accurate subsurface light transport simulation
+- **Multi-Layered Materials**: Complex geometries with varying optical properties (absorption, scattering, anisotropy, refractive index)
+- **Real-Time 3D Visualization**: Interactive OpenGL rendering with energy mapping and photon path tracing
+- **Voxelized Energy Tracking**: High-resolution 3D grids for spatial energy deposition analysis
+- **Multiple Render Modes**: Absorption, emission, volumes, and photon trajectories
+- **3D DDA & BVH**: Optimized algorithms for precise voxel traversal and ray-triangle intersection
 
-- **MCML 3.0 Algorithm**: Advanced Monte Carlo photon transport based on proven MCML methodology with modern optimizations.
-- **Multi-Layered Materials**: Support for complex geometries with varying optical properties (absorption, scattering, anisotropy, refractive index).
-- **Voxelized Discretization**: High-resolution 3D voxel grids for accurate energy deposition tracking and spatial analysis.
-- **Interactive Photon Launching**: Launching of additional photons after initial simulation and monitoring energy conservation and performance metrics.
+## Configuration
 
-### Visualization
+Photron uses **TOML** files to define simulations. Key parameters include:
 
-- **Real-Time Visualization**: Modern OpenGL 4.5 pipeline with shader-based rendering and interactive camera.
-- **Energy Mapping**: Color-coded visualization of absorbed energy, photon density, and scattering events.
-- **Photon Paths**: Interactive display of photon trajectories, scattering points, and material interfaces.
-- **Render Modes**: Switchable rendering modes including absorption, emittance, volumes, and photon paths.
-- **Performance Monitoring**: Real-time performance metrics and simulation progress tracking.
+- **Refractive Index (eta)**: Material interface behavior (1.0-3.0)
+- **Absorption (mua)** & **Scattering (mus)**: Energy interaction coefficients  
+- **Anisotropy (ani)**: Scattering directionality (-1.0 to +1.0)
 
-### Algorithms
+Example configurations: `default.toml` (basic box), `sphere.toml` (spherical geometry), `nested.toml` (multi-layer), `absorption.toml` (high absorption).
 
-- **3D DDA Traversal**: Digital Differential Analyzer for robust, precision-safe voxel traversal without floating-point errors.
-- **BVH Acceleration**: Bounding Volume Hierarchy with Surface Area Heuristic (SAH) for logarithmic-complexity ray-triangle intersection.
-- **Instanced Rendering**: GPU-optimized instanced rendering for thousands of voxels and even more photon path segments.
-- **Spatial Optimization**: Octree-like spatial data structures and caching systems for performance-critical operations.
-
-## Scene Configuration
-
-Photron uses **TOML** configuration files to define simulation parameters like geometry, layers, and material properties. These config files support a range of scenarios from simple educational demonstrations to more complex research simulations.
-
-### Configuration Files
-
-A number of configuration files are already defined. These showcase several of the capabilities and scenarios that Photron can be used for.
-
-#### Basic Geometry
-
-- **`default.toml`** - Simple rectangular box for basic use-case testing.
-- **`pyramid.toml`** - Inverted pyramidal structure for directional scattering studies.
-- **`sphere.toml`** - Spherical geometry using a crude icosahedral approximation.
-
-#### Material Properties
-
-- **`absorption.toml`** - High-absorption materials for energy deposition analysis.
-- **`scatter-*.toml`** - Various scattering configurations (forward, backward, high-scatter).
-- **`anisotropy.toml`** - Anisotropic scattering parameter studies.
-- **`interface.toml`** - Refractive index interface investigations.
-
-#### Multiple Layers
-
-- **`nested.toml`** - Nested geometries with multiple material boundaries.
-- **`mixed.toml`** - Heterogeneous materials with varying properties.
-- **`stack-*.toml`** - Multi-layer mediums, where the layers are stacked in different directions.
-
-### Configuration Structure
-
-The Photron TOML configuration file is kept intentionally simple and has a general and (light) source section, and the material and geometry definitions of as many layers as are desired.
-
-#### Optical Properties
-
-- **Refractive Index (eta)**: `1.0-3.0`, defines material interface behavior.
-- **Absorption Coefficient (mua)**: `0.0+`, controls energy absorption rate.
-- **Scattering Coefficient (mus)**: `0.0+`, determines scattering frequency.
-- **Anisotropy Factor (ani)**: `-1.0 to +1.0`, controls scattering directionality.
-
-#### Example file
+### Example Configuration
 
 ```toml
 [general]
@@ -121,67 +76,50 @@ faces = [
 
 ## User Guide
 
-Photron has both an interactive and headless mode. Starting the program without any arguments will show an empty screen with a config loader/selector in the middle of the window:
+### Running Simulations
 
-```bash
-./Photron.exe
-```
-
-For a short explanation of the controls of the GUI, hover over the (?) tooltip on the top-right of the screen.
-
-Supplying an argument to a valid config .toml file will run its simulation and then show the graphical user interface window with the results:
+**Interactive Mode**: Launch with configuration file for GUI with real-time visualization
 
 ```bash
 ./Photron.exe config/default.toml
 ```
 
-Another way to run Photron is in headless mode, which will only show output in the console and won't display a GUI. Detailed results of the simulation are automatically written to output files:
+**Headless Mode**: Run simulation without GUI for batch processing
 
 ```bash
-./Photron.exe config/test.toml --headless
+./Photron.exe config/default.toml --headless
 ```
 
-Run `./Photron.exe --help` for more information.
+**Configuration Loader**: Start without arguments to browse and select config files
+
+```bash
+./Photron.exe
+```
+
+### Controls
+
+- **Camera**: Mouse to orbit, scroll to zoom, WASD for movement
+- **Rendering**: Toggle modes (F1-F4), adjust parameters in GUI panels
+- **Simulation**: Run/pause, launch additional photons, export results
+- **Help**: Hover over (?) tooltips for detailed control explanations
+
+Run `./Photron.exe --help` for complete command-line options.
 
 ## Technical Implementation
 
-### Algorithms
+### Core Algorithms
 
-#### Monte Carlo Photon Transport (MCML)
-
-- **Photon Launching**: Configurable source geometries and emission patterns.
-- **Step Size Calculation**: Statistically accurate transport distance sampling.
-- **Scattering Events**: Henyey-Greenberg phase function with anisotropy support.
-- **Interface Handling**: Fresnel reflection/transmission with angle-dependent probabilities.
-- **Energy Deposition**: Accurate tracking in discrete voxel grid with energy conservation validation.
-
-#### 3D Digital Differential Analyzer (DDA)
-
-- **Precision-Safe Traversal**: Integer-based algorithm avoiding floating-point precision issues.
-- **Voxel-Perfect Sampling**: Guarantees no missed voxels along photon paths.
-- **Performance Optimized**: `O(n)` complexity where `n` is traversed voxel count.
-- **Multi-Medium Support**: Handles transitions between materials with different properties.
-
-#### Bounding Volume Hierarchy (BVH)
-
-- **SAH-Optimized Construction**: Surface Area Heuristic for optimal tree partitioning.
-- **Logarithmic Ray Intersection**: `O(log n)` complexity for ray-triangle intersection.
-- **Memory Efficient**: Compact node representation with triangle index lists.
-- **Dynamic Rebuilding**: Automatic reconstruction when geometry changes.
-
-#### GPU Acceleration
-
-- **Shader Pipeline**: Modern GLSL shaders with programmable vertex/fragment processing.
-- **Instanced Rendering**: Efficient batch rendering of millions of voxels and path segments.
-- **Buffer Optimization**: Vertex buffer object (VBO) caching and reuse strategies.
+- **Monte Carlo Photon Transport**: MCML-based with Henyey-Greenberg scattering and Fresnel interfaces
+- **3D Digital Differential Analyzer**: Precision-safe voxel traversal with O(n) complexity
+- **Bounding Volume Hierarchy**: SAH-optimized construction with O(log n) ray intersection
+- **GPU Instanced Rendering**: Efficient batch rendering of millions of voxels and path segments
 
 ### Applications
 
-- **Material Science**: Subsurface scattering analysis in translucent materials and composites.
-- **Computer Graphics**: Accurate subsurface scattering for realistic material rendering.
-- **Optical Engineering**: Light guide design and optical component optimization.
-- **Physics Simulation**: Interactive demonstration of photon transport phenomena.
-- **Parameter Studies**: Interactive exploration of material optical properties and their effects.
+- **Material Science**: Subsurface scattering analysis in translucent materials
+- **Computer Graphics**: Realistic subsurface scattering for material rendering  
+- **Optical Engineering**: Light guide design and component optimization
+- **Physics Education**: Interactive photon transport demonstrations
 
 ## Building and Dependencies
 
@@ -218,20 +156,6 @@ cmake --build build --config Debug
 
 # Build release version
 cmake --build build --config Release
-```
-
-#### Linux (vcpkg)
-
-```bash
-# Install dependencies via vcpkg
-vcpkg install glfw3 glew glm imgui cxxopts tomlplusplus
-
-# Configure and build
-cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
-cmake --build build --config Release
-
-# Run from bin directory (required for shader loading)
-cd bin && ./Photron config/default.toml
 ```
 
 ## File Structure
