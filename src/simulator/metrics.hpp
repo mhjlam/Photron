@@ -271,44 +271,55 @@ public:
 
 	// Direct energy data access - use aggregate_medium_energy_data() for all energy calculations
 
-	// Getters for UI display
+	// Raw data getters (for internal calculations)
 	double get_path_length() const { return path_length_; }
 	double get_scatter_events() const { return scatter_events_; }
 	double get_average_step_size() const { return average_step_size_; }
 	double get_diffusion_distance() const { return diffusion_distance_; }
-	double get_total_absorption() const { return total_absorption_; }
-	double get_diffuse_reflection() const { return diffuse_reflection_; }
-	double get_total_reflection() const { return total_reflection_; }
-	double get_diffuse_transmission() const { return diffuse_transmission_; }
-	double get_specular_transmission() const { return specular_transmission_; }
-	double get_total_transmission() const { return total_transmission_; }
-	double get_total_diffusion() const { return total_diffusion_; }
-	double get_surface_reflection() const { return surface_reflection_; }
-	double get_surface_refraction() const { return surface_refraction_; }
+	double get_total_absorption_raw() const { return total_absorption_; }
+	double get_diffuse_reflection_raw() const { return diffuse_reflection_; }
+	double get_total_reflection_raw() const { return total_reflection_; }
+	double get_diffuse_transmission_raw() const { return diffuse_transmission_; }
+	double get_specular_transmission_raw() const { return specular_transmission_; }
+	double get_total_transmission_raw() const { return total_transmission_; }
+	double get_total_diffusion_raw() const { return total_diffusion_; }
+	double get_surface_reflection_raw() const { return surface_reflection_; }
+	double get_surface_refraction_raw() const { return surface_refraction_; }
 	int get_total_steps() const { return total_steps_; }
 	int get_photons_entered() const { return photons_entered_; }
+
+	// Display-normalized getters (for UI) - return per-photon normalized values
+	double get_total_absorption() const { return normalized_absorption_; }
+	double get_diffuse_reflection() const { return normalized_diffuse_reflection_; }
+	double get_total_reflection() const { return normalized_total_reflection_; }
+	double get_diffuse_transmission() const { return normalized_diffuse_transmission_; }
+	double get_specular_transmission() const { return normalized_specular_transmission_; }
+	double get_total_transmission() const { return normalized_total_transmission_; }
+	double get_total_diffusion() const { return normalized_total_diffusion_; }
+	double get_surface_reflection() const { return normalized_surface_reflection_; }
+	double get_surface_refraction() const { return normalized_surface_refraction_; }
 
 	// Accumulator methods for energy tracking
 	void add_total_absorption(double weight) { total_absorption_ += weight; }
 	void add_diffuse_reflection(double weight) {
 		diffuse_reflection_ += weight;
-		total_reflection_ = diffuse_reflection_ + surface_reflection_;        // keep total in sync
-		total_diffusion_ = diffuse_reflection_ + total_transmission_;         // keep total in sync
+		total_reflection_ = diffuse_reflection_ + surface_reflection_;        // keep absolute total in sync
+		total_diffusion_ = diffuse_reflection_ + total_transmission_;         // keep absolute total in sync
 	}
 	void add_surface_reflection(double weight) {
 		surface_reflection_ += weight;
-		total_reflection_ = diffuse_reflection_ + surface_reflection_;        // keep total in sync
+		total_reflection_ = diffuse_reflection_ + surface_reflection_;        // keep absolute total in sync
 	}
 	void add_surface_refraction(double weight) { surface_refraction_ += weight; }
 	void add_diffuse_transmission(double weight) {
 		diffuse_transmission_ += weight;
-		total_transmission_ = diffuse_transmission_ + specular_transmission_; // keep total in sync
-		total_diffusion_ = diffuse_reflection_ + total_transmission_;         // keep total in sync
+		total_transmission_ = diffuse_transmission_ + specular_transmission_; // keep absolute total in sync
+		total_diffusion_ = diffuse_reflection_ + total_transmission_;         // keep absolute total in sync
 	}
 	void add_specular_transmission(double weight) {
 		specular_transmission_ += weight;
-		total_transmission_ = diffuse_transmission_ + specular_transmission_; // keep total in sync
-		total_diffusion_ = diffuse_reflection_ + total_transmission_;         // keep total in sync
+		total_transmission_ = diffuse_transmission_ + specular_transmission_; // keep absolute total in sync
+		total_diffusion_ = diffuse_reflection_ + total_transmission_;         // keep absolute total in sync
 	}
 	void set_path_length(double length) { path_length_ = length; }
 	void increment_total_steps() { total_steps_++; }
@@ -337,16 +348,26 @@ private:
 	std::chrono::system_clock::time_point simulation_timestamp_; // when simulation completed
 	size_t actual_photons_simulated_ {0};                        // actual number of photons simulated
 
-	double total_absorption_ {0.0};                              // total absorption
-	double diffuse_reflection_ {0.0};                            // diffuse reflection (separate from specular)
-	double total_reflection_ {0.0};                              // total reflection (diffuse + specular)
-	double diffuse_transmission_ {0.0};                          // diffuse transmission (separate from specular)
-	double specular_transmission_ {0.0};                         // specular transmission (separate from diffuse)
-	double total_transmission_ {0.0};                            // total transmission (diffuse + specular)
-	double total_diffusion_ {0.0};          // total diffusion (diffuse reflection + total transmission)
-
-	double surface_reflection_ {0.0};       // amount of weight that reflects at the surface (specular reflection)
-	double surface_refraction_ {0.0};       // amount of weight that refracts at the surface
+	// Absolute values (never modified - used for energy conservation)
+	double total_absorption_ {0.0};                              // total absorption (absolute)
+	double diffuse_reflection_ {0.0};                            // diffuse reflection (absolute)
+	double total_reflection_ {0.0};                              // total reflection (absolute)
+	double diffuse_transmission_ {0.0};                          // diffuse transmission (absolute)
+	double specular_transmission_ {0.0};                         // specular transmission (absolute)
+	double total_transmission_ {0.0};                            // total transmission (absolute)
+	double surface_reflection_ {0.0};                            // surface reflection (absolute)
+	double surface_refraction_ {0.0};                            // surface refraction (absolute)
+	double total_diffusion_ {0.0};                               // total diffusion (absolute)
+	// Normalized values (for display only)
+	double normalized_absorption_ {0.0};                         // normalized absorption for display
+	double normalized_diffuse_reflection_ {0.0};                 // normalized diffuse reflection for display
+	double normalized_total_reflection_ {0.0};                   // normalized total reflection for display
+	double normalized_diffuse_transmission_ {0.0};               // normalized diffuse transmission for display
+	double normalized_specular_transmission_ {0.0};              // normalized specular transmission for display
+	double normalized_total_transmission_ {0.0};                 // normalized total transmission for display
+	double normalized_surface_reflection_ {0.0};                 // normalized surface reflection for display
+	double normalized_surface_refraction_ {0.0};                 // normalized surface refraction for display
+	double normalized_total_diffusion_ {0.0};                    // normalized total diffusion for display
 
 	double path_length_ {0.0};              // path length of photon migration
 	double scatter_events_ {0.0};           // number of scattering events

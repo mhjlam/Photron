@@ -306,22 +306,13 @@ void Medium::reset_simulation_data() {
 }
 
 void Medium::normalize() {
-	// Normalize raw accumulator parameters
+	// Normalize raw accumulator parameters for display purposes
 	double divisor = static_cast<double>(config_.num_photons()) * static_cast<double>(config_.num_sources());
 	metrics_.normalize_raw_values(divisor);
 
-	// Normalize voxel data
-	for (const auto& voxel_ptr : volume_) {
-		if (voxel_ptr && voxel_ptr->material) {
-			voxel_ptr->absorption /= config_.num_photons() * config_.num_sources();
-			voxel_ptr->emittance /= config_.num_photons() * config_.num_sources();
-
-			// Also normalize the directional emittance fields used by energy conservation
-			voxel_ptr->specular_reflection /= config_.num_photons() * config_.num_sources();
-			voxel_ptr->diffuse_transmission /= config_.num_photons() * config_.num_sources();
-			voxel_ptr->diffuse_reflection /= config_.num_photons() * config_.num_sources();
-		}
-	}
+	// DO NOT normalize voxel data - keep as absolute values
+	// Voxel normalization happens only for display purposes in the renderer
+	// This ensures that additional photons can be added correctly during runtime
 }
 
 void Medium::write_results() const {

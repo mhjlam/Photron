@@ -319,16 +319,17 @@ void Metrics::reset() {
 }
 
 void Metrics::normalize_raw_values(double divisor) {
-	total_absorption_ /= divisor;
-	diffuse_reflection_ /= divisor;
-	surface_reflection_ /= divisor;
-	surface_refraction_ /= divisor;
-	diffuse_transmission_ /= divisor;
-	specular_transmission_ /= divisor;
-	// Recalculate totals after normalization
-	total_reflection_ = diffuse_reflection_ + surface_reflection_;
-	total_transmission_ = diffuse_transmission_ + specular_transmission_;
-	total_diffusion_ = diffuse_reflection_ + total_transmission_;
+	// Store normalized values separately, keep absolute values intact
+	normalized_absorption_ = total_absorption_ / divisor;
+	normalized_diffuse_reflection_ = diffuse_reflection_ / divisor;
+	normalized_surface_reflection_ = surface_reflection_ / divisor;
+	normalized_surface_refraction_ = surface_refraction_ / divisor;
+	normalized_diffuse_transmission_ = diffuse_transmission_ / divisor;
+	normalized_specular_transmission_ = specular_transmission_ / divisor;
+	// Calculate normalized totals
+	normalized_total_reflection_ = normalized_diffuse_reflection_ + normalized_surface_reflection_;
+	normalized_total_transmission_ = normalized_diffuse_transmission_ + normalized_specular_transmission_;
+	normalized_total_diffusion_ = normalized_diffuse_reflection_ + normalized_total_transmission_;
 	// path_length_, total_steps_, and photons_entered_ are not normalized
 }
 
@@ -341,6 +342,14 @@ void Metrics::reset_raw_absorption_and_diffuse() {
 	total_reflection_ = diffuse_reflection_ + surface_reflection_;
 	total_transmission_ = diffuse_transmission_ + specular_transmission_;
 	total_diffusion_ = diffuse_reflection_ + total_transmission_;
+	// Reset corresponding normalized values
+	normalized_absorption_ = 0.0;
+	normalized_diffuse_reflection_ = 0.0;
+	normalized_diffuse_transmission_ = 0.0;
+	normalized_specular_transmission_ = 0.0;
+	normalized_total_reflection_ = normalized_diffuse_reflection_ + normalized_surface_reflection_;
+	normalized_total_transmission_ = normalized_diffuse_transmission_ + normalized_specular_transmission_;
+	normalized_total_diffusion_ = normalized_diffuse_reflection_ + normalized_total_transmission_;
 	// Preserve surface_reflection_ and surface_refraction_ as per comment
 }
 

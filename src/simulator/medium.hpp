@@ -99,10 +99,11 @@ public:
 	void reset_simulation_data();
 
 	/**
-	 * @brief Normalize recorded energy values by photon count
+	 * @brief Normalize medium-level metrics for display purposes
 	 *
-	 * Applies normalization to accumulated energy data to obtain
-	 * per-photon statistics and physical units.
+	 * Normalizes only the medium-level energy metrics by photon count.
+	 * Voxel-level data remains as absolute values for correct runtime
+	 * accumulation when individual photons are added.
 	 */
 	void normalize();
 

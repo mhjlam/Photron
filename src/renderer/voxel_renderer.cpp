@@ -68,6 +68,8 @@ void VoxelRenderer::render_voxels(const Simulator& simulator, const Settings& se
 	if (settings.voxel_mode != last_voxel_mode) {
 		voxel_instances_dirty_ = true;
 		voxel_buffer_uploaded_ = false;
+		// Invalidate global energy cache when mode changes
+		global_energy_cached_ = false;
 	}
 
 	last_voxel_mode = settings.voxel_mode;
@@ -75,6 +77,9 @@ void VoxelRenderer::render_voxels(const Simulator& simulator, const Settings& se
 
 	// Update cached energy range
 	update_cached_energy_range(simulator, settings);
+	
+	// Update cached global energy totals for efficiency
+	update_cached_global_energy(simulator, settings.voxel_mode);
 
 	// Set up instanced rendering
 	if (voxel_instances_dirty_) {
@@ -93,6 +98,7 @@ void VoxelRenderer::invalidate_cache() {
 	voxel_instances_dirty_ = true;
 	voxel_buffer_uploaded_ = false;
 	energy_range_cached_ = false;
+	global_energy_cached_ = false;
 
 	// Wait for any background processing to complete
 	if (background_sort_in_progress_.load() && sorting_future_.valid()) {
@@ -155,53 +161,53 @@ void VoxelRenderer::collect_voxel_instances(const Simulator& simulator,
 
 		// Calculate energy based on mode
 		float total_energy;
-		const bool use_absorption = (settings.voxel_mode == VoxelMode::Absorption);
-		const bool use_emittance = (settings.voxel_mode == VoxelMode::Emittance);
-		const bool use_layers = (settings.voxel_mode == VoxelMode::Layers);
 
-		if (use_absorption) {
-			total_energy = static_cast<float>(voxel->absorption);
-		}
-		else if (use_emittance) {
-			total_energy = static_cast<float>(voxel->total_emittance());
-		}
-		else if (use_layers) {
+		// Calculate voxel energy as percentage of total medium energy for proper visualization
+		if (settings.voxel_mode == VoxelMode::Layers) {
 			total_energy = 1.0f;
-		}
-		else {
-			total_energy = static_cast<float>(voxel->absorption + voxel->total_emittance());
+		} else {
+			total_energy = calculate_voxel_energy_percentage(voxel, settings.voxel_mode, simulator);
 		}
 
 		glm::vec4 color(0.0f);
 
-		if (use_layers) {
+		if (settings.voxel_mode == VoxelMode::Layers) {
 			// Layers mode: show all material voxels regardless of energy
 			color = layer_energy_color(
 				MathConstants::ENERGY_THRESHOLD, cached_min_energy_, cached_max_energy_, voxel->layer_id);
 			color.a = 0.05f;
 		}
 		else {
-			// Energy-based rendering logic
-			float normalized_energy = (total_energy - cached_min_energy_) / (cached_max_energy_ - cached_min_energy_);
-			normalized_energy = std::clamp(normalized_energy, 0.0f, 1.0f);
-
-			float gamma_corrected = std::pow(normalized_energy, 0.5f);
-
+			// Energy-based rendering using direct percentage mapping
+			// total_energy is already the percentage (0.0 to 1.0) of this voxel relative to global total
+			
 			float dist_from_origin = glm::length(voxel_pos);
 			static float cached_max_dist = glm::length(to_float(bounds.max_bounds));
 			float normalized_dist = glm::clamp(dist_from_origin / cached_max_dist, 0.0f, 1.0f);
 
-			float min_alpha = (use_emittance) ? 0.1f : 0.2f;
-			float max_alpha = (use_emittance) ? 0.7f : 0.9f;
-			float alpha = min_alpha + (max_alpha - min_alpha) * gamma_corrected * (1.0f - 0.2f * normalized_dist);
+			bool use_emittance = (settings.voxel_mode == VoxelMode::Emittance);
 
 			if (total_energy > MathConstants::ENERGY_THRESHOLD) {
-				color = layer_energy_color(total_energy, cached_min_energy_, cached_max_energy_, voxel->layer_id);
+				// Only enhance voxels that actually have energy
+				// Apply modest gamma correction and scaling for better visibility
+				float gamma_corrected = std::pow(total_energy, 0.4f);
+				float enhanced_energy = gamma_corrected * 2.0f;  // More conservative scaling
+				enhanced_energy = std::clamp(enhanced_energy, 0.0f, 1.0f);
+				
+				// Use original color mapping approach with conservative energy range
+				float min_energy = 0.0f;
+				float max_energy = 1.0f;
+				
+				float min_alpha = use_emittance ? 0.1f : 0.2f;
+				float max_alpha = use_emittance ? 0.7f : 0.9f;
+				float alpha = min_alpha + (max_alpha - min_alpha) * enhanced_energy * (1.0f - 0.2f * normalized_dist);
+				
+				color = layer_energy_color(enhanced_energy, min_energy, max_energy, voxel->layer_id);
 				color.a = alpha;
 			}
 			else if (voxel->material != nullptr) {
-				color = layer_energy_color(
-					MathConstants::ENERGY_THRESHOLD, cached_min_energy_, cached_max_energy_, voxel->layer_id);
+				// Keep voxels with no energy very dim, same as layer mode
+				color = layer_energy_color(MathConstants::ENERGY_THRESHOLD, 0.0f, 1.0f, voxel->layer_id);
 				color.a = 0.05f;
 			}
 		}
@@ -217,7 +223,7 @@ void VoxelRenderer::collect_voxel_instances(const Simulator& simulator,
 }
 
 void VoxelRenderer::update_cached_energy_range(const Simulator& simulator, const Settings& settings) const {
-	if (energy_range_cached_) {
+	if (energy_range_cached_ && cached_range_mode_ == settings.voxel_mode) {
 		return;
 	}
 
@@ -245,9 +251,6 @@ void VoxelRenderer::update_cached_energy_range(const Simulator& simulator, const
 
 	if (nx > 0 && ny > 0 && nz > 0) {
 		const uint32_t total_voxels = nx * ny * nz;
-		const bool use_absorption = (settings.voxel_mode == VoxelMode::Absorption);
-		const bool use_emittance = (settings.voxel_mode == VoxelMode::Emittance);
-		const bool use_layers = (settings.voxel_mode == VoxelMode::Layers);
 
 		all_energies.reserve(all_energies.size() + total_voxels / 10);
 
@@ -260,17 +263,11 @@ void VoxelRenderer::update_cached_energy_range(const Simulator& simulator, const
 			if (voxel) {
 				float total_energy;
 
-				if (use_absorption) {
-					total_energy = static_cast<float>(voxel->absorption);
-				}
-				else if (use_emittance) {
-					total_energy = static_cast<float>(voxel->total_emittance());
-				}
-				else if (use_layers) {
+				if (settings.voxel_mode == VoxelMode::Layers) {
 					total_energy = (voxel->material != nullptr) ? 1.0f : 0.0f;
-				}
-				else {
-					total_energy = static_cast<float>(voxel->absorption + voxel->total_emittance());
+				} else {
+					// Use the same simplified calculation for range
+					total_energy = calculate_voxel_energy_percentage(voxel, settings.voxel_mode, simulator);
 				}
 
 				if (total_energy > 0.0000001f) {
@@ -294,7 +291,34 @@ void VoxelRenderer::update_cached_energy_range(const Simulator& simulator, const
 		cached_max_energy_ = std::max(p95, cached_min_energy_ * 10.0f);
 	}
 
+	cached_range_mode_ = settings.voxel_mode;
 	energy_range_cached_ = true;
+}
+
+void VoxelRenderer::update_cached_global_energy(const Simulator& simulator, VoxelMode mode) const {
+	if (global_energy_cached_ && cached_energy_mode_ == mode) {
+		return;
+	}
+
+	// Calculate total energy across ALL mediums for each energy type
+	cached_global_absorption_total_ = 0.0;
+	cached_global_emittance_total_ = 0.0;
+	cached_global_combined_total_ = 0.0;
+
+	const auto& mediums = simulator.get_mediums();
+	for (const auto& medium : mediums) {
+		const auto& volume = medium.get_volume();
+		for (const auto& voxel_ptr : volume) {
+			if (voxel_ptr && voxel_ptr->material) {
+				cached_global_absorption_total_ += voxel_ptr->absorption;
+				cached_global_emittance_total_ += voxel_ptr->total_emittance();
+				cached_global_combined_total_ += voxel_ptr->absorption + voxel_ptr->total_emittance();
+			}
+		}
+	}
+
+	cached_energy_mode_ = mode;
+	global_energy_cached_ = true;
 }
 
 void VoxelRenderer::end_voxel_instances(VoxelMode mode, const Camera& camera) {
@@ -799,4 +823,45 @@ glm::vec4 VoxelRenderer::layer_energy_color(float energy, float min_energy, floa
 		// Very low energy: very dark but still visible
 		return glm::vec4(base_color * 0.3f, 1.0f);
 	}
+}
+
+float VoxelRenderer::calculate_voxel_energy_percentage(const Voxel* voxel, VoxelMode mode, const Simulator& simulator) const {
+	if (!voxel || !voxel->material) {
+		return 0.0f;
+	}
+
+	// Ensure global energy totals are cached
+	update_cached_global_energy(simulator, mode);
+
+	// Get the voxel's absolute energy value
+	double voxel_energy = 0.0;
+	if (mode == VoxelMode::Absorption) {
+		voxel_energy = voxel->absorption;
+	} else if (mode == VoxelMode::Emittance) {
+		voxel_energy = voxel->total_emittance();
+	} else {
+		voxel_energy = voxel->absorption + voxel->total_emittance();
+	}
+
+	// If there's no energy in this voxel, return 0
+	if (voxel_energy <= 0.0) {
+		return 0.0f;
+	}
+
+	// Use cached global total energy for this mode
+	double total_energy = 0.0;
+	if (mode == VoxelMode::Absorption) {
+		total_energy = cached_global_absorption_total_;
+	} else if (mode == VoxelMode::Emittance) {
+		total_energy = cached_global_emittance_total_;
+	} else {
+		total_energy = cached_global_combined_total_;
+	}
+
+	// Return percentage of this voxel relative to global total (0.0 to 1.0)
+	// This will be used by the percentile-based discretization system
+	if (total_energy > 0.0) {
+		return static_cast<float>(voxel_energy / total_energy);
+	}
+	return 0.0f;
 }

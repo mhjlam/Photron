@@ -24,6 +24,8 @@
 // Forward declarations
 class Simulator;
 class Camera;
+class Voxel;
+enum class VoxelMode;
 
 /**
  * @brief Instance data structure for voxel rendering
@@ -104,8 +106,16 @@ private:
 
 	// Energy Range Caching
 	mutable bool energy_range_cached_ = false;
+	mutable VoxelMode cached_range_mode_ = VoxelMode::Layers;
 	mutable float cached_min_energy_ = 0.0f;
 	mutable float cached_max_energy_ = 1.0f;
+
+	// Global Energy Total Caching
+	mutable bool global_energy_cached_ = false;
+	mutable VoxelMode cached_energy_mode_ = VoxelMode::Layers;
+	mutable double cached_global_absorption_total_ = 0.0;
+	mutable double cached_global_emittance_total_ = 0.0;
+	mutable double cached_global_combined_total_ = 0.0;
 
 	// Viewport
 	int viewport_width_ = 800;
@@ -114,9 +124,13 @@ private:
 	// Internal Methods
 	void collect_voxel_instances(const Simulator& simulator, const Settings& settings, const Camera& camera);
 	void update_cached_energy_range(const Simulator& simulator, const Settings& settings) const;
+	void update_cached_global_energy(const Simulator& simulator, VoxelMode mode) const;
 	void end_voxel_instances(VoxelMode mode, const Camera& camera);
 	void draw_voxel_instances(const Camera& camera);
 	bool setup_voxel_rendering();
 	bool setup_voxel_geometry();
 	glm::vec4 layer_energy_color(float energy, float min_energy, float max_energy, uint8_t layer_id) const;
+
+	// Calculate voxel energy as percentage of total medium energy for proper visualization
+	float calculate_voxel_energy_percentage(const Voxel* voxel, VoxelMode mode, const Simulator& simulator) const;
 };

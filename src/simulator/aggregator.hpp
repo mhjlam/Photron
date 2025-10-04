@@ -69,11 +69,12 @@ public:
 	void aggregate_voxel_data();
 
 	/**
-	 * @brief Normalize all accumulated energy data by total photon count
+	 * @brief Normalize medium-level metrics for display purposes
 	 *
-	 * Converts raw energy accumulation to proper Monte Carlo estimates
-	 * by normalizing with the number of simulated photons. Ensures
-	 * results represent physical quantities per incident photon.
+	 * Normalizes only the medium-level energy metrics by total photon count
+	 * for display in UI. Voxel-level data remains as absolute values to allow
+	 * proper accumulation when individual photons are added during runtime.
+	 * The voxel renderer handles display normalization separately.
 	 */
 	void normalize();
 

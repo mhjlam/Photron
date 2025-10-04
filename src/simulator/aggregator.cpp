@@ -63,37 +63,21 @@ void Aggregator::aggregate_voxel_data() {
 	voxels_cache_valid_ = false;
 }
 
-// Normalize all simulation results by total photon count
+// Keep energy values as absolutes - no normalization of raw data
 void Aggregator::normalize() {
-	// Calculate normalization factor
+	// Calculate normalization factor for metrics only
 	double normalization_factor =
 		static_cast<double>(Config::get().num_photons()) * static_cast<double>(Config::get().num_sources());
+	
+	// Only normalize medium-level metrics for display purposes
 	for (auto& medium : *mediums_) {
 		medium.get_metrics().normalize_raw_values(normalization_factor);
 	}
 
-	// Normalize per-voxel data
-	for (auto& medium : *mediums_) {
-		auto& voxel_grid = medium.get_volume();
-		for (const auto& voxel_ptr : voxel_grid) {
-			auto* voxel = voxel_ptr.get();
-			// Skip empty voxels
-			if (!voxel->material) {
-				continue;
-			}
+	// DO NOT normalize voxel data - keep as absolute values
+	// Voxel data normalization happens only for display in voxel renderer
 
-			// Normalize energy deposition values
-			voxel->absorption /= (Config::get().num_photons() * Config::get().num_sources());
-			voxel->emittance /= (Config::get().num_photons() * Config::get().num_sources());
-
-			// Normalize directional interaction components
-			voxel->specular_reflection /= (Config::get().num_photons() * Config::get().num_sources());
-			voxel->diffuse_transmission /= (Config::get().num_photons() * Config::get().num_sources());
-			voxel->diffuse_reflection /= (Config::get().num_photons() * Config::get().num_sources());
-		}
-	}
-
-	// Invalidate voxel cache since data has changed
+	// Invalidate voxel cache since metrics have changed
 	voxels_cache_valid_ = false;
 }
 
