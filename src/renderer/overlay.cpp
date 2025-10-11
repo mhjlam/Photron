@@ -98,7 +98,7 @@ static void HelpMarker(const char* desc) {
 }
 
 Overlay::Overlay() :
-	ui_enabled_(true), show_file_dialog_(false), deferred_open_config_(false), current_directory_("config/"),
+	ui_enabled_(true), fullscreen_mode_(false), show_file_dialog_(false), deferred_open_config_(false), current_directory_("config/"),
 	show_save_feedback_(false), save_feedback_timer_(0.0f) {
 	// Initialize file path buffer and dialog state
 	std::fill(std::begin(file_path_buffer_), std::end(file_path_buffer_), '\0');
@@ -189,6 +189,11 @@ void Overlay::handle_keyboard_shortcuts(bool has_simulator) {
 			direct_save_results_callback_();
 		}
 	}
+
+	// F11: Toggle Fullscreen (always available)
+	if (ImGui::IsKeyPressed(ImGuiKey_F11)) {
+		fullscreen_mode_ = !fullscreen_mode_;
+	}
 }
 
 void Overlay::render() {
@@ -197,25 +202,28 @@ void Overlay::render() {
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
 
-	// Check for deferred dialog opening
-	if (deferred_open_config_) {
-		show_file_dialog_ = true;
-		deferred_open_config_ = false;
-	}
-
-	// Handle keyboard shortcuts
+	// Always handle keyboard shortcuts (so F11 can toggle fullscreen)
 	handle_keyboard_shortcuts(false); // No simulator available
 
-	render_main_menu_bar(false);      // No simulator available
-	render_control_panel();
+	// Skip all UI rendering if in fullscreen mode
+	if (!fullscreen_mode_) {
+		// Check for deferred dialog opening
+		if (deferred_open_config_) {
+			show_file_dialog_ = true;
+			deferred_open_config_ = false;
+		}
 
-	// Render file dialog if needed
-	if (show_file_dialog_) {
-		render_file_dialog();
+		render_main_menu_bar(false);      // No simulator available
+		render_control_panel();
+
+		// Render file dialog if needed
+		if (show_file_dialog_) {
+			render_file_dialog();
+		}
+
+		// Render save feedback if needed
+		render_save_feedback();
 	}
-
-	// Render save feedback if needed
-	render_save_feedback();
 
 	// Rendering
 	ImGui::Render();
@@ -228,28 +236,31 @@ void Overlay::render_with_simulator(Simulator& simulator) {
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
 
-	// Check for deferred dialog opening
-	if (deferred_open_config_) {
-		show_file_dialog_ = true;
-		deferred_open_config_ = false;
-	}
-
-	// Render world text overlays FIRST (so they appear behind other UI elements)
-	render_world_text_overlays();
-
-	// Handle keyboard shortcuts
+	// Always handle keyboard shortcuts (so F11 can toggle fullscreen)
 	handle_keyboard_shortcuts(true); // Simulator is available
 
-	render_main_menu_bar(true);      // Simulator is available
-	render_control_panel(&simulator);
+	// Skip all UI rendering if in fullscreen mode
+	if (!fullscreen_mode_) {
+		// Check for deferred dialog opening
+		if (deferred_open_config_) {
+			show_file_dialog_ = true;
+			deferred_open_config_ = false;
+		}
 
-	// Render file dialog if needed
-	if (show_file_dialog_) {
-		render_file_dialog();
+		// Render world text overlays FIRST (so they appear behind other UI elements)
+		render_world_text_overlays();
+
+		render_main_menu_bar(true);      // Simulator is available
+		render_control_panel(&simulator);
+
+		// Render file dialog if needed
+		if (show_file_dialog_) {
+			render_file_dialog();
+		}
+
+		// Render save feedback if needed
+		render_save_feedback();
 	}
-
-	// Render save feedback if needed
-	render_save_feedback();
 
 	// Rendering
 	ImGui::Render();
@@ -273,6 +284,10 @@ void Overlay::render_main_menu_bar(bool has_simulator) {
 				if (reset_view_callback_) {
 					reset_view_callback_();
 				}
+			}
+			ImGui::Separator();
+			if (ImGui::MenuItem("Fullscreen", "F11", fullscreen_mode_, ui_enabled_)) {
+				fullscreen_mode_ = !fullscreen_mode_;
 			}
 			ImGui::EndMenu();
 		}
@@ -326,6 +341,9 @@ void Overlay::render_main_menu_bar(bool has_simulator) {
 			ImGui::BulletText("WASD: Move forward/back/left/right");
 			ImGui::BulletText("Space/Shift: Move up/down");
 			ImGui::BulletText("Right Mouse: Hold to look around");
+			ImGui::Separator();
+			ImGui::Text("Interface:");
+			ImGui::BulletText("F11: Toggle fullscreen (hide/show UI)");
 			ImGui::EndTooltip();
 		}
 

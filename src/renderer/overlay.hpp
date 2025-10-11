@@ -198,6 +198,7 @@ private:
 
 	Settings settings_; ///< Current rendering and interaction settings
 	bool ui_enabled_;   ///< Flag controlling overall UI responsiveness
+	bool fullscreen_mode_; ///< Flag to hide all UI elements (fullscreen mode)
 
 	// Save feedback state
 	bool show_save_feedback_;           ///< Flag to display save operation status
@@ -222,8 +223,7 @@ private:
 	std::vector<WorldText> world_text_queue_;                       ///< Queue of 3D world text overlays to render
 
 	// Performance optimization: Energy data caching
-	mutable std::optional<Metrics::EnergyDisplayData>
-		cached_energy_data_;                         ///< Cached energy statistics to avoid per-frame recalculation
+	mutable std::optional<Metrics::EnergyDisplayData> cached_energy_data_; ///< Cached energy statistics to avoid per-frame recalculation
 	mutable uint64_t cached_simulation_version_ {0}; ///< Last simulation version for cache invalidation
 
 	// Helper method to get cached energy data with event-driven updates

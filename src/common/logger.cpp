@@ -20,7 +20,9 @@ Logger& Logger::instance() {
 	return logger;
 }
 
-void Logger::initialize(const std::string& csv_filepath, const std::string& log_filepath, bool enable_logging) {
+void Logger::initialize([[maybe_unused]] const std::string& csv_filepath,
+						[[maybe_unused]] const std::string& log_filepath,
+						[[maybe_unused]] bool enable_logging) {
 #ifdef _DEBUG
 	// Set up debug logging (compile-time optimized for release builds)
 	logging_enabled_ = enable_logging;
@@ -53,15 +55,15 @@ void Logger::initialize(const std::string& csv_filepath, const std::string& log_
 #endif
 }
 
-void Logger::log_photon_event(int photon_id,
-							  const std::string& event,
-							  const glm::dvec3& position,
-							  const glm::dvec3& direction,
-							  double weight,
-							  const glm::ivec3& voxel_coords,
-							  int medium_id,
-							  double energy,
-							  const std::string& description) {
+void Logger::log_photon_event([[maybe_unused]] int photon_id,
+							  [[maybe_unused]] const std::string& event,
+							  [[maybe_unused]] const glm::dvec3& position,
+							  [[maybe_unused]] const glm::dvec3& direction,
+							  [[maybe_unused]] double weight,
+							  [[maybe_unused]] const glm::ivec3& voxel_coords,
+							  [[maybe_unused]] int medium_id,
+							  [[maybe_unused]] double energy,
+							  [[maybe_unused]] const std::string& description) {
 #ifdef _DEBUG
 	// Write event data to CSV for post-processing analysis
 	if (logging_enabled_ && csv_file_.is_open()) {
@@ -74,13 +76,13 @@ void Logger::log_photon_event(int photon_id,
 #endif
 }
 
-void Logger::log_voxel_emittance(int photon_id,
-								 const glm::dvec3& position,
-								 const glm::dvec3& direction,
-								 double weight,
-								 const glm::ivec3& voxel_coords,
-								 double emittance,
-								 const std::string& surface_type) {
+void Logger::log_voxel_emittance([[maybe_unused]] int photon_id,
+								 [[maybe_unused]] const glm::dvec3& position,
+								 [[maybe_unused]] const glm::dvec3& direction,
+								 [[maybe_unused]] double weight,
+								 [[maybe_unused]] const glm::ivec3& voxel_coords,
+								 [[maybe_unused]] double emittance,
+								 [[maybe_unused]] const std::string& surface_type) {
 #ifdef _DEBUG
 	// Record voxel emittance for energy conservation tracking
 	if (logging_enabled_ && csv_file_.is_open()) {
@@ -93,7 +95,7 @@ void Logger::log_voxel_emittance(int photon_id,
 #endif
 }
 
-void Logger::log_info(const std::string& message) {
+void Logger::log_info([[maybe_unused]] const std::string& message) {
 #ifdef _DEBUG
 	// Log informational messages with timestamp
 	if (logging_enabled_ && log_file_.is_open()) {
@@ -103,7 +105,7 @@ void Logger::log_info(const std::string& message) {
 #endif
 }
 
-void Logger::log_debug(const std::string& message) {
+void Logger::log_debug([[maybe_unused]] const std::string& message) {
 #ifdef _DEBUG
 	// Log detailed debug information for troubleshooting
 	if (logging_enabled_ && log_file_.is_open()) {
@@ -113,7 +115,7 @@ void Logger::log_debug(const std::string& message) {
 #endif
 }
 
-void Logger::log_warning(const std::string& message) {
+void Logger::log_warning([[maybe_unused]] const std::string& message) {
 #ifdef _DEBUG
 	// Log warning messages for potential issues
 	if (logging_enabled_ && log_file_.is_open()) {
@@ -123,7 +125,7 @@ void Logger::log_warning(const std::string& message) {
 #endif
 }
 
-void Logger::log_error(const std::string& message) {
+void Logger::log_error([[maybe_unused]] const std::string& message) {
 #ifdef _DEBUG
 	if (logging_enabled_ && log_file_.is_open()) {
 		log_file_ << "[" << get_timestamp() << "] ERROR: " << message << "\n";

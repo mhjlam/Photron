@@ -130,8 +130,8 @@ public:
 	 * @param range Contiguous range of data to upload
 	 * @param usage Buffer usage hint for optimization
 	 */
-	template<ContiguousRange R>
-		requires TriviallyCopiable<std::ranges::range_value_t<R>>
+	template<ContiguousRange R> 
+	requires TriviallyCopiable<std::ranges::range_value_t<R>>
 	void upload_data(const R& range, BufferUsage usage) {
 		using ValueType = std::ranges::range_value_t<R>;
 		upload_data(std::ranges::data(range), std::ranges::size(range) * sizeof(ValueType), usage);

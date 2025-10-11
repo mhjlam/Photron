@@ -147,8 +147,7 @@ public:
 	bool exits {false}; // true if photon crosses medium boundary in substep
 
 	// ENERGY CONSERVATION TRACKING
-	double total_energy_budget {
-		0.0}; // total energy available to this photon (includes Russian Roulette amplifications)
+	double total_energy_budget {0.0}; 	 // Total energy available to this photon
 	double total_energy_radiated {0.0};  // cumulative energy radiated through all radiate() calls
 	double total_energy_absorbed {0.0};  // cumulative energy absorbed through all absorption events
 	int radiate_call_count {0};          // number of times radiate() was called for this photon
