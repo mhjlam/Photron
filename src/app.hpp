@@ -236,6 +236,14 @@ private:
 	 */
 	void run_simulation_with_progress();
 
+	/**
+	 * @brief Close current project and return to config selection
+	 *
+	 * Resets simulator state, clears configuration, and prepares
+	 * the application for loading a new configuration file.
+	 */
+	void close_current_project();
+
 	// GLFW event callbacks
 
 	/**

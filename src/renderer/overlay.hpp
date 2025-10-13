@@ -141,6 +141,12 @@ public:
 	}
 
 	/**
+	 * @brief Set callback for closing current project
+	 * @param callback Function to call when user requests to close project and return to config selection
+	 */
+	void set_close_project_callback(std::function<void()> callback) { close_project_callback_ = callback; }
+
+	/**
 	 * @brief Enable or disable UI interaction (used during simulation)
 	 * @param enabled True to enable UI, false to disable during simulation
 	 */
@@ -220,6 +226,7 @@ private:
 	std::function<void()> direct_save_results_callback_;            ///< Callback for direct save operation
 	std::function<void()> reset_view_callback_;                     ///< Callback for camera view reset
 	std::function<void(bool)> camera_mode_changed_callback_;        ///< Callback for camera mode changes
+	std::function<void()> close_project_callback_;                  ///< Callback for closing current project
 	std::vector<WorldText> world_text_queue_;                       ///< Queue of 3D world text overlays to render
 
 	// Performance optimization: Energy data caching

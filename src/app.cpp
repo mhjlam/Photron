@@ -317,7 +317,8 @@ void App::setup_overlay_callbacks() {
 			if (!init_result.is_ok()) {
 				ErrorHandler::instance().report_error("Failed to initialize simulator: "
 													  + ErrorMessage::format(init_result.error()));
-				overlay_->set_ui_enabled(true);
+				// Reset to config selection state when simulation fails to initialize
+				close_current_project();
 				return;
 			}
 
@@ -467,6 +468,10 @@ void App::setup_overlay_callbacks() {
 		if (input_handler_) {
 			input_handler_->set_camera_mode(is_arc_mode);
 		}
+	});
+
+	overlay_->set_close_project_callback([this]() {
+		close_current_project();
 	});
 
 	// Set up callback for when InputHandler changes camera mode (e.g., WASD auto-switch)
@@ -808,5 +813,28 @@ void App::run_simulation_with_progress() {
 	if (Config::get().log()) {
 		Logger::instance().log_info("=== Simulation Complete ===");
 		Logger::instance().log_info("Initializing GUI...");
+	}
+}
+
+void App::close_current_project() {
+	// Reset simulator state
+	simulator_.reset();
+	
+	// Clear configuration
+	Config::shutdown();
+	config_file_.clear();
+	
+	// Reset shared metrics
+	if (shared_metrics_) {
+		shared_metrics_->reset();
+	}
+	
+	// Re-enable UI and show config dialog
+	overlay_->set_ui_enabled(true);
+	overlay_->open_config_dialog_deferred();
+	
+	// Reset camera to default position
+	if (renderer_) {
+		renderer_->get_camera().reset_to_initial();
 	}
 }

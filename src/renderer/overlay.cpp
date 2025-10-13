@@ -273,6 +273,11 @@ void Overlay::render_main_menu_bar(bool has_simulator) {
 			if (ImGui::MenuItem("Load...", "Ctrl+O", false, ui_enabled_)) {
 				show_file_dialog_ = true;
 			}
+			if (ImGui::MenuItem("Close", nullptr, false, ui_enabled_ && has_simulator)) {
+				if (close_project_callback_) {
+					close_project_callback_();
+				}
+			}
 			ImGui::Separator();
 			if (ImGui::MenuItem("Exit", "ESC")) {
 				glfwSetWindowShouldClose(glfwGetCurrentContext(), GLFW_TRUE);
