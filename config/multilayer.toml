@@ -1,0 +1,141 @@
+################################################################################
+# multilayer-showcase.toml
+# Comprehensive multi-layered material simulation showcasing different 
+# optical properties per layer. Demonstrates:
+# - Refractive index transitions (eta)
+# - Absorption gradients (mua)
+# - Scattering variations (mus)
+# - Anisotropy differences (ani)
+# Creates distinct photon behavior zones for detailed analysis.
+# Lengths are in cm; mua and mus are in 1/cm.
+################################################################################
+
+[general]
+photons = 600
+voxel_size = 0.1
+log = true
+deterministic = false
+
+[source]
+position = [0.0, 0.55, 0.0]
+direction = [0, -1, 0]
+
+# Layer 1: Surface layer - High scattering, low absorption (epidermis-like)
+[[layer]]
+eta = 1.33    # Low refractive index
+mua = 0.2     # Very low absorption
+mus = 40      # Very high scattering
+ani = 0.1     # Nearly isotropic
+
+vertices = [
+    [-1.0,  0.5,  1.0],  # Surface layer (thin)
+    [ 1.0,  0.5,  1.0],
+    [ 1.0,  0.2,  1.0],
+    [-1.0,  0.2,  1.0],
+    [-1.0,  0.5, -1.0],
+    [ 1.0,  0.5, -1.0],
+    [ 1.0,  0.2, -1.0],
+    [-1.0,  0.2, -1.0]
+]
+
+faces = [
+    [0, 3, 2], [0, 2, 1], [4, 5, 6], [4, 6, 7],
+    [4, 7, 3], [4, 3, 0], [1, 2, 6], [1, 6, 5],
+    [0, 1, 5], [0, 5, 4], [2, 3, 7], [2, 7, 6]
+]
+
+normals = [
+    [ 0, 0, 1], [ 0, 0, 1], [ 0, 0, -1], [ 0, 0, -1],
+    [-1, 0, 0], [-1, 0, 0], [ 1, 0, 0], [ 1, 0, 0],
+    [ 0, 1, 0], [ 0, 1, 0], [ 0, -1, 0], [ 0, -1, 0]
+]
+
+# Layer 2: Intermediate layer - Balanced properties (dermis-like)
+[[layer]]
+eta = 1.38    # Medium refractive index
+mua = 0.8     # Medium absorption
+mus = 25      # Medium scattering
+ani = 0.6     # Forward scattering
+
+vertices = [
+    [-1.0,  0.2,  1.0],  # Intermediate layer (medium thickness)
+    [ 1.0,  0.2,  1.0],
+    [ 1.0, -0.3,  1.0],
+    [-1.0, -0.3,  1.0],
+    [-1.0,  0.2, -1.0],
+    [ 1.0,  0.2, -1.0],
+    [ 1.0, -0.3, -1.0],
+    [-1.0, -0.3, -1.0]
+]
+
+faces = [
+    [0, 3, 2], [0, 2, 1], [4, 5, 6], [4, 6, 7],
+    [4, 7, 3], [4, 3, 0], [1, 2, 6], [1, 6, 5],
+    [0, 1, 5], [0, 5, 4], [2, 3, 7], [2, 7, 6]
+]
+
+normals = [
+    [ 0, 0, 1], [ 0, 0, 1], [ 0, 0, -1], [ 0, 0, -1],
+    [-1, 0, 0], [-1, 0, 0], [ 1, 0, 0], [ 1, 0, 0],
+    [ 0, 1, 0], [ 0, 1, 0], [ 0, -1, 0], [ 0, -1, 0]
+]
+
+# Layer 3: Deep layer - High absorption, low scattering (muscle-like)
+[[layer]]
+eta = 1.42    # High refractive index
+mua = 2.5     # High absorption
+mus = 8       # Low scattering
+ani = 0.8     # Strong forward scattering
+
+vertices = [
+    [-1.0, -0.3,  1.0],  # Deep layer (thick)
+    [ 1.0, -0.3,  1.0],
+    [ 1.0, -1.2,  1.0],
+    [-1.0, -1.2,  1.0],
+    [-1.0, -0.3, -1.0],
+    [ 1.0, -0.3, -1.0],
+    [ 1.0, -1.2, -1.0],
+    [-1.0, -1.2, -1.0]
+]
+
+faces = [
+    [0, 3, 2], [0, 2, 1], [4, 5, 6], [4, 6, 7],
+    [4, 7, 3], [4, 3, 0], [1, 2, 6], [1, 6, 5],
+    [0, 1, 5], [0, 5, 4], [2, 3, 7], [2, 7, 6]
+]
+
+normals = [
+    [ 0, 0, 1], [ 0, 0, 1], [ 0, 0, -1], [ 0, 0, -1],
+    [-1, 0, 0], [-1, 0, 0], [ 1, 0, 0], [ 1, 0, 0],
+    [ 0, 1, 0], [ 0, 1, 0], [ 0, -1, 0], [ 0, -1, 0]
+]
+
+# Layer 4: Bottom substrate - Very high absorption (bone-like)
+[[layer]]
+eta = 1.45    # Very high refractive index
+mua = 5.0     # Very high absorption
+mus = 15      # Medium scattering
+ani = 0.2     # Slight forward bias
+
+vertices = [
+    [-1.0, -1.2,  1.0],  # Bottom layer
+    [ 1.0, -1.2,  1.0],
+    [ 1.0, -1.5,  1.0],
+    [-1.0, -1.5,  1.0],
+    [-1.0, -1.2, -1.0],
+    [ 1.0, -1.2, -1.0],
+    [ 1.0, -1.5, -1.0],
+    [-1.0, -1.5, -1.0]
+]
+
+faces = [
+    [0, 3, 2], [0, 2, 1], [4, 5, 6], [4, 6, 7],
+    [4, 7, 3], [4, 3, 0], [1, 2, 6], [1, 6, 5],
+    [0, 1, 5], [0, 5, 4], [2, 3, 7], [2, 7, 6]
+]
+
+normals = [
+    [ 0, 0, 1], [ 0, 0, 1], [ 0, 0, -1], [ 0, 0, -1],
+    [-1, 0, 0], [-1, 0, 0], [ 1, 0, 0], [ 1, 0, 0],
+    [ 0, 1, 0], [ 0, 1, 0], [ 0, -1, 0], [ 0, -1, 0]
+]

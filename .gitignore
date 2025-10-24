@@ -173,3 +173,6 @@ $RECYCLE.BIN/
 # Archive directories (development versions)
 *.old
 archive/
+
+# Custom
+config/new
