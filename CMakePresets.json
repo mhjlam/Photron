@@ -1,29 +1,36 @@
 {
     "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 15,
+        "patch": 0
+    },
     "configurePresets": [
         {
-            "name": "msvc-x64",
-            "displayName": "MSVC x64",
-            "generator": "Visual Studio 17 2022",
-            "architecture": "x64",
-            "cacheVariables": {
-                "CMAKE_TOOLCHAIN_FILE": "${env:VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
-            },
-            "binaryDir": "${sourceDir}/build"
+        "name": "msvc-x64",
+        "displayName": "MSVC x64",
+        "description": "Configure with Visual Studio generator",
+        "generator": "Visual Studio 17 2022",
+        "binaryDir": "${sourceDir}/build",
+        "cacheVariables": {
+            "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        }
         }
     ],
     "buildPresets": [
         {
-            "name": "debug-build",
-            "displayName": "Debug",
-            "configurePreset": "msvc-x64",
-            "configuration": "Debug"
+        "name": "debug",
+        "displayName": "Build Debug",
+        "description": "Build Debug configuration",
+        "configurePreset": "msvc-x64",
+        "configuration": "Debug"
         },
         {
-            "name": "release-build",
-            "displayName": "Release",
-            "configurePreset": "msvc-x64",
-            "configuration": "Release"
+        "name": "release",
+        "displayName": "Build Release",
+        "description": "Build Release configuration",
+        "configurePreset": "msvc-x64",
+        "configuration": "Release"
         }
     ],
     "testPresets": [

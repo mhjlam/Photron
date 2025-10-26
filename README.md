@@ -2,12 +2,10 @@
 
 # Photron
 
-<p align="center">Monte Carlo Photon Transport Simulation with Real-Time 3D Visualization</p>
+Monte Carlo Photon Transport Simulation and Interactive 3D Visualization
 
 <p align="center">
-   <img src="media/demo.gif" alt="Photron Demo" width="600" style="border-radius: 8px;"/>
-   <br>
-   <em>Real-time Monte Carlo photon transport simulation with interactive 3D visualization.</em>
+   <img src="media/photron.gif" alt="Demo Animation" width="720"/>
 </p>
 
 ## Overview
