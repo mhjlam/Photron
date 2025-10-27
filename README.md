@@ -2,13 +2,13 @@
 
 # Photron
 
-Monte Carlo Photon Transport Simulation and Interactive 3D Visualization
+**Monte Carlo Photon Transport Simulation and Interactive 3D Visualization**  
+Maurits Lam  
+2025
 
 <p align="center">
    <img src="media/photron.gif" alt="Demo Animation" width="720"/>
 </p>
-
-## Overview
 
 **Photron** is a Monte Carlo photon transport simulator with real-time 3D visualization for analyzing subsurface light transport in multi-layered materials. Built on C++20 and OpenGL 4.5, it combines the proven MCML algorithm with modern rendering for accurate simulation and intuitive visualization of photon behavior in complex geometries.
 
@@ -28,49 +28,6 @@ Monte Carlo Photon Transport Simulation and Interactive 3D Visualization
 - **Voxelized Energy Tracking**: High-resolution 3D grids for spatial energy deposition analysis
 - **Multiple Render Modes**: Absorption, emission, volumes, and photon trajectories
 - **3D DDA & BVH**: Optimized algorithms for precise voxel traversal and ray-triangle intersection
-
-## Configuration
-
-Photron uses **TOML** files to define simulations. Key parameters include:
-
-- **Refractive Index (eta)**: Material interface behavior (1.0-3.0)
-- **Absorption (mua)** & **Scattering (mus)**: Energy interaction coefficients  
-- **Anisotropy (ani)**: Scattering directionality (-1.0 to +1.0)
-
-Example configurations: `default.toml` (basic box), `sphere.toml` (spherical geometry), `nested.toml` (multi-layer), `absorption.toml` (high absorption).
-
-### Example Configuration
-
-```toml
-[general]
-photons = 100                # Number of Monte Carlo photons
-voxel_size = 0.01            # Voxel edge length in cm
-log = false                  # Enable/disable detailed logging
-deterministic = false        # Random or fixed seed
-
-[source]
-position = [0.0, 0.2, 0.0]   # Light source position (cm)
-direction = [0, -1, -0.5]    # Emission direction (normalized)
-
-[[layer]]
-eta = 1.37                   # Refractive index
-mua = 1.0                    # Absorption coefficient (1/cm)
-mus = 10.0                   # Scattering coefficient (1/cm) 
-ani = 0.1                    # Anisotropy factor (-1 to +1)
-
-# 3D mesh geometry definition
-vertices = [
-    [-1.0,  0.0,  1.0],      # Vertex coordinates in cm
-    [ 1.0,  0.0,  1.0],
-    # ... additional vertices
-]
-
-faces = [
-    [0, 1, 2],               # Triangle face indices
-    [0, 2, 3],
-    # ... additional faces
-]
-```
 
 ## User Guide
 
@@ -103,21 +60,62 @@ faces = [
 
 Run `./Photron.exe --help` for complete command-line options.
 
+### Configuration
+
+Photron uses **TOML** files to define simulations. Key parameters include:
+
+- **Refractive Index (eta)**: Material interface behavior (1.0-3.0)
+- **Absorption (mua)** & **Scattering (mus)**: Energy interaction coefficients  
+- **Anisotropy (ani)**: Scattering directionality (-1.0 to +1.0)
+
+Example configurations: `default.toml` (basic box), `sphere.toml` (spherical geometry), `nested.toml` (multi-layer), `absorption.toml` (high absorption).
+
+#### Example Configuration
+
+```toml
+[general]
+photons = 100                 # Number of Monte Carlo photons
+voxel_size = 0.01             # Voxel edge length in cm
+log = false                   # Enable/disable detailed logging
+deterministic = false         # Random or fixed seed
+
+[source]
+position = [0.0, 0.2, 0.0]    # Light source position (cm)
+direction = [0, -1, -0.5]     # Emission direction (normalized)
+
+[[layer]]
+eta = 1.37                    # Refractive index
+mua = 1.0                     # Absorption coefficient (1/cm)
+mus = 10.0                    # Scattering coefficient (1/cm) 
+ani = 0.1                     # Anisotropy factor (-1 to +1)
+
+# 3D mesh geometry definition
+vertices = [
+    [-1.0,  0.0,  1.0],       # Vertex coordinates in cm
+    [ 1.0,  0.0,  1.0],       # ... additional vertices
+]
+
+faces = [
+    [0, 1, 2],                # Triangle face indices
+    [0, 2, 3],                # ... additional faces
+]
+```
+
 ## Technical Implementation
 
 ### Core Algorithms
 
-- **Monte Carlo Photon Transport**: MCML-based with Henyey-Greenberg scattering and Fresnel interfaces
-- **3D Digital Differential Analyzer**: Precision-safe voxel traversal with O(n) complexity
-- **Bounding Volume Hierarchy**: SAH-optimized construction with O(log n) ray intersection
-- **GPU Instanced Rendering**: Efficient batch rendering of millions of voxels and path segments
+- **Monte Carlo Photon Transport**: MCML-based with Henyey-Greenberg scattering and Fresnel interfaces.
+- **3D Digital Differential Analyzer**: Precision-safe voxel traversal with O(n) complexity.
+- **Bounding Volume Hierarchy**: SAH-optimized construction with O(log n) ray intersection.
+- **GPU Instanced Rendering**: Efficient batch rendering of millions of voxels and path segments.
 
 ### Applications
 
-- **Material Science**: Subsurface scattering analysis in translucent materials
-- **Computer Graphics**: Realistic subsurface scattering for material rendering  
-- **Optical Engineering**: Light guide design and component optimization
-- **Physics Education**: Interactive photon transport demonstrations
+- **Material Science**: Subsurface scattering analysis in translucent materials.
+- **Computer Graphics**: Realistic subsurface scattering for material rendering. 
+- **Optical Engineering**: Light guide design and component optimization.
+- **Physics Education**: Interactive photon transport demonstrations.
 
 ## Building and Dependencies
 
@@ -184,4 +182,4 @@ Photron/
 
 ## License
 
-This software is licensed under the [CC BY-NC-SA](https://creativecommons.org/licenses/by-nc-sa/4.0/) license.
+This software is licensed under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html). See [COPYING](COPYING) for details.

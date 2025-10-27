@@ -1,15 +1,10 @@
 # Photron - Monte Carlo Photon Transport Renderer
-# Modern CMake Build System (CMake 3.20+) - MCML 3.0.0 Strategy
-# Author: Enhanced by GitHub Copilot
+# Modern CMake Build System (CMake 3.20+)
 # Date: 2025
 #
 # Build Instructions:
 #   From build/ # Optional: Create package configuration
-set(CPACK_PACKAGE_NAME "Photron")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Monte Carlo Photon Transport Renderer")
-set(CPACK_PACKAGE_VENDOR "M.H.J. Lam")
-include(CPack)#     cmake -S . -B output
+#     cmake -S . -B output
 #     cmake --build output --config Release
 #   From root directory:
 #     cmake -S build -B build/output  
