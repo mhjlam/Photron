@@ -2,9 +2,10 @@
 
 # Photron
 
-**Monte Carlo Photon Transport Simulation and Interactive 3D Visualization**  
-Maurits Lam  
-2025
+**Monte Carlo Photon Transport Simulation and Interactive 3D Visualization**
+
+> Maurits Lam  
+> 2025
 
 <p align="center">
    <img src="media/photron.gif" alt="Demo Animation" width="720"/>
